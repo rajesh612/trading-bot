@@ -216,3 +216,43 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+
+# ── Python ────────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# ── Runtime state (generated each trading day) ────────────────────────────────
+trading_bot.pid
+trading_bot.lock
+trading_bot.log
+launchd_trading_bot.log
+cron_trading_bot.log
+daily_report_sent.json
+
+# ── Live trading state (personal data, not for sharing) ──────────────────────
+open_positions.json
+trade_journal.json
+daily_closed.json
+research_report.json
+
+# ── Daily generated files (rebuilt at startup) ────────────────────────────────
+watch_list.txt
+daily_tradeable.txt
+vix_regime.json
+
+# ── Backtest outputs ──────────────────────────────────────────────────────────
+backtest_trades.csv
+backtest_equity.json
+
+# ── Claude Code project files ─────────────────────────────────────────────────
+.claude/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
