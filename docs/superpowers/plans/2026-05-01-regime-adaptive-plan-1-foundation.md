@@ -1305,6 +1305,24 @@ def test_elevated_ceiling_for_high_profit(tmp_path):
 
 
 @pytest.mark.unit
+def test_get_ceiling_normal():
+    import api_budget as ab
+    assert ab.get_ceiling(portfolio_gain_pct=0.0, regime="NORMAL") == 1.00
+
+
+@pytest.mark.unit
+def test_get_ceiling_elevated_for_high_profit():
+    import api_budget as ab
+    assert ab.get_ceiling(portfolio_gain_pct=1.0, regime="NORMAL") == 1.50
+
+
+@pytest.mark.unit
+def test_get_ceiling_elevated_for_capitulation():
+    import api_budget as ab
+    assert ab.get_ceiling(portfolio_gain_pct=0.0, regime="CAPITULATION") == 1.50
+
+
+@pytest.mark.unit
 def test_budget_resets_on_new_day(tmp_path):
     import api_budget as ab
     yesterday = "2026-04-30"
@@ -1467,10 +1485,10 @@ def record_usage(
 - [ ] **Step 4: Run all api_budget tests**
 
 ```bash
-.venv/bin/python3 -m pytest tests/test_foundation.py -v -m unit -k "budget"
+.venv/bin/python3 -m pytest tests/test_foundation.py -v -m unit -k "budget or ceiling"
 ```
 
-Expected: `6 passed`
+Expected: `9 passed`
 
 - [ ] **Step 5: Commit**
 
