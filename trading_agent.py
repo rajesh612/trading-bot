@@ -561,6 +561,16 @@ def run_trading_cycle():
                 sl_pct = float(decision.get("stop_loss_pct") or config.STOP_LOSS_PCT)
                 tp_pct = float(decision.get("take_profit_pct") or config.TAKE_PROFIT_PCT)
 
+                # Guard against concurrent cycles (same process multiple threads, or multiple
+                # processes from bot restarts) both seeing an empty slot and both buying.
+                # Re-read from disk inside the lock — same pattern as _close_position.
+                with _POSITIONS_LOCK:
+                    disk_positions = _load_json(config.OPEN_POSITIONS_FILE, {})
+                    if symbol in disk_positions:
+                        logger.info(f"SKIP {symbol} — already in open positions (concurrent cycle guard).")
+                        open_positions[symbol] = disk_positions[symbol]
+                        continue
+
                 # Bracket order: Alpaca enforces SL and TP server-side instantly
                 order = alpaca.place_bracket_order(
                     symbol=symbol,
@@ -569,7 +579,7 @@ def run_trading_cycle():
                     stop_loss_pct=sl_pct,
                     take_profit_pct=tp_pct,
                 )
-                open_positions[symbol] = {
+                position_data = {
                     "entry_price": iv.current_price,
                     "qty": qty,
                     "stop_loss_pct": sl_pct,
@@ -584,7 +594,15 @@ def run_trading_cycle():
                     "indicator_signals": decision.get("indicator_signals", {}),
                     "order_id": order.get("id"),
                 }
+                open_positions[symbol] = position_data
                 buying_power -= iv.current_price * qty
+
+                # Merge-write: read current disk state, add new position, write back.
+                # Avoids overwriting concurrent closes made by position_monitor.
+                with _POSITIONS_LOCK:
+                    disk_positions = _load_json(config.OPEN_POSITIONS_FILE, {})
+                    disk_positions[symbol] = position_data
+                    _save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
                 append_trade({
                     "type": "BUY",
@@ -615,14 +633,13 @@ def run_trading_cycle():
                 )
 
             elif action == "CLOSE" and existing_pos:
+                # _close_position handles its own locked merge-write; no extra save needed.
                 _close_position(symbol, alpaca, open_positions, iv.current_price, iv, "claude_decision")
             elif action == "HOLD":
                 logger.info(
                     f"HOLD {symbol}: composite={iv.composite_score:+.1f}, RSI={iv.rsi:.1f} | "
                     f"{decision.get('reasoning', '')[:120]}"
                 )
-
-            save_open_positions(open_positions)
 
         except Exception as exc:
             logger.error(f"Error processing {symbol}: {exc}", exc_info=True)

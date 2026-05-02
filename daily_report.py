@@ -122,7 +122,8 @@ def _send_email(subject: str, body: str) -> None:
     msg["From"]    = config.EMAIL_SENDER
     msg["To"]      = recipient
     msg.set_content(body)
-    context = ssl.create_default_context(cafile=certifi.where())
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
         server.login(config.EMAIL_SENDER, config.EMAIL_APP_PASSWORD)
         server.send_message(msg)

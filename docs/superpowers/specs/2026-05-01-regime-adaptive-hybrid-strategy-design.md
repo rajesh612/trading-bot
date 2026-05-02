@@ -42,16 +42,19 @@ New / changed modules:
   economic_calendar.py   ← new: event risk gate
   swing_manager.py       ← new: overnight position lifecycle
   tier1_config.py        ← new: tier-1 names + qualification rules
+  api_budget.py          ← new: daily token spend tracker + dynamic ceiling enforcer
 
 Enhanced modules:
 
   research_agent.py      ← macro shock scoring, sector sentiment, capitulation detection
-  trading_agent.py       ← mode-aware entry/exit, tiered TP, event gate, flash crash monitor
-  indicator_engine.py    ← parabolic flag, volume exhaustion, OBV divergence signals
+  trading_agent.py       ← mode-aware entry/exit, tiered TP, event gate, flash crash monitor,
+                            batch Claude calls, rule-based pre-filter, counter-bot signal routing
+  indicator_engine.py    ← parabolic flag, volume exhaustion, OBV divergence signals,
+                            bot_herding_score, squeeze_setup, stop_hunt_zone
   learning_agent.py      ← per-regime performance tracking, threshold self-correction
   main.py                ← new jobs: market monitor (5 min), swing gap check (9:30 AM),
                             swing EOD decision (3:50 PM), FRED refresh (daily), calendar refresh (daily)
-  config.py              ← new constants for swing/short-term parameters
+  config.py              ← new constants for swing/short-term parameters, API budget thresholds
 
 Unchanged modules:
 
@@ -409,7 +412,7 @@ If: stock down > 20% from 20-day high AND sector sentiment < -20 AND OBV rising:
 
 ## 10. Enhanced Module: `indicator_engine.py`
 
-### Three New Signals
+### Three New Signals (Original)
 
 **Parabolic Flag**
 ```python
@@ -432,6 +435,39 @@ obv_divergence: str  # "bearish" if price making new 5d high but OBV flat/declin
 Composite of the above: set `momentum_exhaustion = True` if 2+ of (parabolic, volume_exhaustion, obv_divergence=="bearish") are True simultaneously.
 
 These are added to the `IndicatorValues` dataclass and included in all trade journal entries.
+
+### Three New Signals (Counter-Bot)
+
+**`bot_herding_score` (0–100)**
+Measures synchronized bot activity across the watch list:
+```python
+bot_herding_score: int  # 0 = fully uncorrelated market, 100 = full bot synchronization
+```
+Computed as a weighted average of:
+- Rolling 10-bar pairwise correlation across all watch-list stocks vs SPY. Avg correlation > 0.85 → score 60+
+- Timing uniformity: if > 50% of watch-list stocks cross BUY threshold in same 10-min bar → score 80+
+- Volume uniformity: coefficient of variation of volume across unrelated stocks < 0.15 → score rises 10 pts
+
+**`squeeze_setup` (bool + confidence 0–100)**
+Short squeeze preconditions:
+```python
+squeeze_setup: bool          # True if confidence >= 70
+squeeze_confidence: int      # 0–100
+```
+Conditions scored:
+- Float turnover ratio > 3× over 3 days (+30 pts)
+- Price within 2% below or breaking 5-day resistance (+25 pts)
+- Volume surge > 2.5× 20-day average on current bar (+25 pts)
+- OBV sharply rising while price was falling/flat last 3 bars (+20 pts)
+
+**`stop_hunt_zone` (bool)**
+Identifies HFT/bot liquidity grab patterns:
+```python
+stop_hunt_zone: bool  # True if conditions below are met
+```
+Conditions: price within 0.4% of a round number (X.00 or X.50) OR within 0.3% of the 5-day low/high, AND the dip was recovered within 3 candles. Entry is skipped when True — wait one bar.
+
+All three signals are added to `IndicatorValues` and included in trade journal entries.
 
 ---
 
@@ -567,6 +603,7 @@ Bounds are hard-coded — the learning agent cannot disable a regime or remove a
 | `economic_calendar.json` | Today's high-impact events with times |
 | `swing_positions.json` | Active overnight swing/short-term positions |
 | `fred_cache.json` | FRED macro data (Fed rate, CPI, unemployment) — daily refresh |
+| `api_budget.json` | Daily token spend tracker (resets at midnight ET) |
 | `daily_report_sent.json` | Unchanged |
 
 `vix_regime.json` → renamed/replaced by `macro_regime.json`. `config.py` updated to point to new file path. Backward compatibility maintained: `macro_regime.json` always contains a `regime` key that existing code reads.
@@ -618,10 +655,12 @@ After implementation, run `backtest.py` over:
 | Service | Key Name in .env | Cost |
 |---|---|---|
 | Alpaca | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Free (paper trading) |
-| Anthropic | `ANTHROPIC_API_KEY` | Per usage |
+| Anthropic | `ANTHROPIC_API_KEY` | Per usage — already in `.env`, Claude Code uses Pro subscription separately |
 | Reddit | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Free |
 | **FRED** | `FRED_API_KEY` | **Free** — register at fred.stlouisfed.org |
 | Economic Calendar | None (scrape) or `INVESTING_COM_API_KEY` | Free scrape or paid API |
+
+> **Note:** Claude Code authenticates via `claude.ai` Pro subscription — confirmed by `claude auth status`. The `ANTHROPIC_API_KEY` in `.env` is already used exclusively by the bot. No key change required.
 
 ---
 
@@ -642,7 +681,162 @@ After implementation, run `backtest.py` over:
 ### Phase 5 — Learning Agent + Backtesting (2 days)
 `learning_agent.py` per-regime tracking and self-correcting thresholds. Backtest validation across the four test periods. Strategy memory updates.
 
-**Total estimated: 11–13 days of implementation.**
+### Phase 6 — API Budget + Counter-Bot Signals (2 days)
+`api_budget.py` + `ANTHROPIC_BOT_API_KEY` isolation. Batch trading calls (4–5 stocks/call), rule-based pre-filter, 1-hour prompt cache TTL, dynamic ceiling logic. `indicator_engine.py` counter-bot signals (bot_herding_score, squeeze_setup, stop_hunt_zone). `trading_agent.py` routing logic for squeeze and herding conditions.
+
+**Total estimated: 13–15 days of implementation.**
+
+---
+
+---
+
+## 19. API Token Budget System
+
+### Problem
+
+The trading bot shares `ANTHROPIC_API_KEY` with personal Claude Code usage, making cost measurement unreliable. The bot also makes one Claude call per stock per cycle — with duplicate instances or a large watch list this compounds to $3–4/day. Target: ≤ $1.00/day normal, ≤ $1.50/day elevated.
+
+### New Module: `api_budget.py`
+
+Tracks daily token spend in `api_budget.json` and gates all outgoing Claude calls.
+
+```json
+{
+  "date": "2026-05-01",
+  "calls_made": 47,
+  "input_tokens_used": 94000,
+  "output_tokens_used": 14100,
+  "estimated_cost_usd": 0.494,
+  "ceiling_usd": 1.00,
+  "ceiling_mode": "normal",
+  "budget_exhausted": false
+}
+```
+
+```python
+def check_budget(estimated_call_cost: float) -> bool:
+    """Returns True if the call is permitted under today's budget."""
+
+def record_usage(input_tokens: int, output_tokens: int, cache_write_tokens: int, cache_read_tokens: int) -> None:
+    """Called after every Claude API response to update api_budget.json."""
+
+def get_ceiling() -> float:
+    """Returns current ceiling ($1.00 or $1.50) based on today's conditions."""
+```
+
+### Dynamic Ceiling Logic
+
+| Condition | Ceiling |
+|---|---|
+| Default | **$1.00** |
+| Portfolio intraday gain > +0.8% at time of call | **$1.50** (high-profit session) |
+| Regime is CRISIS or CAPITULATION | **$1.50** (defense mode — every decision matters) |
+| Both conditions above | **$1.50** (cap, not additive) |
+
+When estimated daily spend reaches **80% of ceiling**: remaining trading cycles switch to rule-based decisions only (no Claude calls). When **ceiling is hit**: log `BUDGET EXHAUSTED — rule-based mode for remainder of session`.
+
+### API Key Isolation
+
+The bot already uses `ANTHROPIC_API_KEY` from `.env` exclusively. Claude Code uses the `claude.ai` Pro subscription (confirmed via `claude auth status`) and does not touch the bot's API key. No configuration change needed — budget tracking in `api_budget.json` accurately reflects only bot spend.
+
+### Batch Trading Calls (4–5 stocks per call)
+
+Instead of one Claude call per stock candidate, `run_trading_cycle()` batches 4–5 candidates into a single prompt:
+
+```
+Prompt: "Analyze the following 5 stocks and return a JSON array of decisions:
+[{symbol, composite_score, indicators, regime, sentiment}, ...]"
+
+Response: [
+  {"symbol": "NVDA", "action": "BUY", "confidence": 78, ...},
+  {"symbol": "AMD",  "action": "HOLD", "confidence": 55, ...},
+  ...
+]
+```
+
+Reduces ~114 calls/day to ~25 calls/day. Saves ~$0.80/day.
+
+### Rule-Based Pre-Filter (skip Claude for clear cases)
+
+Before batching, each candidate is screened:
+
+| composite_score | All top-3 indicators aligned? | Decision |
+|---|---|---|
+| < 10 | — | Auto-SKIP (no Claude call) |
+| > 35 | Yes | Auto-BUY (no Claude call, use default SL/TP) |
+| 10–35 | — | Include in Claude batch |
+| > 35 | No (conflict) | Include in Claude batch (conflicting signals need judgment) |
+
+### 1-Hour Prompt Cache TTL
+
+The static portion of every trading prompt (strategy rules, indicator weights, regime description, tier-1 list) is sent with `cache_control: {"type": "ephemeral", "ttl": 3600}`. The current 5-minute TTL expires between 10-minute trading cycles, eliminating all cache reads. Switching to 1-hour TTL means the static context is read from cache for all ~38 intraday cycles — estimated saving: ~$0.30/day.
+
+### Estimated Daily Cost After Optimization
+
+| Component | Before | After |
+|---|---|---|
+| Trading agent (~38 cycles) | $0.90 | $0.20 (batch + filter + cache) |
+| Research agent (2 calls) | $0.05 | $0.03 (batch all stocks in 2 calls) |
+| Watch list agent (1 call) | $0.03 | $0.03 |
+| Learning agent (1 call) | $0.05 | $0.05 |
+| **Total (normal day)** | **~$1.03** | **~$0.31** |
+| **Total (elevated ceiling day)** | — | **≤ $1.50** |
+
+---
+
+## 20. AI Bot Market Detection (Counter-Bot Playbook)
+
+### Problem
+
+As AI trading bots proliferate, markets increasingly exhibit bot-specific patterns: synchronized herding (all bots trigger the same signal simultaneously), short squeezes (many bots short the same stock, then scramble to cover), and stop-hunt dips (HFT bots push price through clustered stop levels then reverse). A bot that blindly follows technical momentum in these conditions gets run over. The goal is to detect these patterns and exploit them rather than become a victim.
+
+### Counter-Bot Behavior in `trading_agent.py`
+
+Three new signals from `indicator_engine.py` gate and modify entry decisions:
+
+**When `bot_herding_score` > 60:**
+- Raise composite entry gate from +15 to +25 for all non-squeeze candidates
+- Reduce position size by 30% (herding moves reverse violently)
+- Tag trade with `"bot_herd": true` in trade journal for learning agent analysis
+- Log: `BOT_HERD detected (score={score}) — tightening entry gate`
+
+**When `bot_herding_score` > 80:**
+- Apply CHOPPY-equivalent rules: catalyst-driven entries only, no pure-technical plays
+- Skip any stock whose BUY signal appeared in the same 10-minute bar as 3+ other watch-list stocks
+
+**When `squeeze_setup` confidence ≥ 70:**
+- Allow entry even if composite_score is only +12 (squeeze overrides the normal +15 gate)
+- Apply BULL_TREND_PARABOLIC exit rules: TP1 at +5% (close 40%), activate trailing stop 2% immediately after TP1 — do NOT wait for TP2 (squeezes reverse in minutes, not hours)
+- Widen stop to 6% (squeeze can dip before launching)
+- Tag trade with `"squeeze": true` in trade journal
+
+**When `stop_hunt_zone` = True:**
+- Skip entry on this bar regardless of score
+- Re-evaluate same stock on the next bar (one-bar cooldown only)
+- Log: `STOP_HUNT zone — skipping {symbol}, will re-evaluate next bar`
+
+**When `bot_herding_score` > 60 AND `momentum_exhaustion` = True (existing signal):**
+- Treat as CLOSE candidate for any existing position in that stock
+- Bots are stampeding out — exit before the crowd
+
+### How This Exploits Bot Behavior
+
+| Bot Market Pattern | Our Detection | Our Response |
+|---|---|---|
+| Herding (all bots BUY simultaneously) | bot_herding_score > 60 | Raise gate, reduce size — ride early, exit before reversal |
+| Short squeeze | squeeze_setup ≥ 70 | Enter early, use aggressive trailing TP, no waiting for TP2 |
+| Stop-hunt dip | stop_hunt_zone = True | Skip the dip entry, re-enter after bounce confirmed |
+| Exhaustion top (bots all at TP simultaneously) | momentum_exhaustion (existing) | Close position ahead of the exit stampede |
+| Synchronized exit (all bots sell together) | bot_herding_score > 80 + exhaustion | Flip to CHOPPY rules, sit out the flush |
+
+### Learning Agent Integration
+
+The learning agent tags each closed trade's `bot_herd` and `squeeze` fields and computes:
+- Win rate for squeeze entries vs normal entries per regime
+- Average slippage on bot-herd entries (to calibrate the 30% size reduction)
+- Whether stop-hunt cooldown prevented a good entry or a bad one (to tune the 0.4% zone width)
+
+Results feed back into `trading_params.json` as `squeeze_confidence_gate` (default 70, adjustable 60–80) and `herd_size_reduction` (default 0.30, adjustable 0.15–0.50).
 
 ---
 
