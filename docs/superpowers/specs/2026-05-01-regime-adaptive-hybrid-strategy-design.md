@@ -840,4 +840,121 @@ Results feed back into `trading_params.json` as `squeeze_confidence_gate` (defau
 
 ---
 
+---
+
+## 21. Earnings Calendar + Post-Earnings Drift (PEAD) Strategy
+
+### Problem
+
+The bot ignores earnings entirely. Two costs:
+1. **Pre-earnings risk:** A 3% stop is meaningless when earnings can move a stock 10–15% overnight. Day-trade BUYs entered the day before earnings effectively bypass risk management.
+2. **Missed opportunity (PEAD):** Stocks that beat with raised guidance drift higher for 2–4 weeks (well-documented anomaly — institutions can't rebuild positions in one day). INTC's recent +10% gap-up and continued drift is the canonical pattern.
+
+### Earnings Calendar Module
+
+New `earnings_calendar.py` — daily 8:00 AM job, refreshes per-ticker earnings data for the watch list and tier-1 universe.
+
+```python
+def refresh_earnings_calendar(symbols: list[str]) -> None     # writes earnings_calendar.json
+def days_until_earnings(symbol: str) -> int | None
+def is_earnings_imminent(symbol: str, days: int = 1) -> bool
+def recently_reported(symbol: str, days: int = 5) -> dict | None
+def detect_pead_setup(symbol: str) -> tuple[bool, int]        # (qualifies, score 0-100)
+```
+
+`recently_reported` returns:
+```json
+{
+  "report_date": "2026-04-25",
+  "eps_actual": 0.45, "eps_estimate": 0.41, "eps_surprise_pct": 9.8,
+  "revenue_beat": true,
+  "guidance_change": "raised",
+  "earnings_day_return_pct": 8.4,
+  "earnings_day_volume_ratio": 3.1,
+  "earnings_day_close_position": 0.92
+}
+```
+
+### Pre-Entry Earnings Gate
+
+`_check_entry_gates` adds an earnings check BEFORE the squeeze override:
+
+| Condition | Action |
+|---|---|
+| `is_earnings_imminent(symbol, days=1)` AND mode != CAPITULATION | Skip BUY |
+| `is_earnings_imminent(symbol, days=2)` AND mode in {HYBRID, SHORT_TERM} | Skip BUY (no overnight risk over earnings) |
+
+CAPITULATION exempts the rule because earnings is often the catalyst the hold is waiting for.
+
+### PEAD Setup Detection
+
+Qualifies if **4 of 5** conditions hit in the last 5 trading days:
+
+1. `eps_surprise_pct ≥ 5.0`
+2. `revenue_beat == True`
+3. `guidance_change in ("raised", "maintained")` (lowered = disqualify)
+4. `earnings_day_return_pct ≥ 3.0` AND `earnings_day_close_position ≥ 0.7`
+5. `earnings_day_volume_ratio ≥ 2.0`
+
+Each met condition adds 20 points; threshold = 80 (4 of 5).
+
+### PEAD Mode
+
+A new trading mode that overrides the regime default for tier-1 names:
+
+| Property | Value |
+|---|---|
+| Universe | Tier-1 only |
+| Activation | `detect_pead_setup` returns True AND `is_tier1(symbol)` AND regime ∉ {CRISIS} |
+| Position size | 2.5% of portfolio |
+| Stop loss | 8% |
+| Take profit (TP1) | +8% (close 50%) |
+| TP2 / Trailing | 5% trailing stop on remaining 50% after TP1 |
+| Max hold | 15 trading days |
+| Early exit | 3 consecutive lower closes after day 5 |
+| Hard kill | Flash crash detected OR regime flips to CRISIS |
+
+Stored in `swing_positions.json` with new field `mode_at_entry: "PEAD"`. Existing swing manager TP/trailing/hard-stop logic handles execution; only the entry decision is new.
+
+### `get_active_mode` Update
+
+Two-step resolution:
+
+```python
+def get_active_mode(regime: str, symbol: str | None = None) -> str:
+    if symbol and is_tier1(symbol) and regime != "CRISIS":
+        ok, _ = detect_pead_setup(symbol)
+        if ok:
+            return "PEAD"
+    # ... existing regime-based logic
+```
+
+### Learning Agent Integration
+
+New loss-source category: `earnings_surprise` — trade closed within 2 days of earnings release. Helps detect whether the earnings gate is missing edge cases.
+
+---
+
+## 22. Data Sources (All Free)
+
+| Need | Primary | Fallback | Notes |
+|---|---|---|---|
+| Intraday bars | Alpaca Market Data | — | Already in use; free with paper account |
+| Daily bars | Alpaca | Yahoo Finance | Yahoo for backtest gap-fill |
+| Real-time quotes | Alpaca | Yahoo Finance | |
+| VIX, SPY, sector ETFs (SOXX, QQQ) | Yahoo Finance (`query1.finance.yahoo.com`) | — | Unauthenticated, no key |
+| WTI, Gold, DXY, 10Y yield | Yahoo Finance | — | Same endpoint |
+| Fed funds rate, CPI, unemployment | FRED API (`api.stlouisfed.org`) | — | Free with `FRED_API_KEY` from fred.stlouisfed.org |
+| Economic calendar (FOMC, NFP, CPI) | ForexFactory (web scrape) | Hardcoded recurring schedule | Fallback covers when scrape fails |
+| **Earnings dates** | **Yahoo Finance `quoteSummary?modules=calendarEvents`** | **Alpaca `get_corporate_action_announcements`** | Both free |
+| **Earnings actuals + estimates** | **Yahoo Finance `quoteSummary?modules=earningsHistory`** | **Finnhub free tier (60 calls/min)** | Yahoo provides last 4 quarters |
+| **Forward guidance** | Yahoo `quoteSummary?modules=earningsTrend` (analyst revisions as proxy) | Treat as `unknown` if unavailable | Real guidance text needs paid API; analyst revisions in 7 days post-report are a free proxy |
+| News headlines | RSS (MarketWatch, CNBC, Benzinga, Yahoo, Bloomberg) | — | Already in use |
+| Social sentiment | Reddit public JSON, StockTwits public JSON | X API ($100/mo, optional) | Already in use |
+| Short interest data | — (not free at quality) | Approximated via float turnover ratio | See `squeeze_setup` in §10 |
+
+**Cost:** $0/month for everything required. X (Twitter) Basic API at $100/mo is the only paid option, and it's optional — bot degrades gracefully without it.
+
+---
+
 *End of spec. Proceed to implementation plan via writing-plans skill.*

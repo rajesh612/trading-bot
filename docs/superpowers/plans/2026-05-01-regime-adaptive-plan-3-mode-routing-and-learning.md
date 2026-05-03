@@ -23,7 +23,8 @@
 
 ```python
 # trading_agent.py
-def get_active_mode(regime: str) -> str
+def get_active_mode(regime: str, symbol: str | None = None) -> str
+    # PEAD if symbol is tier-1 + detect_pead_setup(symbol) AND regime != CRISIS (overrides regime).
     # HYBRID for {BULL_TREND, OPPORTUNITY}; SHORT_TERM for {CAPITULATION, CRASH_RECOVERY};
     # CASH for CRISIS; DAY_TRADE otherwise (incl. BULL_TREND_PARABOLIC, NORMAL, CHOPPY, DEFENSIVE).
 def get_sl_tp_for_mode_and_regime(mode: str, regime: str) -> tuple[float, float]
@@ -55,6 +56,8 @@ def _clamp_threshold(key: str, value) -> value    # respects _THRESHOLD_BOUNDS
 | CRISIS | CASH (no entries) |
 | NORMAL, CHOPPY, DEFENSIVE, BULL_TREND_PARABOLIC | DAY_TRADE |
 
+**PEAD override:** For tier-1 symbols only — if `detect_pead_setup(symbol)` returns True AND regime ≠ CRISIS, mode switches to **PEAD** regardless of regime. PEAD setup expires after 5 trading days post-earnings or when position closes.
+
 **SL/TP by (mode, regime):**
 | Mode | Regime | SL% | TP% |
 |---|---|---|---|
@@ -65,9 +68,12 @@ def _clamp_threshold(key: str, value) -> value    # respects _THRESHOLD_BOUNDS
 | HYBRID | BULL_TREND, OPPORTUNITY | 7 | 15 |
 | SHORT_TERM | CAPITULATION | 12 | 20 |
 | SHORT_TERM | CRASH_RECOVERY | 10 | 18 |
+| PEAD | (any non-CRISIS) | 8 | 8 (tiered: TP1 +8% closes 50%, then 5% trailing) |
 
 **Position size by mode (% of portfolio per position):**
-DAY_TRADE 5%, HYBRID 3% (swing), SHORT_TERM 2.5%. Combined max exposure 36%.
+DAY_TRADE 5%, HYBRID 3% (swing), SHORT_TERM 2.5%, PEAD 2.5%. Combined max exposure 38% (with 2 PEAD slots).
+
+**PEAD slot limits:** max 2 concurrent PEAD positions, max 15 trading days held, early exit on 3 consecutive lower closes after day 5. Stored in `swing_positions.json` with `mode_at_entry: "PEAD"`.
 
 **Bounded thresholds (`_THRESHOLD_BOUNDS`):**
 `choppy_composite_gate (25, 40)`, `bull_trend_rsi_max_tier1 (76, 88)`, `swing_max_days (3, 7)`, `capitulation_drawdown_threshold (15, 30)`, `squeeze_confidence_gate (60, 80)`, `herd_size_reduction (0.15, 0.50)`.
@@ -77,10 +83,10 @@ DAY_TRADE 5%, HYBRID 3% (swing), SHORT_TERM 2.5%. Combined max exposure 36%.
 ## Tasks
 
 ### Task 1: trading_agent.py — mode + SL/TP tables
-Add `get_active_mode`, `get_sl_tp_for_mode_and_regime`, `_HYBRID_REGIMES`, `_SHORT_TERM_REGIMES`, `_SL_TP_TABLE`. Pure functions. Fall back to `(STOP_LOSS_PCT, TAKE_PROFIT_PCT)` config defaults on unknown combos.
+Add `get_active_mode(regime, symbol=None)`, `get_sl_tp_for_mode_and_regime`, `_HYBRID_REGIMES`, `_SHORT_TERM_REGIMES`, `_SL_TP_TABLE`. `get_active_mode` checks PEAD override first (tier-1 + `detect_pead_setup` + regime ≠ CRISIS) before falling through to regime-based logic. Pure functions. Fall back to `(STOP_LOSS_PCT, TAKE_PROFIT_PCT)` config defaults on unknown combos.
 
 ### Task 2: trading_agent.py — pre-filter + entry gates
-`_prefilter_decision`: composite < 10 → AUTO_SKIP; composite > 35 AND `_top_indicators_aligned` (price > VWAP, RSI > 50, MACD hist > 0) → AUTO_BUY; else ASK_CLAUDE. `_check_entry_gates` priority: event_risk_window (FOMC/NFP) > stop_hunt_zone > bot_herding > BOT_HERD_HIGH (no squeeze override) > momentum_exhaustion (no squeeze override). Squeeze setup short-circuits the herding and exhaustion gates.
+`_prefilter_decision`: composite < 10 → AUTO_SKIP; composite > 35 AND `_top_indicators_aligned` (price > VWAP, RSI > 50, MACD hist > 0) → AUTO_BUY; else ASK_CLAUDE. `_check_entry_gates` priority: **earnings_imminent (skip BUY if within 1 day; within 2 days for HYBRID/SHORT_TERM; CAPITULATION + PEAD modes exempt)** > event_risk_window (FOMC/NFP) > stop_hunt_zone > bot_herding > BOT_HERD_HIGH (no squeeze override) > momentum_exhaustion (no squeeze override). Squeeze setup short-circuits the herding and exhaustion gates. PEAD setup short-circuits the bot_herding gate (institutional flow > algo herding).
 
 ### Task 3: trading_agent.py — position sizing
 `compute_position_size_for_mode` — risk-based (portfolio × 0.5% / ATR) capped by mode % cap. If `bot_herding_score > BOT_HERD_ALERT_SCORE` AND not `squeeze_setup`, multiply by 0.70. Returns int ≥ 1.
@@ -106,7 +112,7 @@ Add three jobs (cron, ET, mon–fri):
 In `trading_agent.force_close_all()`: skip symbols present in `swing_manager.load_swing_positions()` so promoted holds survive 3:55 PM. In `trading_agent.run_position_monitor()`, append a try/except call to `swing_manager.monitor_swing_positions(alpaca)` so swings get their tiered TP/trailing checked at 60s cadence too.
 
 ### Task 9: learning_agent.py — per-regime aggregation
-`_aggregate_by_regime(closed_trades)` — group by `vix_regime` field (already written in trade journal). Output per regime: `count, winners, losers, avg_pnl_pct, win_rate, total_pnl_dollar`. `_classify_loss_source(trade)` priority: VIX > 35 OR regime=="CRISIS" → market_structure; entry_indicators.momentum_exhaustion → momentum_exhaustion; close_reason contains earnings/guidance/fundamental → fundamental; entry_macro_shock_score ≥ 60 → macro_pressure; entry_sector_sentiment ≤ -25 → sector_narrative; else unknown.
+`_aggregate_by_regime(closed_trades)` — group by `vix_regime` field (already written in trade journal). Output per regime: `count, winners, losers, avg_pnl_pct, win_rate, total_pnl_dollar`. Add separate aggregation by `mode_at_entry` so PEAD performance is tracked distinctly. `_classify_loss_source(trade)` priority: trade closed within 2 days of an earnings release → **earnings_surprise**; VIX > 35 OR regime=="CRISIS" → market_structure; entry_indicators.momentum_exhaustion → momentum_exhaustion; close_reason contains earnings/guidance/fundamental → fundamental; entry_macro_shock_score ≥ 60 → macro_pressure; entry_sector_sentiment ≤ -25 → sector_narrative; else unknown.
 
 ### Task 10: learning_agent.py — bounded clamping + Claude context
 Inject regime aggregation + loss-source breakdown into Claude prompt as a context block before the request. After Claude returns new params, iterate keys and `_clamp_threshold(key, value)` before saving. Hard bounds stop Claude from disabling stops or removing entire regimes.
@@ -135,6 +141,10 @@ Run full `test_foundation.py` and `test_agents.py -m unit` — must pass. `timeo
 | Concurrent processes after restart | Existing `fcntl.flock` instance lock + `_POSITIONS_LOCK` + new `_SWING_LOCK` |
 | run_market_monitor adds API cost | One Alpaca call per 5 min (free) + zero Claude calls — negligible |
 | Regime flips mid-cycle (BULL_TREND → CHOPPY) | Cycle uses snapshot read at start; next cycle picks up new regime within 10 min |
+| Earnings happen during open swing position | `monitor_swing_positions` checks `is_earnings_imminent`; closes EOD before earnings unless mode == CAPITULATION (where earnings is the catalyst) or PEAD (where the report already happened) |
+| PEAD setup detected on a stale beat (> 5 trading days) | `recently_reported(days=5)` enforces the window; older reports are ignored |
+| Two PEAD setups + 2 HYBRID swings + day trades = over-exposure | Combined max 38%; per-mode caps (DAY 5, swing 2, short 2, PEAD 2) enforced at entry |
+| PEAD position fights with regime-based stop logic | Mode tag stored in position; tiered TP/trailing logic dispatches by mode |
 | Learning agent prompt grows with closed trades | Existing `_TRADE_SUMMARY_KEYS` already strips full indicator snapshots; capped naturally |
 
 ---

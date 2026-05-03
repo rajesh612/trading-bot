@@ -16,7 +16,9 @@
 | Modify | `indicator_engine.py` | 8 new fields on `IndicatorValues`; per-stock signals; cycle-level `bot_herding_score` populated by trading_agent |
 | Modify | `research_agent.py` | `_compute_macro_shock_score`, `_compute_sector_sentiment`, `_detect_capitulation_candidate`; write `__meta__` block in research_report.json |
 | Create | `swing_manager.py` | Lifecycle: `evaluate_eod_holds()`, `run_gap_check()`, `monitor_swing_positions()`; tiered TP logic |
-| Modify | `config.py` | Plan-2 thresholds: parabolic 5d return, volume exhaustion ratio, squeeze gates, stop-hunt proximities |
+| Create | `earnings_calendar.py` | Yahoo Finance + Alpaca earnings data; `is_earnings_imminent`, `recently_reported`, `detect_pead_setup` |
+| Modify | `config.py` | Plan-2 thresholds: parabolic 5d return, volume exhaustion ratio, squeeze gates, stop-hunt proximities, PEAD thresholds |
+| Modify | `main.py` | Add 8:00 AM job: `earnings_calendar.refresh_earnings_calendar(watch_list + tier1)` |
 | Modify | `tests/test_foundation.py` | Append unit tests for new functions |
 
 ---
@@ -64,7 +66,29 @@ def qualifies_for_eod_hold(symbol, is_tier1, regime, event_risk_tomorrow,
 def evaluate_eod_holds() -> list[str]                         # called 3:50 PM
 def run_gap_check(alpaca_client) -> None                       # called 9:30 AM
 def monitor_swing_positions(alpaca_client) -> None             # called every 60s by Plan 3
+
+# earnings_calendar.py
+def refresh_earnings_calendar(symbols: list[str]) -> None      # called 8:00 AM daily
+def days_until_earnings(symbol: str) -> int | None
+def is_earnings_imminent(symbol: str, days: int = 1) -> bool
+def recently_reported(symbol: str, days: int = 5) -> dict | None
+    # {report_date, eps_actual, eps_estimate, eps_surprise_pct, revenue_beat,
+    #  guidance_change, earnings_day_return_pct, earnings_day_volume_ratio,
+    #  earnings_day_close_position}
+def detect_pead_setup(symbol: str) -> tuple[bool, int]         # (qualifies, score 0-100)
 ```
+
+## Data Sources (earnings_calendar.py)
+
+| Need | Primary | Fallback |
+|---|---|---|
+| Next earnings date | Yahoo `quoteSummary?modules=calendarEvents` | Alpaca `get_corporate_action_announcements` |
+| EPS actuals + estimates (last 4 Q) | Yahoo `quoteSummary?modules=earningsHistory` | Finnhub free tier |
+| Revenue actuals + estimates | Yahoo `quoteSummary?modules=earningsHistory` | — |
+| Forward guidance proxy | Yahoo `quoteSummary?modules=earningsTrend` (analyst revision direction) | Treat as `"unknown"` if missing — does not auto-disqualify PEAD |
+| Earnings-day price/volume reaction | Alpaca daily bars (already in use) | Yahoo daily bars |
+
+All free, no key required (Yahoo, Alpaca paper). FRED unaffected.
 
 ## Persistence Schemas
 
@@ -109,7 +133,23 @@ Static data + 3 helpers. `qualifies_for_swing` gates: tier-1 only; composite ≥
 ### Task 5: swing_manager.py — gap check + EOD qualification
 `_evaluate_gap_action`: gap ≤ -stop_loss → CLOSE_GAP_DOWN; gap ∈ [-5%, -2%] → TIGHTEN_STOP to 2%; gap > +3% → TAKE_TP1_GAP_UP. `qualifies_for_eod_hold` — 7 gates from spec §6: tier-1, regime ∈ {BULL_TREND, OPPORTUNITY, CAPITULATION, CRASH_RECOVERY}, no event tomorrow, no earnings within 2 sessions (unless CAPITULATION), current P&L > -2% (PTJ rule), existing_swing_count < SWING_MAX_POSITIONS, sector sentiment ≥ +10.
 
-### Task 6: swing_manager.py — orchestration
+### Task 6.5: earnings_calendar.py
+Daily 8:00 AM job. `refresh_earnings_calendar(symbols)` builds `earnings_calendar.json` keyed by symbol, with `next_earnings_date` and (if reported within 5 trading days) the full `recently_reported` block. **Yahoo first, Alpaca fallback** — keep the network calls per-symbol but cache the whole file daily so subsequent reads are local.
+
+`detect_pead_setup(symbol)` qualifies on **4 of 5** conditions (each = 20 points, threshold 80):
+1. `eps_surprise_pct ≥ 5.0`
+2. `revenue_beat == True`
+3. `guidance_change in {"raised", "maintained", "unknown"}` — `"unknown"` allowed (proxy data not always available); only `"lowered"` disqualifies
+4. `earnings_day_return_pct ≥ 3.0` AND `earnings_day_close_position ≥ 0.7`
+5. `earnings_day_volume_ratio ≥ 2.0`
+
+`is_earnings_imminent(symbol, days=1)` — boolean lookup against `next_earnings_date`. Conservative: returns False on any error so the bot doesn't get stuck if Yahoo fails.
+
+**Wire `swing_manager._earnings_in_2_days(symbol)` to call `is_earnings_imminent(symbol, days=2)`.**
+
+**Acceptance:** PEAD detection on a known beat (use INTC's last quarter or build a fixture); imminent flag fires within 1 trading day; gracefully returns False on missing data.
+
+### Task 7: swing_manager.py — orchestration
 `evaluate_eod_holds()` — iterate `open_positions`, run qualification, on pass: build swing_pos with regime-aware TP tiers (CAPITULATION uses 10/20/12 instead of 5/10/7), `_compute_tier_quantities`, save under `_SWING_LOCK`. Returns promoted symbols. `run_gap_check(alpaca)` — for each swing pos: fetch pre-market price, dispatch `_evaluate_gap_action`, execute via `_execute_partial_close` or `close_position`. `monitor_swing_positions(alpaca)` — for each swing pos: update trailing high water, run `evaluate_tiered_tp_action`, dispatch close. `_execute_partial_close` — submits Alpaca market sell, locked merge-write to update tp1_hit/tp2_hit/trailing_qty; removes position when fully closed.
 
 ---
@@ -131,6 +171,11 @@ Static data + 3 helpers. `qualifies_for_swing` gates: tier-1 only; composite ≥
 | Squeeze score crosses 70 from one signal alone | Cannot — max single-signal weight is 30; needs ≥ 3 signals |
 | Stop-hunt false positive every bar near round numbers | One-bar cooldown handled in Plan 3 (`_check_entry_gates`) — re-evaluates next bar |
 | Capitulation hold deepens 12% loss | Stop fires; loss capped; learning agent classifies as "sector_narrative" or "fundamental" |
+| Yahoo earnings endpoint changes / 403 | `refresh_earnings_calendar` per-symbol try/except; missing entries treated as "unknown earnings date" → conservative behavior (no imminent gate, no PEAD) |
+| PEAD detection misses a beat (data gap) | Setup simply doesn't trigger — equivalent to current behavior. No false positives; any false negatives are acceptable. |
+| Guidance proxy unreliable | "unknown" treated as neutral so PEAD can still trigger on the other 4 signals — only explicit "lowered" disqualifies |
+| Earnings hits during open swing position | `monitor_swing_positions` reads `is_earnings_imminent`; if True and not CAPITULATION mode, closes the position end-of-day before earnings |
+| Concurrent earnings refresh + read | `earnings_calendar.json` is read-only after 8:00 AM job; readers tolerate missing/stale → False |
 
 ---
 
