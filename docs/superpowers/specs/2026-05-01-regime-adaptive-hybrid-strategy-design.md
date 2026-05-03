@@ -939,9 +939,9 @@ New loss-source category: `earnings_surprise` — trade closed within 2 days of 
 
 | Need | Primary | Fallback | Notes |
 |---|---|---|---|
-| Intraday bars | Alpaca Market Data | — | Already in use; free with paper account |
-| Daily bars | Alpaca | Yahoo Finance | Yahoo for backtest gap-fill |
-| Real-time quotes | Alpaca | Yahoo Finance | |
+| Intraday bars | **Yahoo Finance** (`query1.finance.yahoo.com`) | Alpaca paper IEX | Yahoo primary on paper (Alpaca paper covers ~2% of volume via IEX-only); switch to `MARKET_DATA_PROVIDER=alpaca` when upgrading to live SIP |
+| Daily bars | **Yahoo Finance** | Alpaca | Yahoo unlimited history; Alpaca daily fine on either tier |
+| Real-time quotes | Alpaca paper (good enough for paper trading) | Polygon free tier (5/min, SPY-only) | Live SIP via Alpaca subscription replaces this when user upgrades |
 | VIX, SPY, sector ETFs (SOXX, QQQ) | Yahoo Finance (`query1.finance.yahoo.com`) | — | Unauthenticated, no key |
 | WTI, Gold, DXY, 10Y yield | Yahoo Finance | — | Same endpoint |
 | Fed funds rate, CPI, unemployment | FRED API (`api.stlouisfed.org`) | — | Free with `FRED_API_KEY` from fred.stlouisfed.org |

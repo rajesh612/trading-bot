@@ -12,10 +12,12 @@
 
 | Action | File | Responsibility |
 |---|---|---|
-| Modify | `config.py` | Add ~20 constants (paths, regime thresholds, budget caps, herding/squeeze gates) |
+| Modify | `config.py` | Add ~20 constants (paths, regime thresholds, budget caps, herding/squeeze gates, `MARKET_DATA_PROVIDER`) |
+| Create | `market_data.py` | Provider-agnostic data layer (Yahoo / Alpaca / hybrid); replaces direct Alpaca data calls |
 | Create | `macro_regime.py` | Yahoo signals → health score → 9-state regime; FRED cache; flash crash check |
 | Create | `economic_calendar.py` | Hardcoded recurring events + ForexFactory scrape; `is_event_risk_window()` |
 | Create | `api_budget.py` | Daily token spend tracker; dynamic $1.00/$1.50 ceiling |
+| Modify | `alpaca_client.py` | Keep trading-execution methods only; data methods delegate to `market_data` |
 | Modify | `main.py` | Add jobs at 8:30 AM (calendar), 8:55 AM (regime, replaces vix), 4:00 PM (FRED) |
 | Create | `tests/test_foundation.py` | Unit tests, marker `-m unit` |
 
@@ -24,6 +26,13 @@
 ## Key Signatures (lock these — Plans 2/3 depend on them)
 
 ```python
+# market_data.py — provider-agnostic data layer
+def get_intraday_bars(symbol: str, lookback: int = 100,
+                      timeframe_min: int = 5) -> pd.DataFrame   # OHLCV indexed by tz-aware datetime
+def get_daily_bars(symbol: str, days: int = 30) -> pd.DataFrame
+def get_latest_price(symbol: str) -> float
+def get_quote(symbol: str) -> dict   # {bid, ask, last, volume, timestamp}
+
 # macro_regime.py
 def fetch_macro_regime() -> dict        # writes macro_regime.json, returns it
 def load_macro_regime() -> dict          # cached read; defaults to NORMAL
@@ -65,6 +74,9 @@ def get_ceiling(portfolio_gain_pct: float = 0.0, regime: str = "NORMAL") -> floa
 ### Task 1: config.py constants
 Add: file paths (`MACRO_REGIME_FILE`, `FRED_CACHE_FILE`, `ECONOMIC_CALENDAR_FILE`, `API_BUDGET_FILE`, `SWING_POSITIONS_FILE`); `FRED_API_KEY` env; `MACRO_HEALTH_BULL/BEAR_THRESHOLD = ±20`; `CONSECUTIVE_BULL/BEAR_DAYS = 3`; `CHOPPY_MIN_SIGN_ALTS = 3`, `CHOPPY_MAX_NET_MOVE_PCT = 0.5`; `API_BUDGET_NORMAL_CEILING = 1.00`, `API_BUDGET_ELEVATED_CEILING = 1.50`, `API_BUDGET_WARNING_PCT = 0.80`; `CHOPPY_COMPOSITE_GATE = 30`, `HERD_ENTRY_GATE = 25`; `BOT_HERD_ALERT_SCORE = 60`, `BOT_HERD_HIGH_SCORE = 80`; `SQUEEZE_CONFIDENCE_GATE = 70`; `SWING_MAX_POSITIONS = 2`, `SWING_MAX_DAYS = 5`, `SHORT_TERM_MAX_POSITIONS = 2`, `SHORT_TERM_MAX_DAYS = 21`. **Acceptance:** `python -c "import config; print(config.MACRO_REGIME_FILE)"` works.
 
+### Task 1.5: market_data.py — provider abstraction
+Single module with 4 functions: `get_intraday_bars`, `get_daily_bars`, `get_latest_price`, `get_quote`. Provider selected by `MARKET_DATA_PROVIDER` env var (default `yahoo`). Yahoo implementation uses the same `query1.finance.yahoo.com/v8/finance/chart` endpoint already in `vix_regime.py` — extends to support `interval=5m,15m,1d` and returns a pandas DataFrame indexed by tz-aware `DatetimeIndex` with columns `[open, high, low, close, volume]` (matches existing `alpaca_client.get_intraday_bars` return shape so callers don't change). Alpaca path delegates to existing `_data` client. Hybrid path: Yahoo for bars, Alpaca for real-time `get_latest_price` and `get_quote`. Modify `alpaca_client.AlpacaClient.get_intraday_bars`, `get_daily_bars`, `get_latest_price` to delegate to `market_data` (one-line wrappers preserved for backward compat). **Acceptance:** Yahoo returns DataFrame with same columns/dtypes/index as Alpaca for AAPL last 100×5min bars; switching `MARKET_DATA_PROVIDER` env var with no other change still produces valid bars; existing `compute_indicators()` on Yahoo bars matches Alpaca within ±0.1% on a fixture day.
+
 ### Task 2: macro_regime.py — Yahoo signals + health score
 Reuse `_yahoo_closes` pattern from `vix_regime.py`. Fetch 8 signals: `^VIX, SPY, CL=F, GC=F, DX-Y.NYB, ^TNX, SOXX, QQQ`. Score each ±10 with weights (VIX 20%, SPY 20%, SOXX 15%, QQQ 10%, WTI 10%, TNX 9%, Gold 8%, DXY 8%). Scale to ±100, add FRED modifier, clamp. **Acceptance:** unit tests for scoring (bullish/bearish/neutral cases) and bounds.
 
@@ -100,6 +112,10 @@ Run morning sequence end-to-end against live Yahoo: `economic_calendar.refresh_e
 | Scheduler double-registers job on restart | `replace_existing=True` on every job |
 | Bot net P&L import requires Alpaca | `_load_bot_net_pnl` swallows all exceptions → 0.0 |
 | FOMC date table goes stale (post-2026) | Document in code; learning agent flags missed events |
+| Yahoo Finance throttles / 429 | `market_data` retries with exponential backoff; falls back to Alpaca paper IEX feed if Yahoo unavailable |
+| Yahoo bar shape differs from Alpaca | `market_data` normalizes to common DataFrame schema (tz-aware DatetimeIndex, OHLCV columns, float dtypes) — verified by acceptance test |
+| Provider switch breaks existing callers | All callers go through `market_data` module — provider switch is one env var |
+| Real-time price delayed 15 min on Yahoo free | Hybrid mode uses Alpaca paper for `get_latest_price` (good enough for paper trading); when user upgrades to live SIP, switch to `MARKET_DATA_PROVIDER=alpaca` for full real-time |
 
 ---
 
