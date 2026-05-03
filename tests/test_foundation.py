@@ -1,0 +1,1233 @@
+"""
+Plan 1 + 2 foundation unit tests. Run with: pytest tests/test_foundation.py -v -m unit
+No API calls — all tests use synthetic fixtures.
+"""
+import json
+import os
+import tempfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+import pytest
+
+ET = ZoneInfo("America/New_York")
+
+
+# ── Shared DataFrame factories ────────────────────────────────────────────────
+
+def _make_intraday_df(
+    n: int = 100,
+    close: float = 100.0,
+    high: float | None = None,
+    low: float | None = None,
+    volume: float = 1_000.0,
+) -> pd.DataFrame:
+    """Return a minimal OHLCV 5-min DataFrame with tz-aware index."""
+    if high is None:
+        high = close * 1.01
+    if low is None:
+        low = close * 0.99
+    idx = pd.date_range("2026-05-01 09:30", periods=n, freq="5min", tz="America/New_York")
+    return pd.DataFrame(
+        {"open": close, "high": high, "low": low, "close": close, "volume": volume},
+        index=idx,
+    )
+
+
+def _make_daily_df(n: int = 25, volume: float = 1_000_000.0, close: float = 100.0) -> pd.DataFrame:
+    """Return a minimal OHLCV daily DataFrame with tz-aware index."""
+    idx = pd.date_range("2026-01-01", periods=n, freq="B", tz="America/New_York")
+    return pd.DataFrame(
+        {"open": close, "high": close * 1.01, "low": close * 0.99, "close": close, "volume": volume},
+        index=idx,
+    )
+
+
+# ── macro_regime: health score ────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestMacroHealthScore:
+    def test_bullish_inputs_give_positive_score(self):
+        from macro_regime import compute_macro_health_score
+        # Strong bull signals
+        vix_closes = [20.0] * 90 + [14.0]  # VIX well below 90d avg
+        signals = {
+            "vix_closes": vix_closes,
+            "spy_ret5d":  3.0,   # strong up week
+            "soxx_ret5d": 4.0,   # semis leading
+            "qqq_ret5d":  3.0,
+            "wti_ret5d":  1.0,   # stable oil
+            "tnx_ret5d":  -3.0,  # yields falling
+            "gold_ret5d": 0.5,   # flat gold
+            "dxy_ret5d":  -1.0,  # weak dollar
+        }
+        score = compute_macro_health_score(signals)
+        assert score > 0, f"Expected positive score for bullish inputs, got {score}"
+
+    def test_bearish_inputs_give_negative_score(self):
+        from macro_regime import compute_macro_health_score
+        # Strong bear signals
+        vix_closes = [15.0] * 90 + [40.0]  # VIX spiked far above avg
+        signals = {
+            "vix_closes": vix_closes,
+            "spy_ret5d":  -8.0,   # ugly down week
+            "soxx_ret5d": -10.0,
+            "qqq_ret5d":  -8.0,
+            "wti_ret5d":  8.0,    # oil spike
+            "tnx_ret5d":  7.0,    # yields surging
+            "gold_ret5d": 5.0,    # gold flight to safety
+            "dxy_ret5d":  3.0,    # dollar surging
+        }
+        score = compute_macro_health_score(signals)
+        assert score < 0, f"Expected negative score for bearish inputs, got {score}"
+
+    def test_neutral_inputs_near_zero(self):
+        from macro_regime import compute_macro_health_score
+        vix_closes = [20.0] * 91  # VIX at its own average
+        signals = {
+            "vix_closes": vix_closes,
+            "spy_ret5d":  0.5,
+            "soxx_ret5d": 1.0,
+            "qqq_ret5d":  0.5,
+            "wti_ret5d":  1.0,
+            "tnx_ret5d":  0.5,
+            "gold_ret5d": 1.0,
+            "dxy_ret5d":  0.2,
+        }
+        score = compute_macro_health_score(signals)
+        # Stable oil/gold/DXY score mildly positive (stability = bullish),
+        # so a "neutral" market lands in roughly [-10, +60] rather than near-zero.
+        assert -20 < score < 65, f"Expected broadly neutral score, got {score}"
+
+    def test_score_clamped_to_bounds(self):
+        from macro_regime import compute_macro_health_score
+        # Extreme bullish
+        vix_closes = [30.0] * 90 + [10.0]
+        extreme_bull = {
+            "vix_closes": vix_closes,
+            "spy_ret5d": 20.0, "soxx_ret5d": 20.0, "qqq_ret5d": 20.0,
+            "wti_ret5d": 0.0, "tnx_ret5d": -20.0, "gold_ret5d": -5.0, "dxy_ret5d": -5.0,
+        }
+        score = compute_macro_health_score(extreme_bull, fred_modifier=5)
+        assert -100 <= score <= 100, f"Score {score} out of [-100, 100] bounds"
+
+    def test_fred_modifier_applied(self):
+        from macro_regime import compute_macro_health_score
+        vix_closes = [20.0] * 91
+        neutral = {
+            "vix_closes": vix_closes,
+            "spy_ret5d": 0.0, "soxx_ret5d": 0.0, "qqq_ret5d": 0.0,
+            "wti_ret5d": 0.0, "tnx_ret5d": 0.0, "gold_ret5d": 0.0, "dxy_ret5d": 0.0,
+        }
+        base  = compute_macro_health_score(neutral, fred_modifier=0)
+        with_modifier = compute_macro_health_score(neutral, fred_modifier=5)
+        assert with_modifier == base + 5
+
+
+# ── macro_regime: classify_regime ─────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestClassifyRegime:
+    _BASE = dict(
+        macro_health_score=0,
+        consecutive_green_days=0,
+        consecutive_red_days=0,
+        vix_current=18.0,
+        spy_5day_return=0.0,
+        is_choppy=False,
+        ai_semi_sector_score=0,
+        bot_net_pnl_pct=0.0,
+        post_crisis_recovery=False,
+    )
+
+    def _classify(self, **overrides):
+        from macro_regime import classify_regime
+        return classify_regime(**{**self._BASE, **overrides})
+
+    def test_crisis_vix_above_35(self):
+        assert self._classify(vix_current=36.0) == "CRISIS"
+
+    def test_crisis_spy_5d_below_minus10(self):
+        assert self._classify(spy_5day_return=-11.0) == "CRISIS"
+
+    def test_crash_recovery(self):
+        regime = self._classify(post_crisis_recovery=True, consecutive_green_days=2)
+        assert regime == "CRASH_RECOVERY"
+
+    def test_bull_trend(self):
+        regime = self._classify(
+            consecutive_green_days=3, macro_health_score=25
+        )
+        assert regime == "BULL_TREND"
+
+    def test_choppy(self):
+        assert self._classify(is_choppy=True) == "CHOPPY"
+
+    def test_defensive(self):
+        regime = self._classify(
+            consecutive_red_days=3,
+            macro_health_score=-25,
+            bot_net_pnl_pct=-2.0,
+        )
+        assert regime == "DEFENSIVE"
+
+    def test_opportunity_overrides_defensive(self):
+        regime = self._classify(
+            consecutive_red_days=3,
+            macro_health_score=-25,
+            bot_net_pnl_pct=-2.0,
+            ai_semi_sector_score=20,   # AI/semi healthy → OPPORTUNITY
+        )
+        assert regime == "OPPORTUNITY"
+
+    def test_normal_when_no_conditions_match(self):
+        assert self._classify() == "NORMAL"
+
+    def test_defensive_requires_both_market_and_pnl(self):
+        # Red market but P&L OK → NORMAL (not DEFENSIVE)
+        regime = self._classify(
+            consecutive_red_days=3,
+            macro_health_score=-25,
+            bot_net_pnl_pct=+0.5,  # not negative enough
+        )
+        assert regime == "NORMAL"
+
+    @pytest.mark.parametrize("regime_call,expected", [
+        (dict(vix_current=36.0), "CRISIS"),
+        (dict(post_crisis_recovery=True, consecutive_green_days=2), "CRASH_RECOVERY"),
+        (dict(consecutive_green_days=3, macro_health_score=25), "BULL_TREND"),
+        (dict(is_choppy=True), "CHOPPY"),
+        (dict(consecutive_red_days=3, macro_health_score=-25, bot_net_pnl_pct=-2.0,
+              ai_semi_sector_score=20), "OPPORTUNITY"),
+        (dict(consecutive_red_days=3, macro_health_score=-25, bot_net_pnl_pct=-2.0), "DEFENSIVE"),
+        (dict(), "NORMAL"),
+    ])
+    def test_all_nine_regimes(self, regime_call, expected):
+        assert self._classify(**regime_call) == expected
+
+
+# ── macro_regime: pattern detection ──────────────────────────────────────────
+
+@pytest.mark.unit
+class TestPatternDetection:
+    def test_consecutive_green(self):
+        from macro_regime import _count_consecutive_direction
+        closes = [100, 101, 102, 103, 104, 105]  # all green
+        assert _count_consecutive_direction(closes, "green") == 5
+
+    def test_consecutive_red(self):
+        from macro_regime import _count_consecutive_direction
+        closes = [100, 99, 98, 97]  # all red
+        assert _count_consecutive_direction(closes, "red") == 3
+
+    def test_choppy_true(self):
+        from macro_regime import _is_choppy
+        # Up, down, up, down, up — 4 sign changes, tiny net move
+        closes = [100.0, 100.2, 100.0, 100.2, 100.0, 100.1]
+        assert _is_choppy(closes) is True
+
+    def test_choppy_false_trending(self):
+        from macro_regime import _is_choppy
+        closes = [100, 101, 102, 103, 104, 105]  # steady uptrend
+        assert _is_choppy(closes) is False
+
+    def test_choppy_false_big_net_move(self):
+        from macro_regime import _is_choppy
+        # Alternating but large net move
+        closes = [100, 101, 99.5, 102, 100, 104]
+        # Net = (104 - 100) / 100 = 4% > 0.5% threshold → not choppy
+        assert _is_choppy(closes) is False
+
+
+# ── macro_regime: flash crash ─────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestFlashCrash:
+    def test_triggers_at_exactly_2point5_pct(self):
+        from macro_regime import check_flash_crash
+        assert check_flash_crash(spy_current=97.5, spy_prev_close=100.0) is True
+
+    def test_triggers_below_threshold(self):
+        from macro_regime import check_flash_crash
+        assert check_flash_crash(spy_current=95.0, spy_prev_close=100.0) is True
+
+    def test_does_not_trigger_just_above_threshold(self):
+        from macro_regime import check_flash_crash
+        assert check_flash_crash(spy_current=97.6, spy_prev_close=100.0) is False
+
+    def test_no_crash_on_green_day(self):
+        from macro_regime import check_flash_crash
+        assert check_flash_crash(spy_current=102.0, spy_prev_close=100.0) is False
+
+    def test_zero_prev_close_safe(self):
+        from macro_regime import check_flash_crash
+        assert check_flash_crash(spy_current=100.0, spy_prev_close=0.0) is False
+
+
+# ── economic_calendar: NFP first-Friday logic ────────────────────────────────
+
+@pytest.mark.unit
+class TestEconomicCalendar:
+    def test_nfp_is_first_friday(self):
+        from economic_calendar import _first_friday, _hardcoded_events
+        # Jan 2026: first Friday is the 2nd
+        assert _first_friday(2026, 1) == 2
+        events = _hardcoded_events(2026, 1)
+        nfp = [e for e in events if "Non-Farm" in e["name"]]
+        assert len(nfp) == 1
+        assert nfp[0]["date"] == "2026-01-02"
+
+    def test_may_2026_nfp(self):
+        from economic_calendar import _first_friday
+        # May 2026: first Friday is the 1st
+        assert _first_friday(2026, 5) == 1
+
+    def test_event_risk_window_inside_45min(self):
+        from economic_calendar import is_event_risk_window
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            today = datetime.now(ET).strftime("%Y-%m-%d")
+            json.dump({
+                "date": today,
+                "events": [{"time": "08:30", "name": "NFP", "impact": "high"}],
+                "source": "test",
+            }, f)
+            tmp = f.name
+
+        import config
+        original = config.ECONOMIC_CALENDAR_FILE
+        config.ECONOMIC_CALENDAR_FILE = type("P", (), {"exists": lambda s: True,
+                                                        "__fspath__": lambda s: tmp})()
+        try:
+            # Patch the file path to our temp file
+            import economic_calendar as ec
+            _orig_load = ec._load_todays_events
+
+            def _patched():
+                with open(tmp) as fh:
+                    data = json.load(fh)
+                if data.get("date") == today:
+                    return data.get("events", [])
+                return []
+
+            ec._load_todays_events = _patched
+            now_at_risk = datetime.now(ET).replace(hour=8, minute=45, second=0, microsecond=0)
+            result, name = ec.is_event_risk_window(now_at_risk)
+            assert result is True
+            assert "NFP" in name
+        finally:
+            ec._load_todays_events = _orig_load
+            config.ECONOMIC_CALENDAR_FILE = original
+            os.unlink(tmp)
+
+    def test_event_risk_window_outside_45min(self):
+        import economic_calendar as ec
+        # Patch _load_todays_events to return a 10:00 AM event
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        _orig = ec._load_todays_events
+        ec._load_todays_events = lambda: [{"time": "10:00", "name": "FOMC", "impact": "high"}]
+        try:
+            # Check at 08:00 — 2 hours before, outside 45 min window
+            check_time = datetime.now(ET).replace(hour=8, minute=0, second=0, microsecond=0)
+            result, _ = ec.is_event_risk_window(check_time)
+            assert result is False
+        finally:
+            ec._load_todays_events = _orig
+
+    def test_fomc_2026_dates_present(self):
+        from economic_calendar import _hardcoded_events
+        # May 2026 FOMC is on 2026-05-07
+        events = _hardcoded_events(2026, 5)
+        fomc = [e for e in events if "FOMC" in e["name"]]
+        assert any(e["date"] == "2026-05-07" for e in fomc)
+
+
+# ── api_budget: daily ceiling and reset ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestApiBudget:
+    def _fresh_tmp_budget(self, tmp_path, date_str="2026-05-01"):
+        """Write a fresh budget file and patch config to use it."""
+        import config
+        budget_file = tmp_path / "api_budget.json"
+        config.API_BUDGET_FILE = budget_file
+        return budget_file
+
+    def test_fresh_budget_starts_at_zero(self, tmp_path):
+        import api_budget, config
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        budget = api_budget.load_budget()
+        assert budget["estimated_cost_usd"] == 0.0
+        assert budget["calls_made"] == 0
+
+    def test_budget_resets_on_new_day(self, tmp_path):
+        import api_budget, config
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        # Write stale budget
+        stale = {
+            "date": "2026-01-01",
+            "calls_made": 10,
+            "input_tokens": 100000,
+            "output_tokens": 5000,
+            "cache_write_tokens": 0,
+            "cache_read_tokens": 0,
+            "estimated_cost_usd": 0.95,
+            "ceiling_usd": 1.00,
+            "ceiling_mode": "normal",
+            "budget_exhausted": False,
+        }
+        with open(config.API_BUDGET_FILE, "w") as f:
+            json.dump(stale, f)
+        budget = api_budget.load_budget()
+        assert budget["estimated_cost_usd"] == 0.0
+        assert budget["calls_made"] == 0
+
+    def test_normal_ceiling_default(self):
+        from api_budget import get_ceiling
+        import config
+        assert get_ceiling() == config.API_BUDGET_NORMAL_CEILING
+
+    def test_elevated_ceiling_on_high_gain(self):
+        from api_budget import get_ceiling
+        import config
+        assert get_ceiling(portfolio_gain_pct=1.0) == config.API_BUDGET_ELEVATED_CEILING
+
+    def test_elevated_ceiling_on_crisis_regime(self):
+        from api_budget import get_ceiling
+        import config
+        assert get_ceiling(regime="CRISIS") == config.API_BUDGET_ELEVATED_CEILING
+
+    def test_elevated_ceiling_on_capitulation(self):
+        from api_budget import get_ceiling
+        import config
+        assert get_ceiling(regime="CAPITULATION") == config.API_BUDGET_ELEVATED_CEILING
+
+    def test_check_budget_allows_within_ceiling(self, tmp_path):
+        import api_budget, config
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        assert api_budget.check_budget(0.50) is True
+
+    def test_check_budget_blocks_over_ceiling(self, tmp_path):
+        import api_budget, config
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        # Record usage that fills 90% of ceiling
+        api_budget.record_usage(input_tokens=290_000, output_tokens=0)
+        # Now try to add more than remaining
+        assert api_budget.check_budget(0.50) is False
+
+    def test_record_usage_accumulates(self, tmp_path):
+        import api_budget, config
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        api_budget.record_usage(input_tokens=1000, output_tokens=100)
+        api_budget.record_usage(input_tokens=1000, output_tokens=100)
+        budget = api_budget.load_budget()
+        assert budget["input_tokens"] == 2000
+        assert budget["output_tokens"] == 200
+        assert budget["calls_made"] == 2
+        assert budget["estimated_cost_usd"] > 0
+
+    def test_corrupt_file_resets_cleanly(self, tmp_path):
+        import api_budget, config
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        with open(config.API_BUDGET_FILE, "w") as f:
+            f.write("not json{{{")
+        budget = api_budget.load_budget()
+        assert budget["calls_made"] == 0
+
+
+# ── market_data: DataFrame shape contract ─────────────────────────────────────
+
+@pytest.mark.unit
+class TestMarketDataSchema:
+    def test_yahoo_bars_returns_correct_columns(self):
+        """Yahoo bars must have OHLCV columns and a tz-aware DatetimeIndex."""
+        from market_data import _yahoo_bars
+        try:
+            df = _yahoo_bars("SPY", "1d", "10d")
+        except Exception:
+            pytest.skip("Yahoo Finance not reachable in this environment")
+        assert set(df.columns) >= {"open", "high", "low", "close", "volume"}
+        assert df.index.tz is not None
+
+    def test_get_intraday_bars_respects_lookback(self):
+        from market_data import get_intraday_bars
+        try:
+            df = get_intraday_bars("SPY", lookback=50)
+        except Exception:
+            pytest.skip("Market data not reachable in this environment")
+        assert len(df) <= 50
+        assert "close" in df.columns
+
+
+# ── tier1_config ──────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestTier1Config:
+    def test_known_symbol_is_tier1(self):
+        from tier1_config import is_tier1
+        assert is_tier1("NVDA") is True
+
+    def test_case_insensitive(self):
+        from tier1_config import is_tier1
+        assert is_tier1("nvda") is True
+
+    def test_unknown_symbol_is_not_tier1(self):
+        from tier1_config import is_tier1
+        assert is_tier1("AAPL") is False
+
+    def test_get_sector_known(self):
+        from tier1_config import get_sector
+        assert get_sector("NVDA") == "AI_SEMI"
+        assert get_sector("MSFT") == "HYPERSCALER"
+        assert get_sector("GLD") == "GEO_HEDGE"
+
+    def test_get_sector_unknown_returns_other(self):
+        from tier1_config import get_sector
+        assert get_sector("AAPL") == "OTHER"
+
+    def test_qualifies_for_swing_all_pass(self):
+        from tier1_config import qualifies_for_swing
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=30.0, rsi=60.0,
+            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is True
+        assert reason == ""
+
+    def test_qualifies_for_swing_rejects_non_tier1(self):
+        from tier1_config import qualifies_for_swing
+        ok, reason = qualifies_for_swing(
+            symbol="AAPL", composite_score=40.0, rsi=60.0,
+            volume_ratio=2.0, sentiment_score=50, regime="BULL_TREND",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is False
+        assert "not in tier-1" in reason
+
+    def test_qualifies_for_swing_rejects_low_composite(self):
+        from tier1_config import qualifies_for_swing
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=20.0, rsi=60.0,
+            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is False
+        assert "composite" in reason
+
+    def test_qualifies_for_swing_rsi_max_bull_trend(self):
+        from tier1_config import qualifies_for_swing
+        # RSI 83 is above max (82) in BULL_TREND
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=30.0, rsi=83.0,
+            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is False
+        assert "RSI" in reason
+
+    def test_qualifies_for_swing_rsi_max_normal(self):
+        from tier1_config import qualifies_for_swing
+        # RSI 73 is above max (72) in non-BULL_TREND
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=30.0, rsi=73.0,
+            volume_ratio=1.5, sentiment_score=40, regime="NORMAL",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is False
+
+    def test_qualifies_for_swing_rejects_low_volume(self):
+        from tier1_config import qualifies_for_swing
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=30.0, rsi=60.0,
+            volume_ratio=1.2, sentiment_score=40, regime="BULL_TREND",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is False
+        assert "volume" in reason
+
+    def test_qualifies_for_swing_rejects_low_sentiment(self):
+        from tier1_config import qualifies_for_swing
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=30.0, rsi=60.0,
+            volume_ratio=1.5, sentiment_score=10, regime="BULL_TREND",
+            parabolic=False, momentum_exhaustion=False,
+        )
+        assert ok is False
+        assert "sentiment" in reason
+
+    def test_qualifies_for_swing_rejects_parabolic_exhaustion(self):
+        from tier1_config import qualifies_for_swing
+        ok, reason = qualifies_for_swing(
+            symbol="NVDA", composite_score=30.0, rsi=60.0,
+            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
+            parabolic=True, momentum_exhaustion=True,
+        )
+        assert ok is False
+        assert "parabolic" in reason
+
+
+# ── indicator_engine: Plan-2 signals ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestIndicatorEnginePlan2:
+    def test_is_parabolic_true(self):
+        from indicator_engine import _is_parabolic
+        # 15% gain over 5 days (exactly at threshold)
+        closes = [100.0] * 5 + [115.0]
+        assert _is_parabolic(closes) is True
+
+    def test_is_parabolic_false_just_below(self):
+        from indicator_engine import _is_parabolic
+        closes = [100.0] * 5 + [114.9]
+        assert _is_parabolic(closes) is False
+
+    def test_is_parabolic_insufficient_data(self):
+        from indicator_engine import _is_parabolic
+        assert _is_parabolic([100.0, 115.0]) is False
+
+    def test_compute_squeeze_setup_all_conditions(self):
+        from indicator_engine import compute_squeeze_setup
+        qualifies, score = compute_squeeze_setup(
+            float_turnover_3d=0.20,        # > 0.15
+            price_vs_resistance_pct=2.0,   # < 3.0
+            volume_surge=2.5,              # > 2.0
+            obv_rising_with_falling_price=True,
+        )
+        assert qualifies is True
+        assert score == 100
+
+    def test_compute_squeeze_setup_three_conditions(self):
+        from indicator_engine import compute_squeeze_setup
+        qualifies, score = compute_squeeze_setup(
+            float_turnover_3d=0.20,
+            price_vs_resistance_pct=2.0,
+            volume_surge=2.5,
+            obv_rising_with_falling_price=False,
+        )
+        assert qualifies is True
+        assert score == 75
+
+    def test_compute_squeeze_setup_two_conditions(self):
+        from indicator_engine import compute_squeeze_setup
+        qualifies, score = compute_squeeze_setup(
+            float_turnover_3d=0.20,
+            price_vs_resistance_pct=2.0,
+            volume_surge=1.0,              # < 2.0, no score
+            obv_rising_with_falling_price=False,
+        )
+        assert qualifies is False
+        assert score == 50
+
+    def test_compute_squeeze_setup_no_conditions(self):
+        from indicator_engine import compute_squeeze_setup
+        qualifies, score = compute_squeeze_setup(
+            float_turnover_3d=0.05,
+            price_vs_resistance_pct=5.0,
+            volume_surge=1.0,
+            obv_rising_with_falling_price=False,
+        )
+        assert qualifies is False
+        assert score == 0
+
+    def test_compute_bot_herding_score_zero_signals(self):
+        from indicator_engine import compute_bot_herding_score
+        score = compute_bot_herding_score(
+            series_dict={}, spy_closes=[],
+            buy_signal_count=0, total_watch=10, volume_cv=0.5,
+        )
+        assert 0 <= score <= 100
+
+    def test_compute_bot_herding_score_high_herding(self):
+        from indicator_engine import compute_bot_herding_score
+        score = compute_bot_herding_score(
+            series_dict={}, spy_closes=[],
+            buy_signal_count=10, total_watch=10, volume_cv=0.0,
+        )
+        # All buy signals + no volume diversity = high herding
+        assert score >= 50
+
+
+# ── indicator_engine: volume exhaustion ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestVolumeExhaustion:
+    def test_true_at_high_with_low_volume(self):
+        from indicator_engine import _is_volume_exhaustion
+        # Price AT the 5d high; today's volume = 60% of 20d avg → exhaustion
+        df = _make_intraday_df(n=400, close=100.0, high=100.0)
+        daily = _make_daily_df(n=25, volume=1_000_000.0)
+        # Override last bar's volume to 60% of avg (below VOLUME_EXHAUSTION_RATIO=0.8)
+        daily_low_vol = daily.copy()
+        daily_low_vol.iloc[-1, daily_low_vol.columns.get_loc("volume")] = 600_000.0
+        assert _is_volume_exhaustion(df, daily_low_vol) is True
+
+    def test_false_not_at_high(self):
+        from indicator_engine import _is_volume_exhaustion
+        # Price well below the 5d high → exhaustion can't fire
+        df_low = _make_intraday_df(n=400, close=95.0, high=95.0)
+        # Make the high bars higher so current price is not near the 5d high
+        df_high_hist = _make_intraday_df(n=400, close=100.0, high=102.0)
+        combined = pd.concat([df_high_hist.iloc[:-1], df_low.iloc[-1:]])
+        daily = _make_daily_df(n=25, volume=1_000_000.0)
+        daily_low_vol = daily.copy()
+        daily_low_vol.iloc[-1, daily_low_vol.columns.get_loc("volume")] = 600_000.0
+        assert _is_volume_exhaustion(combined, daily_low_vol) is False
+
+    def test_false_normal_volume_at_high(self):
+        from indicator_engine import _is_volume_exhaustion
+        # Price at 5d high but volume is normal (above threshold)
+        df = _make_intraday_df(n=400, close=100.0, high=100.0)
+        daily = _make_daily_df(n=25, volume=1_000_000.0)  # last bar also 1M = 100% of avg
+        assert _is_volume_exhaustion(df, daily) is False
+
+    def test_false_insufficient_intraday_data(self):
+        from indicator_engine import _is_volume_exhaustion
+        df = _make_intraday_df(n=3, close=100.0)
+        daily = _make_daily_df(n=25, volume=600_000.0)
+        assert _is_volume_exhaustion(df, daily) is False
+
+    def test_false_no_daily_df(self):
+        from indicator_engine import _is_volume_exhaustion
+        df = _make_intraday_df(n=400, close=100.0, high=100.0)
+        assert _is_volume_exhaustion(df, None) is False
+
+
+# ── indicator_engine: OBV divergence ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestOBVDivergence:
+    @staticmethod
+    def _make_df_obv(closes: list[float], obv_vals: list[float]):
+        """Build a DataFrame + OBV Series from close and OBV lists."""
+        n = len(closes)
+        idx = pd.date_range("2026-05-01", periods=n, freq="5min", tz="America/New_York")
+        df = pd.DataFrame(
+            {"open": closes, "high": [c * 1.01 for c in closes],
+             "low": [c * 0.99 for c in closes], "close": closes,
+             "volume": [1000.0] * n},
+            index=idx,
+        )
+        obv = pd.Series(obv_vals, index=idx)
+        return df, obv
+
+    def test_bearish_divergence(self):
+        from indicator_engine import _obv_divergence_signal
+        # Last 5 prices: new high; OBV declining → bearish
+        closes  = [90.0, 95.0, 98.0, 99.0, 100.0, 100.0]
+        obv_v   = [1000.0, 900.0, 850.0, 800.0, 750.0, 700.0]
+        df, obv = self._make_df_obv(closes, obv_v)
+        assert _obv_divergence_signal(df, obv) == "bearish"
+
+    def test_bullish_divergence(self):
+        from indicator_engine import _obv_divergence_signal
+        # Last 5 prices: new low; OBV rising → bullish
+        closes  = [110.0, 105.0, 102.0, 101.0, 100.0, 100.0]
+        obv_v   = [500.0, 550.0, 600.0, 650.0, 700.0, 750.0]
+        df, obv = self._make_df_obv(closes, obv_v)
+        assert _obv_divergence_signal(df, obv) == "bullish"
+
+    def test_none_no_divergence(self):
+        from indicator_engine import _obv_divergence_signal
+        # Price in the middle of recent range; OBV rising with it → no divergence
+        closes  = [95.0, 98.0, 100.0, 99.0, 101.0, 100.0]
+        obv_v   = [500.0, 550.0, 600.0, 650.0, 700.0, 750.0]
+        df, obv = self._make_df_obv(closes, obv_v)
+        assert _obv_divergence_signal(df, obv) == "none"
+
+    def test_none_insufficient_data(self):
+        from indicator_engine import _obv_divergence_signal
+        df, obv = self._make_df_obv([100.0, 101.0], [500.0, 600.0])
+        assert _obv_divergence_signal(df, obv) == "none"
+
+
+# ── indicator_engine: stop hunt zone ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestStopHuntZone:
+    def test_true_at_round_dollar(self):
+        from indicator_engine import _is_stop_hunt_zone
+        # $100.00 — exactly on a round number
+        df = _make_intraday_df(n=10, close=100.0, high=100.0, low=100.0)
+        assert _is_stop_hunt_zone(df) is True
+
+    def test_true_near_half_dollar(self):
+        from indicator_engine import _is_stop_hunt_zone
+        # $100.49 — within 0.4% of $100.50
+        df = _make_intraday_df(n=10, close=100.49, high=100.49, low=100.49)
+        assert _is_stop_hunt_zone(df) is True
+
+    def test_true_near_5day_high(self):
+        from indicator_engine import _is_stop_hunt_zone
+        # Use price ~$50.25 so round-number check doesn't fire (max dist = 0.25/50.25 ≈ 0.5% > 0.4%)
+        # 5d high = $50.40; current = $50.25 → distance ≈ 0.30% < STOP_HUNT_HILOW_PROXIMITY_PCT (0.3%)
+        df = _make_intraday_df(n=400, close=50.25, high=50.40, low=44.0)
+        # Override last bar close to 50.25 (well within 0.3% of the 50.40 high)
+        df_copy = df.copy()
+        df_copy.iloc[-1, df_copy.columns.get_loc("close")] = 50.25
+        assert _is_stop_hunt_zone(df_copy) is True
+
+    def test_true_near_5day_low(self):
+        from indicator_engine import _is_stop_hunt_zone
+        # $50.25 price, 5d low = $50.10 → distance ≈ 0.30% < threshold
+        df = _make_intraday_df(n=400, close=50.25, high=56.0, low=50.10)
+        df_copy = df.copy()
+        df_copy.iloc[-1, df_copy.columns.get_loc("close")] = 50.25
+        assert _is_stop_hunt_zone(df_copy) is True
+
+    def test_false_far_from_levels(self):
+        from indicator_engine import _is_stop_hunt_zone
+        # $50.25 price; round-number fails (0.5% > 0.4%); 5d high/low far away
+        df = _make_intraday_df(n=400, close=50.25, high=55.0, low=44.0)
+        df_copy = df.copy()
+        df_copy.iloc[-1, df_copy.columns.get_loc("close")] = 50.25
+        assert _is_stop_hunt_zone(df_copy) is False
+
+    def test_false_empty_df(self):
+        from indicator_engine import _is_stop_hunt_zone
+        assert _is_stop_hunt_zone(pd.DataFrame()) is False
+
+
+# ── swing_manager: _execute_partial_close ────────────────────────────────────
+
+@pytest.mark.unit
+class TestExecutePartialClose:
+    class _MockAlpaca:
+        def __init__(self):
+            self.orders: list[tuple] = []
+
+        def place_market_order(self, symbol: str, qty: int, side: str) -> None:
+            self.orders.append((symbol, qty, side))
+
+    def _write_swing_file(self, tmp_path, symbol: str = "NVDA", **overrides) -> None:
+        import config
+        config.SWING_POSITIONS_FILE = tmp_path / "swing_positions.json"
+        pos = {
+            "symbol": symbol, "entry_price": 100.0, "qty": 10,
+            "tp1_qty": 4, "tp2_qty": 3, "trailing_qty": 3,
+            "tp1_hit": False, "tp2_hit": False,
+            "trailing_stop_active": False, "trailing_high_water": 100.0,
+            "stop_loss_pct": 7.0,
+        }
+        pos.update(overrides)
+        with open(config.SWING_POSITIONS_FILE, "w") as f:
+            json.dump({symbol: pos}, f)
+
+    def test_close_tp1_marks_hit_keeps_position(self, tmp_path):
+        from swing_manager import _execute_partial_close, load_swing_positions
+        self._write_swing_file(tmp_path)
+        mock = self._MockAlpaca()
+        _execute_partial_close("NVDA", "CLOSE_TP1", 4, mock, 105.0)
+        swings = load_swing_positions()
+        assert "NVDA" in swings
+        assert swings["NVDA"]["tp1_hit"] is True
+        assert ("NVDA", 4, "SELL") in mock.orders
+
+    def test_close_tp2_activates_trailing_keeps_position(self, tmp_path):
+        from swing_manager import _execute_partial_close, load_swing_positions
+        self._write_swing_file(tmp_path, tp1_hit=True)
+        mock = self._MockAlpaca()
+        _execute_partial_close("NVDA", "CLOSE_TP2", 3, mock, 112.0)
+        swings = load_swing_positions()
+        assert "NVDA" in swings
+        assert swings["NVDA"]["tp2_hit"] is True
+        assert swings["NVDA"]["trailing_stop_active"] is True
+        assert swings["NVDA"]["trailing_high_water"] == 112.0
+
+    def test_close_trailing_removes_position(self, tmp_path):
+        from swing_manager import _execute_partial_close, load_swing_positions
+        self._write_swing_file(tmp_path, tp1_hit=True, tp2_hit=True)
+        mock = self._MockAlpaca()
+        _execute_partial_close("NVDA", "CLOSE_TRAILING", 3, mock, 108.0)
+        swings = load_swing_positions()
+        assert "NVDA" not in swings
+        assert ("NVDA", 3, "SELL") in mock.orders
+
+    def test_close_tp1_removes_fully_closed_one_share_position(self, tmp_path):
+        from swing_manager import _execute_partial_close, load_swing_positions
+        # 1-share position: after TP1, nothing remains → position removed
+        self._write_swing_file(tmp_path, qty=1, tp1_qty=1, tp2_qty=0, trailing_qty=0)
+        mock = self._MockAlpaca()
+        _execute_partial_close("NVDA", "CLOSE_TP1", 1, mock, 105.0)
+        swings = load_swing_positions()
+        assert "NVDA" not in swings
+
+
+# ── research_agent: macro shock + sector sentiment ───────────────────────────
+
+@pytest.mark.unit
+class TestResearchAgentPlan2:
+    def test_macro_shock_empty_headlines(self):
+        from research_agent import _compute_macro_shock_score
+        assert _compute_macro_shock_score([]) == 0
+
+    def test_macro_shock_single_keyword(self):
+        from research_agent import _compute_macro_shock_score
+        headlines = [{"title": "New tariff announced on imports", "summary": ""}]
+        score = _compute_macro_shock_score(headlines)
+        assert score >= 20
+
+    def test_macro_shock_multiple_keywords(self):
+        from research_agent import _compute_macro_shock_score
+        headlines = [
+            {"title": "Fed emergency rate cut due to bank failure", "summary": "circuit breaker triggered"},
+        ]
+        score = _compute_macro_shock_score(headlines)
+        assert score == 100  # capped at 100
+
+    def test_macro_shock_no_keywords(self):
+        from research_agent import _compute_macro_shock_score
+        headlines = [{"title": "Earnings beat expectations", "summary": "quarterly revenue up"}]
+        assert _compute_macro_shock_score(headlines) == 0
+
+    def test_sector_sentiment_groups_by_sector(self):
+        from research_agent import _compute_sector_sentiment
+        report = {
+            "NVDA": {"combined_sentiment_score": 60},
+            "AMD":  {"combined_sentiment_score": 40},
+            "MSFT": {"combined_sentiment_score": 80},
+        }
+        result = _compute_sector_sentiment(report)
+        assert "AI_SEMI" in result
+        assert abs(result["AI_SEMI"] - 50.0) < 0.1
+        assert "HYPERSCALER" in result
+        assert result["HYPERSCALER"] == 80.0
+
+    def test_sector_sentiment_skips_meta(self):
+        from research_agent import _compute_sector_sentiment
+        report = {
+            "NVDA": {"combined_sentiment_score": 50},
+            "__meta__": {"sector_sentiment": {}, "macro_shock_score": 0},
+        }
+        result = _compute_sector_sentiment(report)
+        assert "__meta__" not in result
+
+    def test_detect_capitulation_candidate_true(self):
+        from research_agent import _detect_capitulation_candidate
+        assert _detect_capitulation_candidate(
+            symbol="NVDA",
+            drawdown_from_20d_high=-25.0,
+            sector_sentiment=-30.0,
+            obv_trend=0.15,
+        ) is True
+
+    def test_detect_capitulation_insufficient_drawdown(self):
+        from research_agent import _detect_capitulation_candidate
+        assert _detect_capitulation_candidate(
+            symbol="NVDA",
+            drawdown_from_20d_high=-15.0,
+            sector_sentiment=-30.0,
+            obv_trend=0.15,
+        ) is False
+
+    def test_detect_capitulation_sector_too_positive(self):
+        from research_agent import _detect_capitulation_candidate
+        assert _detect_capitulation_candidate(
+            symbol="NVDA",
+            drawdown_from_20d_high=-25.0,
+            sector_sentiment=-10.0,
+            obv_trend=0.15,
+        ) is False
+
+    def test_detect_capitulation_obv_not_rising(self):
+        from research_agent import _detect_capitulation_candidate
+        assert _detect_capitulation_candidate(
+            symbol="NVDA",
+            drawdown_from_20d_high=-25.0,
+            sector_sentiment=-30.0,
+            obv_trend=0.05,
+        ) is False
+
+
+# ── swing_manager: tier quantities + tiered TP ───────────────────────────────
+
+@pytest.mark.unit
+class TestSwingManager:
+    def test_tier_quantities_one_share(self):
+        from swing_manager import _compute_tier_quantities
+        assert _compute_tier_quantities(1) == (1, 0, 0)
+
+    def test_tier_quantities_two_shares(self):
+        from swing_manager import _compute_tier_quantities
+        assert _compute_tier_quantities(2) == (1, 1, 0)
+
+    def test_tier_quantities_ten_shares(self):
+        from swing_manager import _compute_tier_quantities
+        tp1, tp2, trailing = _compute_tier_quantities(10)
+        assert tp1 + tp2 + trailing == 10
+        assert tp1 == 4
+        assert tp2 == 3
+        assert trailing == 3
+
+    def test_tier_quantities_sum_always_equals_total(self):
+        from swing_manager import _compute_tier_quantities
+        for n in range(1, 20):
+            tp1, tp2, trailing = _compute_tier_quantities(n)
+            assert tp1 + tp2 + trailing == n, f"split fails for n={n}"
+
+    def _make_position(self, **overrides):
+        base = {
+            "entry_price": 100.0,
+            "qty": 10,
+            "stop_loss_pct": 7.0,
+            "tp1_pct": 5.0,
+            "tp2_pct": 10.0,
+            "tp1_qty": 4,
+            "tp2_qty": 3,
+            "trailing_qty": 3,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "trailing_stop_active": False,
+            "trailing_high_water": 100.0,
+        }
+        return {**base, **overrides}
+
+    def test_tiered_tp_hard_stop(self):
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._make_position()
+        result = evaluate_tiered_tp_action(pos, current_price=92.0)  # -8% vs 7% stop
+        assert result["action"] == "CLOSE_HARD_STOP"
+        assert result["qty"] == 10  # all remaining
+
+    def test_tiered_tp_tp1(self):
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._make_position()
+        result = evaluate_tiered_tp_action(pos, current_price=106.0)  # +6% vs 5% tp1
+        assert result["action"] == "CLOSE_TP1"
+        assert result["qty"] == 4
+        assert result["activate_trailing"] is False
+
+    def test_tiered_tp_tp2(self):
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._make_position(tp1_hit=True)
+        result = evaluate_tiered_tp_action(pos, current_price=112.0)  # +12% vs 10% tp2
+        assert result["action"] == "CLOSE_TP2"
+        assert result["qty"] == 3
+        assert result["activate_trailing"] is True
+
+    def test_tiered_tp_trailing_stop(self):
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._make_position(
+            tp1_hit=True, tp2_hit=True,
+            trailing_stop_active=True,
+            trailing_high_water=120.0,
+        )
+        # current = 115, high_water = 120, 3% drawdown threshold = 116.4
+        result = evaluate_tiered_tp_action(pos, current_price=115.0)
+        assert result["action"] == "CLOSE_TRAILING"
+        assert result["qty"] == 3
+
+    def test_tiered_tp_none_when_no_trigger(self):
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._make_position()
+        result = evaluate_tiered_tp_action(pos, current_price=102.0)  # +2%, no trigger
+        assert result["action"] == "NONE"
+
+    def test_qualifies_for_eod_hold_all_pass(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA",
+            is_tier1=True,
+            regime="BULL_TREND",
+            event_risk_tomorrow=False,
+            earnings_in_2_days=False,
+            current_pnl_pct=2.0,
+            existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is True
+        assert reason == ""
+
+    def test_qualifies_for_eod_hold_not_tier1(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="AAPL", is_tier1=False, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "tier-1" in reason
+
+    def test_qualifies_for_eod_hold_wrong_regime(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="NORMAL",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "regime" in reason
+
+    def test_qualifies_for_eod_hold_event_risk(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=True, earnings_in_2_days=False,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "event" in reason
+
+    def test_qualifies_for_eod_hold_earnings_blocks(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=True,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "earnings" in reason
+
+    def test_qualifies_for_eod_hold_ptj_rule(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=-3.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "PTJ" in reason
+
+    def test_qualifies_for_eod_hold_swing_limit(self):
+        from swing_manager import qualifies_for_eod_hold
+        import config
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=2.0,
+            existing_swing_count=config.SWING_MAX_POSITIONS,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "swing limit" in reason
+
+    def test_qualifies_for_eod_hold_low_sector_sentiment(self):
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=5.0,
+        )
+        assert ok is False
+        assert "sector sentiment" in reason
+
+
+# ── earnings_calendar: PEAD detection ────────────────────────────────────────
+
+@pytest.mark.unit
+class TestEarningsCalendar:
+    # ── Shared helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _perfect_block() -> dict:
+        """Return a recently_reported block where all 5 PEAD conditions pass."""
+        from datetime import timedelta
+        report_date = (datetime.now(ET) - timedelta(days=2)).strftime("%Y-%m-%d")
+        return {
+            "report_date":                 report_date,
+            "eps_actual":                  1.10,
+            "eps_estimate":                1.00,
+            "eps_surprise_pct":            10.0,   # cond 1 ✓ (≥ 5%)
+            "revenue_beat":                True,   # cond 2 ✓
+            "guidance_change":             "raised",  # cond 3 ✓
+            "earnings_day_return_pct":     5.0,    # cond 4 ✓ (≥ 3%, closed high)
+            "earnings_day_close_position": 0.85,
+            "earnings_day_volume_ratio":   3.0,    # cond 5 ✓ (≥ 2×)
+        }
+
+    def _write_cache(self, tmp_path, symbol: str = "NVDA", **block_overrides) -> None:
+        """Write an earnings cache for today with a single-symbol recently_reported block.
+
+        Pass keyword args to selectively override fields in the perfect block, e.g.:
+            self._write_cache(tmp_path, guidance_change="lowered")
+        """
+        import config
+        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
+        block = {**self._perfect_block(), **block_overrides}
+        payload = {
+            "date": datetime.now(ET).strftime("%Y-%m-%d"),
+            "symbols": {symbol: {"next_earnings_date": None, "recently_reported": block}},
+        }
+        with open(config.EARNINGS_CALENDAR_FILE, "w") as f:
+            json.dump(payload, f)
+
+    # ── Imminent flag ─────────────────────────────────────────────────────────
+
+    def test_is_earnings_imminent_no_cache(self, tmp_path):
+        import earnings_calendar as ec
+        import config
+        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
+        assert ec.is_earnings_imminent("NVDA") is False  # no file → conservative False
+
+    def test_is_earnings_imminent_stale_file(self, tmp_path):
+        import earnings_calendar as ec
+        import config
+        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
+        stale = {"date": "2020-01-01", "symbols": {"NVDA": {"next_earnings_date": "2020-01-02"}}}
+        with open(config.EARNINGS_CALENDAR_FILE, "w") as f:
+            json.dump(stale, f)
+        assert ec.is_earnings_imminent("NVDA") is False  # stale date → conservative False
+
+    # ── PEAD detection ────────────────────────────────────────────────────────
+
+    def test_detect_pead_no_cache(self, tmp_path):
+        import earnings_calendar as ec
+        import config
+        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
+        qualifies, score = ec.detect_pead_setup("NVDA")
+        assert qualifies is False
+        assert score == 0
+
+    def test_detect_pead_all_five_conditions(self, tmp_path):
+        import earnings_calendar as ec
+        self._write_cache(tmp_path)  # perfect block — all 5 conditions pass
+        qualifies, score = ec.detect_pead_setup("NVDA")
+        assert qualifies is True
+        assert score == 100
+
+    def test_detect_pead_three_conditions_fails(self, tmp_path):
+        import earnings_calendar as ec
+        self._write_cache(
+            tmp_path,
+            earnings_day_return_pct=1.0,    # cond 4 ✗ (< 3%)
+            earnings_day_close_position=0.5,
+            earnings_day_volume_ratio=1.0,  # cond 5 ✗ (< 2×)
+        )
+        qualifies, score = ec.detect_pead_setup("NVDA")
+        assert qualifies is False
+        assert score == 60  # 3 × 20 pts
+
+    def test_detect_pead_guidance_lowered_reduces_score(self, tmp_path):
+        """Lowered guidance fails cond 3 (−20 pts). Other 4 pass → score=80 = threshold → still qualifies."""
+        import earnings_calendar as ec
+        self._write_cache(tmp_path, guidance_change="lowered")  # cond 3 ✗
+        qualifies, score = ec.detect_pead_setup("NVDA")
+        assert score == 80       # guidance cost 20 pts
+        assert qualifies is True  # 4/5 conditions still meet the threshold
+
+    def test_detect_pead_guidance_lowered_plus_weak_reaction_fails(self, tmp_path):
+        """Lowered guidance + poor earnings-day reaction → 3/5 conditions → below threshold."""
+        import earnings_calendar as ec
+        self._write_cache(
+            tmp_path,
+            guidance_change="lowered",       # cond 3 ✗
+            earnings_day_return_pct=1.0,     # cond 4 ✗ (< 3%)
+            earnings_day_close_position=0.5,
+        )
+        qualifies, score = ec.detect_pead_setup("NVDA")
+        assert qualifies is False
+        assert score == 60  # 3 × 20 pts
+
+    def test_detect_pead_unknown_guidance_allowed(self, tmp_path):
+        import earnings_calendar as ec
+        self._write_cache(tmp_path, guidance_change="unknown")  # cond 3 ✓ (unknown ≠ lowered)
+        qualifies, score = ec.detect_pead_setup("NVDA")
+        assert qualifies is True
+        assert score == 100

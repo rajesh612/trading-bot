@@ -112,10 +112,33 @@ def _clear_pid():
 
 # ── Job wrappers ─────────────────────────────────────────────────────────────
 
-def job_vix_regime():
-    logger.info("━━━ VIX REGIME ━━━")
-    from vix_regime import fetch_vix_regime
-    fetch_vix_regime()
+def job_earnings_calendar():
+    logger.info("━━━ EARNINGS CALENDAR ━━━")
+    from earnings_calendar import refresh_earnings_calendar
+    from tier1_config import TIER1_NAMES
+    watch_list = []
+    if config.WATCH_LIST_FILE.exists():
+        watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
+    symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))
+    refresh_earnings_calendar(symbols)
+
+
+def job_economic_calendar():
+    logger.info("━━━ ECONOMIC CALENDAR ━━━")
+    from economic_calendar import refresh_economic_calendar
+    refresh_economic_calendar()
+
+
+def job_macro_regime():
+    logger.info("━━━ MACRO REGIME ━━━")
+    from macro_regime import fetch_macro_regime
+    fetch_macro_regime()
+
+
+def job_fred_cache():
+    logger.info("━━━ FRED CACHE REFRESH ━━━")
+    from macro_regime import refresh_fred_cache
+    refresh_fred_cache()
 
 
 def job_volatility_screener():
@@ -204,34 +227,39 @@ def job_heartbeat():
 def setup_scheduler():
     kw = dict(day_of_week="mon-fri", timezone=ET)
 
-    scheduler.add_job(job_vix_regime,          CronTrigger(hour=8,  minute=55, **kw), id="vix_regime")
-    scheduler.add_job(job_volatility_screener, CronTrigger(hour=8,  minute=45, **kw), id="volatility_screener")
+    scheduler.add_job(job_earnings_calendar,   CronTrigger(hour=8,  minute=0,  **kw), id="earnings_calendar",   replace_existing=True)
+    scheduler.add_job(job_economic_calendar,   CronTrigger(hour=8,  minute=30, **kw), id="economic_calendar",   replace_existing=True)
+    scheduler.add_job(job_volatility_screener, CronTrigger(hour=8,  minute=45, **kw), id="volatility_screener", replace_existing=True)
+    scheduler.add_job(job_macro_regime,        CronTrigger(hour=8,  minute=55, **kw), id="macro_regime",        replace_existing=True)
     scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list")
-    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close")
-    scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning")
-    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=30, **kw), id="daily_report")
+    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",   replace_existing=True)
+    scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",    replace_existing=True)
+    scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",      replace_existing=True)
+    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=30, **kw), id="daily_report",  replace_existing=True)
 
     # Research once at 9:15 AM — after watch list is built, before first trades
-    scheduler.add_job(job_research, CronTrigger(hour=9, minute=15, **kw), id="research")
+    scheduler.add_job(job_research, CronTrigger(hour=9, minute=15, **kw), id="research", replace_existing=True)
 
-    # Trading every 10 min during market hours — bracket orders + position monitor
-    # handle intra-cycle exits; Claude is only needed for new entry decisions.
+    # Trading every 10 min during market hours
     scheduler.add_job(
         job_trading,
         CronTrigger(minute="*/10", hour="9-15", **kw),
         id="trading",
+        replace_existing=True,
     )
     # Position monitor every 60 seconds — catches SL/TP hits between trading cycles
     scheduler.add_job(
         job_position_monitor,
         CronTrigger(second="0", minute="*", hour="9-15", **kw),
         id="position_monitor",
+        replace_existing=True,
     )
     # Heartbeat every 30 min all day — confirms scheduler is alive
     scheduler.add_job(
         job_heartbeat,
         CronTrigger(minute="*/30", **kw),
         id="heartbeat",
+        replace_existing=True,
     )
 
 
@@ -378,28 +406,42 @@ def _catchup_missed_agents():
 
     logger.info("CATCHUP: checking for missed pre-market agents…")
 
-    # 1. Volatility screener (needed by watch list agent)
+    # 1. Earnings calendar (needed for swing manager EOD hold qualification)
+    if not _file_is_from_today(config.EARNINGS_CALENDAR_FILE):
+        logger.info("CATCHUP: running earnings calendar (earnings_calendar.json is stale)…")
+        job_earnings_calendar()
+    else:
+        logger.info("CATCHUP: earnings calendar already ran today — skipping.")
+
+    # 2. Volatility screener (needed by watch list agent)
     if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
         logger.info("CATCHUP: running volatility screener (daily_tradeable.txt is stale)…")
         job_volatility_screener()
     else:
         logger.info("CATCHUP: volatility screener already ran today — skipping.")
 
-    # 2. VIX regime (needed by trading agent for position sizing)
-    if not _file_is_from_today(config.VIX_REGIME_FILE):
-        logger.info("CATCHUP: running VIX regime (vix_regime.json is stale)…")
-        job_vix_regime()
+    # 2. Economic calendar (needed for event-risk gate)
+    if not _file_is_from_today(config.ECONOMIC_CALENDAR_FILE):
+        logger.info("CATCHUP: running economic calendar (economic_calendar.json is stale)…")
+        job_economic_calendar()
     else:
-        logger.info("CATCHUP: VIX regime already ran today — skipping.")
+        logger.info("CATCHUP: economic calendar already ran today — skipping.")
 
-    # 3. Watch list agent (needed by research + trading agents)
+    # 3. Macro regime (replaces VIX regime — needed by trading agent for position sizing)
+    if not _file_is_from_today(config.MACRO_REGIME_FILE):
+        logger.info("CATCHUP: running macro regime (macro_regime.json is stale)…")
+        job_macro_regime()
+    else:
+        logger.info("CATCHUP: macro regime already ran today — skipping.")
+
+    # 4. Watch list agent (needed by research + trading agents)
     if not _file_is_from_today(config.WATCH_LIST_FILE):
         logger.info("CATCHUP: running watch list agent (watch_list.txt is stale)…")
         job_watch_list()
     else:
         logger.info("CATCHUP: watch list already built today — skipping.")
 
-    # 4. Research agent — run in background thread so it doesn't block the scheduler.
+    # 5. Research agent — run in background thread so it doesn't block the scheduler.
     # Fetching news + 15 Claude calls can take 3-5 minutes; the scheduler must start
     # first so trading cycles don't miss their windows while research is running.
     market_still_open = now.hour < 15 or (now.hour == 15 and now.minute < 50)

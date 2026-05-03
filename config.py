@@ -75,3 +75,67 @@ EMAIL_SENDER       = os.getenv("EMAIL_SENDER", "")
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "")
 EMAIL_RECIPIENT    = os.getenv("EMAIL_RECIPIENT", "")
 DAILY_REPORT_SENT_FILE = BASE_DIR / "daily_report_sent.json"
+
+# ── Plan 1: Regime-Adaptive Foundation ────────────────────────────────────────
+
+# State file paths
+MACRO_REGIME_FILE      = BASE_DIR / "macro_regime.json"
+FRED_CACHE_FILE        = BASE_DIR / "fred_cache.json"
+ECONOMIC_CALENDAR_FILE = BASE_DIR / "economic_calendar.json"
+API_BUDGET_FILE        = BASE_DIR / "api_budget.json"
+SWING_POSITIONS_FILE   = BASE_DIR / "swing_positions.json"
+
+# FRED API (free, optional — bot defaults to modifier=0 if missing)
+FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+
+# Market data provider: yahoo | alpaca | hybrid
+MARKET_DATA_PROVIDER = os.getenv("MARKET_DATA_PROVIDER", "yahoo")
+
+# Polygon (optional — used only by hybrid mode for SPY flash-crash check)
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
+
+# Macro regime thresholds
+MACRO_HEALTH_BULL_THRESHOLD  =  20   # score above this → bullish regimes eligible
+MACRO_HEALTH_BEAR_THRESHOLD  = -20   # score below this → defensive regimes eligible
+CONSECUTIVE_BULL_DAYS        =   3   # consecutive green closes to qualify BULL_TREND
+CONSECUTIVE_BEAR_DAYS        =   3   # consecutive red closes to qualify DEFENSIVE
+CHOPPY_MIN_SIGN_ALTS         =   3   # min sign alternations in last 5 days for CHOPPY
+CHOPPY_MAX_NET_MOVE_PCT      = 0.5   # max |net 5-day SPY move| % to confirm CHOPPY
+
+# API budget (daily spend limits, USD)
+API_BUDGET_NORMAL_CEILING   = 1.00   # normal daily Claude spend cap
+API_BUDGET_ELEVATED_CEILING = 1.50   # elevated cap (CRISIS/CAPITULATION or high-gain day)
+API_BUDGET_WARNING_PCT      = 0.80   # warn at 80% of ceiling
+
+# Entry gate composite-score thresholds (used by Plan 3 pre-filter)
+CHOPPY_COMPOSITE_GATE  = 30   # higher bar to enter in CHOPPY regime
+HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
+
+# Counter-bot signal thresholds (used by Plans 2 + 3)
+BOT_HERD_ALERT_SCORE     = 60   # herding score that triggers position-size reduction
+BOT_HERD_HIGH_SCORE      = 80   # herding score that blocks new entries
+SQUEEZE_CONFIDENCE_GATE  = 70   # min confidence to act on a squeeze setup
+
+# Swing / short-term position limits (enforced by Plan 2 swing_manager)
+SWING_MAX_POSITIONS      = 2    # max concurrent swing positions
+SWING_MAX_DAYS           = 5    # max trading days to hold a swing position
+SHORT_TERM_MAX_POSITIONS = 2    # max concurrent short-term positions
+SHORT_TERM_MAX_DAYS      = 21   # max calendar days to hold a short-term position
+
+# ── Plan 2: Swing & Signals ────────────────────────────────────────────────────
+
+# Earnings calendar
+EARNINGS_CALENDAR_FILE = BASE_DIR / "earnings_calendar.json"
+
+# Counter-bot / parabolic signal thresholds
+PARABOLIC_5DAY_RETURN_PCT     = 15.0   # 5-day return % to flag as parabolic
+VOLUME_EXHAUSTION_RATIO       = 0.8    # vol < this × 20d avg at 5d high → exhaustion
+STOP_HUNT_ROUND_PROXIMITY_PCT = 0.4    # within 0.4% of round number ($X.00 / $X.50)
+STOP_HUNT_HILOW_PROXIMITY_PCT = 0.3    # within 0.3% of 5-day high or low
+
+# PEAD (post-earnings announcement drift) detection thresholds
+PEAD_EPS_SURPRISE_MIN   = 5.0    # ≥ 5% EPS beat required
+PEAD_DAY_RETURN_MIN     = 3.0    # ≥ 3% stock gain on earnings day
+PEAD_CLOSE_POSITION_MIN = 0.7    # closed in upper 30% of day's range
+PEAD_VOLUME_RATIO_MIN   = 2.0    # 2× average volume on earnings day
+PEAD_SCORE_THRESHOLD    = 80     # need 4 of 5 conditions (each = 20 pts)

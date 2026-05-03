@@ -8,10 +8,16 @@ from zoneinfo import ZoneInfo
 
 import anthropic
 
+import api_budget
 import config
 from alpaca_client import AlpacaClient
+from earnings_calendar import detect_pead_setup, is_earnings_imminent
+from economic_calendar import is_event_risk_window
 from indicator_engine import IndicatorValues, compute_indicators
-from vix_regime import load_vix_regime, load_trading_params
+from macro_regime import check_flash_crash, load_macro_regime
+from market_data import get_daily_bars, get_intraday_bars, get_latest_price
+from tier1_config import is_tier1
+from vix_regime import load_trading_params
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -77,6 +83,146 @@ def append_trade(entry: dict):
     journal = _load_json(config.TRADE_JOURNAL_FILE, [])
     journal.append(entry)
     _save_json(config.TRADE_JOURNAL_FILE, journal)
+
+
+# ── Mode routing ─────────────────────────────────────────────────────────────
+
+_HYBRID_REGIMES     = {"BULL_TREND", "OPPORTUNITY"}
+_SHORT_TERM_REGIMES = {"CAPITULATION", "CRASH_RECOVERY"}
+
+_SL_TP_TABLE: dict[tuple[str, str], tuple[float, float]] = {
+    ("DAY_TRADE",  "NORMAL"):              (3.0,  5.0),
+    ("DAY_TRADE",  "CHOPPY"):              (5.0,  6.0),
+    ("DAY_TRADE",  "DEFENSIVE"):           (4.0,  5.0),
+    ("DAY_TRADE",  "BULL_TREND_PARABOLIC"):(3.0,  5.0),
+    ("HYBRID",     "BULL_TREND"):          (7.0, 15.0),
+    ("HYBRID",     "OPPORTUNITY"):         (7.0, 15.0),
+    ("SHORT_TERM", "CAPITULATION"):        (12.0, 20.0),
+    ("SHORT_TERM", "CRASH_RECOVERY"):      (10.0, 18.0),
+    ("PEAD",       "any"):                 (8.0,  8.0),
+}
+
+_MODE_MAX_PCT = {
+    "DAY_TRADE":  0.05,
+    "HYBRID":     0.03,
+    "SHORT_TERM": 0.025,
+    "PEAD":       0.025,
+}
+
+
+def get_active_mode(regime: str, symbol: str | None = None) -> str:
+    """
+    Returns the active trading mode for this regime/symbol combination.
+    PEAD overrides if symbol qualifies and regime is not CRISIS.
+    """
+    if symbol and regime != "CRISIS":
+        pead_ok, _score = detect_pead_setup(symbol)
+        if pead_ok and is_tier1(symbol):
+            return "PEAD"
+    if regime in _HYBRID_REGIMES:
+        return "HYBRID"
+    if regime in _SHORT_TERM_REGIMES:
+        return "SHORT_TERM"
+    if regime == "CRISIS":
+        return "CASH"
+    return "DAY_TRADE"
+
+
+def get_sl_tp_for_mode_and_regime(mode: str, regime: str) -> tuple[float, float]:
+    """Return (stop_loss_pct, take_profit_pct) for the given mode/regime pair."""
+    key = (mode, regime)
+    if key in _SL_TP_TABLE:
+        return _SL_TP_TABLE[key]
+    # Try mode with "any" for PEAD
+    if (mode, "any") in _SL_TP_TABLE:
+        return _SL_TP_TABLE[(mode, "any")]
+    return config.STOP_LOSS_PCT, config.TAKE_PROFIT_PCT
+
+
+def _top_indicators_aligned(iv: IndicatorValues) -> bool:
+    """True if price > VWAP, RSI > 50, and MACD histogram positive."""
+    return (
+        iv.current_price > iv.vwap
+        and iv.rsi > 50
+        and iv.macd_hist > 0
+    )
+
+
+def _prefilter_decision(iv: IndicatorValues) -> str:
+    """
+    Returns AUTO_SKIP | AUTO_BUY | ASK_CLAUDE.
+    AUTO_BUY only when composite > 35 and all top indicators aligned.
+    """
+    if iv.composite_score <= config.COMPOSITE_SCORE_THRESHOLD:
+        return "AUTO_SKIP"
+    if iv.composite_score > 35 and _top_indicators_aligned(iv):
+        return "AUTO_BUY"
+    return "ASK_CLAUDE"
+
+
+def _check_entry_gates(
+    symbol: str,
+    regime: str,
+    mode: str,
+    iv: IndicatorValues,
+) -> tuple[bool, str]:
+    """
+    Priority gates (first match wins — False = block entry):
+    1. Earnings imminent (earnings-safe modes exempt)
+    2. Event risk window (FOMC/NFP)
+    3. Stop-hunt zone
+    4. Bot herding score HIGH (blocks unless squeeze overrides)
+    5. Momentum exhaustion (blocks unless squeeze overrides)
+    """
+    import datetime as _dt
+    now = datetime.now(ET)
+
+    # 1. Earnings imminent
+    earnings_days = 1 if mode not in ("HYBRID", "SHORT_TERM") else 2
+    if mode not in ("CAPITULATION", "PEAD") and is_earnings_imminent(symbol, days=earnings_days):
+        return False, f"earnings within {earnings_days} day(s)"
+
+    # 2. Event risk window
+    event_risk, event_name = is_event_risk_window(now)
+    if event_risk:
+        return False, f"event risk window: {event_name}"
+
+    # 3. Stop-hunt zone
+    if iv.stop_hunt_zone:
+        return False, "stop-hunt zone (round number or 5d hi/lo proximity)"
+
+    # 4. Bot herding — blocks high-herding entries unless squeeze
+    if not iv.squeeze_setup:
+        if iv.bot_herding_score >= config.BOT_HERD_HIGH_SCORE:
+            return False, f"bot herding too high ({iv.bot_herding_score})"
+
+        # 5. Momentum exhaustion — skip when herding present
+        if iv.momentum_exhaustion and iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
+            return False, f"momentum exhaustion + herding ({iv.bot_herding_score})"
+
+    return True, ""
+
+
+def compute_position_size_for_mode(
+    portfolio_value: float,
+    price: float,
+    atr: float,
+    mode: str,
+    bot_herding_score: int,
+    squeeze_setup: bool,
+) -> int:
+    """Risk-based sizing capped by mode's max % of portfolio."""
+    risk_amount   = portfolio_value * config.RISK_PER_TRADE_PCT
+    shares_by_risk = risk_amount / (atr if atr > 0 else price * 0.02)
+    max_pct        = _MODE_MAX_PCT.get(mode, config.MAX_POSITION_PCT)
+    shares_by_pct  = (portfolio_value * max_pct) / price
+    qty = max(1.0, round(min(shares_by_risk, shares_by_pct)))
+
+    # Reduce size when bot herding is elevated (but not squeeze)
+    if not squeeze_setup and bot_herding_score > config.BOT_HERD_ALERT_SCORE:
+        qty = max(1.0, round(qty * 0.70))
+
+    return int(qty)
 
 
 # ── Position sizing ──────────────────────────────────────────────────────────
@@ -148,6 +294,42 @@ def _default_hold(symbol: str) -> dict:
     }
 
 
+def _estimate_batch_call_cost(batch_size: int) -> float:
+    """Quick token-cost estimate for a Claude batch call (Sonnet 4.6 pricing)."""
+    system_prompt_tokens  = 1500
+    strategy_mem_tokens   = 400
+    stock_block_tokens    = 200 * batch_size
+    output_tokens         = 300 * batch_size
+    input_tokens = system_prompt_tokens + strategy_mem_tokens + stock_block_tokens
+    # Cache read assumed for system (after first call)
+    return (
+        input_tokens   * 3.00    / 1_000_000
+        + output_tokens * 15.00  / 1_000_000
+    )
+
+
+def _get_portfolio_intraday_gain() -> float:
+    """Best-effort intraday gain % for budget ceiling decision."""
+    try:
+        alpaca = AlpacaClient()
+        account = alpaca.get_account()
+        last_equity = float(account.last_equity)
+        portfolio   = float(account.portfolio_value)
+        if last_equity > 0:
+            return (portfolio - last_equity) / last_equity * 100
+    except Exception:
+        pass
+    return 0.0
+
+
+def _get_current_regime() -> str:
+    """Best-effort regime read for budget ceiling decision."""
+    try:
+        return load_macro_regime().get("regime", "NORMAL")
+    except Exception:
+        return "NORMAL"
+
+
 def _ask_claude_batch(
     batch: list[tuple[str, IndicatorValues, dict | None]],
     research: dict,
@@ -161,6 +343,14 @@ def _ask_claude_batch(
 
     if _claude_disabled:
         logger.warning(f"Claude disabled ({_claude_disabled_reason}) — HOLD for {symbols}")
+        return {sym: _default_hold(sym) for sym in symbols}
+
+    # Budget check before API call
+    estimated_cost = _estimate_batch_call_cost(len(batch))
+    gain_pct = _get_portfolio_intraday_gain()
+    regime   = _get_current_regime()
+    if not api_budget.check_budget(estimated_cost, gain_pct, regime):
+        logger.warning(f"API budget blocked — HOLD for {symbols}")
         return {sym: _default_hold(sym) for sym in symbols}
 
     stock_blocks = "\n\n".join(
@@ -197,7 +387,7 @@ def _ask_claude_batch(
                 "Prioritise capital preservation. Never hold overnight.\n"
                 f"Current indicator weights: {json.dumps(weights)}"
             ),
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": {"type": "ephemeral", "ttl": "3600"},
         }
     ]
     if strategy_memory:
@@ -205,7 +395,7 @@ def _ask_claude_batch(
             {
                 "type": "text",
                 "text": f"Today's strategy memory:\n{strategy_memory}",
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": {"type": "ephemeral", "ttl": "3600"},
             }
         )
 
@@ -230,6 +420,18 @@ def _ask_claude_batch(
     except Exception as exc:
         logger.error(f"Claude API unexpected error: {type(exc).__name__}: {exc}")
         return {sym: _default_hold(sym) for sym in symbols}
+
+    # Record usage for budget tracking
+    try:
+        usage = response.usage
+        api_budget.record_usage(
+            input_tokens=getattr(usage, "input_tokens", 0),
+            output_tokens=getattr(usage, "output_tokens", 0),
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+        )
+    except Exception:
+        pass
 
     text = response.content[0].text.strip()
     match = re.search(r"\{.*\}", text, re.DOTALL)
@@ -417,6 +619,70 @@ def run_position_monitor():
     save_open_positions(open_positions)
 
 
+# ── Flash crash market monitor (every 5 min) ─────────────────────────────────
+
+def _get_spy_prev_close() -> float:
+    """Get SPY previous daily close via Yahoo Finance."""
+    try:
+        from market_data import get_daily_bars
+        df = get_daily_bars("SPY", days=5)
+        if len(df) >= 2:
+            return float(df["close"].iloc[-2])
+    except Exception:
+        pass
+    return 0.0
+
+
+def _set_crisis_lockout(hours: int = 48) -> None:
+    """Write flash_crash_active=True with flash_crash_until timestamp to macro_regime.json."""
+    import json as _json
+    try:
+        if config.MACRO_REGIME_FILE.exists():
+            with open(config.MACRO_REGIME_FILE) as f:
+                data = _json.load(f)
+        else:
+            data = {}
+        until = (datetime.now(ET) + __import__("datetime").timedelta(hours=hours)).isoformat()
+        data["flash_crash_active"] = True
+        data["flash_crash_until"]  = until
+        data["regime"] = "CRISIS"
+        with open(config.MACRO_REGIME_FILE, "w") as f:
+            _json.dump(data, f, indent=2)
+        logger.critical(f"FLASH CRASH LOCKOUT set — CRISIS regime active until {until}")
+    except Exception as exc:
+        logger.error(f"Could not write flash crash lockout: {exc}")
+
+
+def run_market_monitor() -> None:
+    """
+    Called every 5 min during market hours. Checks for SPY flash crash (≥ -2.5%).
+    On detection: force-closes all positions and sets 48h CRISIS lockout.
+    Cheap — one HTTP call, zero Claude calls.
+    """
+    try:
+        spy_current = get_latest_price("SPY")
+        spy_prev    = _get_spy_prev_close()
+        if spy_prev <= 0:
+            return
+        if check_flash_crash(spy_current, spy_prev):
+            logger.critical(
+                f"FLASH CRASH DETECTED: SPY={spy_current:.2f} vs prev_close={spy_prev:.2f} "
+                f"({(spy_current - spy_prev) / spy_prev * 100:.1f}%)"
+            )
+            force_close_all()
+            # Also close swing positions
+            try:
+                from swing_manager import load_swing_positions, _execute_full_close
+                alpaca = AlpacaClient()
+                for sym, pos in list(load_swing_positions().items()):
+                    _execute_full_close(sym, pos, alpaca, "flash_crash")
+            except Exception as exc:
+                logger.warning(f"run_market_monitor: swing close failed: {exc}")
+            _set_crisis_lockout(hours=48)
+    except Exception as exc:
+        logger.debug(f"run_market_monitor: {exc}")
+
+
 # ── Main trading cycle ────────────────────────────────────────────────────────
 
 def run_trading_cycle():
@@ -435,17 +701,30 @@ def run_trading_cycle():
         logger.warning(f"Daily loss limit hit ({daily_pnl_pct:.2f}%). Halting new entries.")
         return
 
-    # VIX regime + learned trading params
-    regime_info = load_vix_regime()
-    regime = regime_info.get("regime", "NORMAL")
-    params = load_trading_params()
+    # Macro regime + learned trading params
+    regime_info = load_macro_regime()
+    regime      = regime_info.get("regime", "NORMAL")
+    params      = load_trading_params()
 
-    if regime == "CRISIS":
+    # Flash crash lockout check
+    flash_crash_active = regime_info.get("flash_crash_active", False)
+    flash_crash_until  = regime_info.get("flash_crash_until")
+    if flash_crash_active and flash_crash_until:
+        try:
+            until_dt = datetime.fromisoformat(flash_crash_until)
+            if now < until_dt:
+                logger.warning(f"Flash crash lockout active until {flash_crash_until} — no entries.")
+                can_open = False
+            else:
+                flash_crash_active = False
+        except Exception:
+            pass
+
+    if regime == "CRISIS" or flash_crash_active:
         logger.warning(
-            f"CRISIS regime: VIX={regime_info['vix_current']:.1f} rising, "
-            f"SPY={regime_info['spy_change_pct']:+.2f}% — skipping all new entries."
+            f"CRISIS/flash-crash regime: VIX={regime_info.get('vix_current', 0):.1f} | "
+            f"health={regime_info.get('macro_health_score', 0):+d} — skipping all new entries."
         )
-        # Still run the position monitor logic below; just skip new BUYs
         can_open = False
     else:
         can_open = True
@@ -453,20 +732,19 @@ def run_trading_cycle():
     # Time-of-day gate: only open new positions 10 AM – 3 PM ET
     entry_start = now.replace(hour=params["entry_start_hour"], minute=0, second=0, microsecond=0)
     entry_end   = now.replace(hour=params["entry_end_hour"],   minute=0, second=0, microsecond=0)
-    in_entry_window = entry_start <= now < entry_end
-    if not in_entry_window:
+    if not (entry_start <= now < entry_end):
         logger.debug(f"Outside entry window ({params['entry_start_hour']}–{params['entry_end_hour']} ET) — no new entries.")
         can_open = False
 
-    # RSI threshold depends on regime
+    # RSI threshold — still use learned params
     rsi_max = (
-        params["rsi_buy_max_high_vol"] if regime in ("HIGH_VOL", "CRISIS")
+        params["rsi_buy_max_high_vol"] if regime in ("CRISIS", "DEFENSIVE")
         else params["rsi_buy_max"]
     )
 
-    # Position size multiplier (halved in HIGH_VOL / CRISIS)
-    pos_mult = params["high_vol_position_mult"] if regime in ("HIGH_VOL", "CRISIS") else 1.0
-    if regime in ("HIGH_VOL", "CRISIS"):
+    # Position multiplier — DEFENSIVE/CHOPPY use 0.5× sizing
+    pos_mult = params["high_vol_position_mult"] if regime in ("DEFENSIVE", "CHOPPY") else 1.0
+    if regime in ("DEFENSIVE", "CHOPPY"):
         logger.info(f"Regime={regime}: position size ×{pos_mult}, RSI max={rsi_max}")
 
     watch_list = load_watch_list()

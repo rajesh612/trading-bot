@@ -10,6 +10,7 @@ import requests
 import anthropic
 
 import config
+from tier1_config import get_sector
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -206,6 +207,53 @@ def _fetch_x_posts(symbol: str) -> dict:
     except Exception as exc:
         logger.warning(f"X fetch failed for {symbol}: {exc}")
         return {"available": False, "reason": str(exc)}
+
+
+# ── Macro shock + sector analysis ─────────────────────────────────────────────
+
+_MACRO_SHOCK_KEYWORDS = {
+    "tariff": 20, "trade war": 25, "sanction": 20, "war escalation": 30,
+    "fed emergency": 35, "bank failure": 35, "cpi shock": 25, "inflation surge": 20,
+    "recession": 20, "default": 25, "nuclear": 30, "pandemic": 30,
+    "market crash": 30, "circuit breaker": 35,
+}
+
+
+def _compute_macro_shock_score(headlines: list[dict]) -> int:
+    """Keyword-weighted scan of market headlines; capped at 100."""
+    if not headlines:
+        return 0
+    text = " ".join(
+        (h.get("title", "") + " " + h.get("summary", "")).lower()
+        for h in headlines
+    )
+    score = 0
+    for keyword, weight in _MACRO_SHOCK_KEYWORDS.items():
+        if keyword in text:
+            score += weight
+    return min(100, score)
+
+
+def _compute_sector_sentiment(per_stock_report: dict) -> dict:
+    """Group combined_sentiment_score by tier-1 sector; return mean per bucket."""
+    buckets: dict[str, list[float]] = {}
+    for symbol, data in per_stock_report.items():
+        if symbol == "__meta__":
+            continue
+        sector = get_sector(symbol)
+        score = data.get("combined_sentiment_score", data.get("sentiment_score", 0))
+        buckets.setdefault(sector, []).append(float(score))
+    return {s: round(sum(v) / len(v), 1) for s, v in buckets.items() if v}
+
+
+def _detect_capitulation_candidate(
+    symbol: str,
+    drawdown_from_20d_high: float,
+    sector_sentiment: float,
+    obv_trend: float,
+) -> bool:
+    """True if drawdown ≤ -20%, sector sentiment < -20, and OBV rising (> 0.10)."""
+    return drawdown_from_20d_high <= -20.0 and sector_sentiment < -20 and obv_trend > 0.10
 
 
 # ── Claude unified analysis ───────────────────────────────────────────────────
@@ -419,7 +467,37 @@ def run_research_agent(watch_list: list[str]) -> dict:
 
         time.sleep(0.3)
 
-    logger.info("Research report saved.")
+    # ── Write __meta__ block ────────────────────────────────────────────────
+    market_news_for_shock = _fetch_market_news()
+    macro_shock_score  = _compute_macro_shock_score(market_news_for_shock)
+    sector_sentiment   = _compute_sector_sentiment(report)
+
+    # _detect_capitulation_candidate requires drawdown_from_20d_high and obv_trend,
+    # which need intraday bars — data not fetched at research time. Use sentiment as
+    # a conservative proxy: trading_agent refines this with live OBV when it calls
+    # _detect_capitulation_candidate with full indicator data during the trading cycle.
+    capitulation_candidates = []
+    from tier1_config import is_tier1
+    for symbol, data in report.items():
+        if is_tier1(symbol) and data.get("sentiment_score", 0) < -30:
+            capitulation_candidates.append(symbol)
+
+    report["__meta__"] = {
+        "sector_sentiment":      sector_sentiment,
+        "macro_shock_score":     macro_shock_score,
+        "unscheduled_event_risk": macro_shock_score >= 60,
+        "capitulation_candidates": capitulation_candidates,
+        "timestamp":             datetime.now(ET).isoformat(),
+    }
+
+    with open(config.RESEARCH_REPORT_FILE, "w") as f:
+        json.dump(report, f, indent=2)
+
+    logger.info(
+        f"Research report saved. macro_shock={macro_shock_score} | "
+        f"sectors={list(sector_sentiment.keys())} | "
+        f"capitulation_candidates={capitulation_candidates}"
+    )
     return report
 
 

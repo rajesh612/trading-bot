@@ -56,6 +56,15 @@ class IndicatorValues:
     composite_score: float
     signal: str
     confidence: float
+    # Counter-bot / regime signals (Plan 2)
+    parabolic: bool = False              # 5-day return ≥ 15% on daily bars
+    volume_exhaustion: bool = False      # at 5d high + volume < 0.8× 20d avg
+    obv_divergence: str = "none"         # "bearish" | "bullish" | "none"
+    momentum_exhaustion: bool = False    # 2+ of (parabolic, vol_exhaustion, obv=="bearish")
+    bot_herding_score: int = 0           # 0-100; populated at cycle level by trading_agent
+    squeeze_setup: bool = False
+    squeeze_confidence: int = 0          # 0-100
+    stop_hunt_zone: bool = False
 
 
 def _ema(series: pd.Series, period: int) -> pd.Series:
@@ -168,6 +177,142 @@ def _compute_daily_volume_stats(daily_df: pd.DataFrame) -> tuple[float, float, f
     daily_volume_trend = float(np.clip(slope / 0.10, -1.0, 1.0))
 
     return round(daily_volume_ratio, 3), round(daily_volume_trend, 3), round(mean_vol, 0)
+
+
+def _is_parabolic(daily_closes: list[float]) -> bool:
+    """True if 5-day daily return ≥ config.PARABOLIC_5DAY_RETURN_PCT."""
+    if len(daily_closes) < 6:
+        return False
+    ret5d = (daily_closes[-1] - daily_closes[-6]) / daily_closes[-6] * 100
+    return ret5d >= config.PARABOLIC_5DAY_RETURN_PCT
+
+
+def _is_volume_exhaustion(df: pd.DataFrame, daily_df: "pd.DataFrame | None") -> bool:
+    """True if price is at/near 5-day high AND volume < VOLUME_EXHAUSTION_RATIO × 20-day average."""
+    if df is None or len(df) < 5:
+        return False
+    high_5d = df["high"].tail(5 * 78).max()  # ~78 5-min bars per session
+    current_price = float(df["close"].iloc[-1])
+    at_high = current_price >= high_5d * 0.995  # within 0.5%
+    if not at_high:
+        return False
+    if daily_df is None or len(daily_df) < 20:
+        return False
+    avg_vol = daily_df["volume"].tail(20).mean()
+    today_vol = float(daily_df["volume"].iloc[-1]) if len(daily_df) else 0.0
+    return bool(today_vol < avg_vol * config.VOLUME_EXHAUSTION_RATIO)
+
+
+def _obv_divergence_signal(df: pd.DataFrame, obv: pd.Series) -> str:
+    """
+    Bearish divergence: new intraday price high + OBV declining.
+    Bullish divergence: new intraday price low + OBV rising.
+    """
+    if len(df) < 6 or len(obv) < 6:
+        return "none"
+    recent_prices = df["close"].tail(5)
+    recent_obv    = obv.tail(5)
+    price_high = recent_prices.iloc[-1] >= recent_prices.max() * 0.999
+    obv_declining = recent_obv.iloc[-1] < recent_obv.iloc[0]
+    if price_high and obv_declining:
+        return "bearish"
+    price_low = recent_prices.iloc[-1] <= recent_prices.min() * 1.001
+    obv_rising = recent_obv.iloc[-1] > recent_obv.iloc[0]
+    if price_low and obv_rising:
+        return "bullish"
+    return "none"
+
+
+def _is_stop_hunt_zone(df: pd.DataFrame) -> bool:
+    """
+    True if within STOP_HUNT_ROUND_PROXIMITY_PCT of a round number ($X.00 / $X.50)
+    OR within STOP_HUNT_HILOW_PROXIMITY_PCT of the 5-day hi/lo.
+    """
+    if df is None or df.empty:
+        return False
+    price = float(df["close"].iloc[-1])
+    round_pct = config.STOP_HUNT_ROUND_PROXIMITY_PCT / 100
+    hilow_pct = config.STOP_HUNT_HILOW_PROXIMITY_PCT / 100
+    # Round number proximity
+    nearest_round = round(price * 2) / 2  # nearest $0.50
+    if abs(price - nearest_round) / price < round_pct:
+        return True
+    # 5-day high/low proximity
+    hi5 = df["high"].tail(5 * 78).max()
+    lo5 = df["low"].tail(5 * 78).min()
+    if abs(price - hi5) / price < hilow_pct or abs(price - lo5) / price < hilow_pct:
+        return True
+    return False
+
+
+def compute_squeeze_setup(
+    float_turnover_3d: float,
+    price_vs_resistance_pct: float,
+    volume_surge: float,
+    obv_rising_with_falling_price: bool,
+) -> tuple[bool, int]:
+    """
+    4 weighted conditions; threshold = SQUEEZE_CONFIDENCE_GATE (70).
+    Max score per condition caps at 25 (need ≥ 3 signals to reach 70).
+    """
+    score = 0
+    if float_turnover_3d > 0.15:       # 15%+ of float traded in 3 days
+        score += 25
+    if price_vs_resistance_pct < 3.0:  # within 3% of resistance
+        score += 25
+    if volume_surge > 2.0:             # volume > 2× average
+        score += 25
+    if obv_rising_with_falling_price:
+        score += 25
+    from config import SQUEEZE_CONFIDENCE_GATE
+    return score >= SQUEEZE_CONFIDENCE_GATE, score
+
+
+def compute_bot_herding_score(
+    series_dict: dict,
+    spy_closes: list[float],
+    buy_signal_count: int,
+    total_watch: int,
+    volume_cv: float,
+) -> int:
+    """
+    Combine avg correlation vs SPY, fraction of watch list above BUY threshold,
+    and volume coefficient of variation into a 0-100 herding score.
+    """
+    # Fraction of watch list generating BUY signals this bar
+    frac_buying = buy_signal_count / max(total_watch, 1)
+    frac_score = min(40, int(frac_buying * 100))  # 0-40 points
+
+    # High volume CV = diverse individual volume → low herding; low CV = herding
+    vol_score = max(0, min(30, int((1.0 - min(volume_cv, 1.0)) * 30)))
+
+    # Correlation vs SPY among buy candidates (simple proxy)
+    corr_score = 0
+    if spy_closes and series_dict:
+        n_correlated = sum(
+            1 for closes in series_dict.values()
+            if len(closes) >= 5 and len(spy_closes) >= 5
+            and _approx_corr(closes[-5:], spy_closes[-5:]) > 0.85
+        )
+        corr_score = min(30, int(n_correlated / max(len(series_dict), 1) * 60))
+
+    return min(100, frac_score + vol_score + corr_score)
+
+
+def _approx_corr(a: list[float], b: list[float]) -> float:
+    """Fast Pearson correlation for two short equal-length lists."""
+    n = min(len(a), len(b))
+    if n < 3:
+        return 0.0
+    a, b = a[-n:], b[-n:]
+    ma = sum(a) / n
+    mb = sum(b) / n
+    num = sum((a[i] - ma) * (b[i] - mb) for i in range(n))
+    da  = sum((x - ma) ** 2 for x in a) ** 0.5
+    db  = sum((x - mb) ** 2 for x in b) ** 0.5
+    if da == 0 or db == 0:
+        return 0.0
+    return num / (da * db)
 
 
 def _safe(series: pd.Series, fallback: float = 0.0) -> float:
@@ -364,11 +509,39 @@ def compute_indicators(
     weights = load_weights()
     composite_score, signal, confidence = _composite_score(vals, weights)
 
+    # ── New Plan-2 signals ────────────────────────────────────────────────────
+    daily_closes: list[float] = []
+    if daily_df is not None and not daily_df.empty:
+        daily_closes = daily_df["close"].dropna().tolist()
+
+    is_parabolic      = _is_parabolic(daily_closes)
+    vol_exhaustion    = _is_volume_exhaustion(df, daily_df)
+    obv_div           = _obv_divergence_signal(df, obv)
+    stop_hunt         = _is_stop_hunt_zone(df)
+    momentum_exhaust  = sum([is_parabolic, vol_exhaustion, obv_div == "bearish"]) >= 2
+
+    # Squeeze setup using best available proxies from intraday data
+    vol_surge = float(df["volume"].tail(5).mean() / (df["volume"].tail(20).mean() + 1e-9))
+    _squeeze, _squeeze_conf = compute_squeeze_setup(
+        float_turnover_3d=0.0,          # populated by trading_agent with float data
+        price_vs_resistance_pct=abs(price - float(df["high"].tail(5 * 78).max())) / price * 100,
+        volume_surge=vol_surge,
+        obv_rising_with_falling_price=(obv_div == "bullish"),
+    )
+
     return IndicatorValues(
         symbol=symbol,
         timestamp=ts,
         composite_score=composite_score,
         signal=signal,
         confidence=confidence,
+        parabolic=is_parabolic,
+        volume_exhaustion=vol_exhaustion,
+        obv_divergence=obv_div,
+        momentum_exhaustion=momentum_exhaust,
+        bot_herding_score=0,   # set at cycle level by trading_agent
+        squeeze_setup=_squeeze,
+        squeeze_confidence=_squeeze_conf,
+        stop_hunt_zone=stop_hunt,
         **{k: v for k, v in vals.items() if k not in ("obv_trend",)},
     )
