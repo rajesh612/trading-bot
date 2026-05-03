@@ -139,3 +139,17 @@ PEAD_DAY_RETURN_MIN     = 3.0    # ≥ 3% stock gain on earnings day
 PEAD_CLOSE_POSITION_MIN = 0.7    # closed in upper 30% of day's range
 PEAD_VOLUME_RATIO_MIN   = 2.0    # 2× average volume on earnings day
 PEAD_SCORE_THRESHOLD    = 80     # need 4 of 5 conditions (each = 20 pts)
+
+# ── Claude token optimization ─────────────────────────────────────────────────
+
+# Research agent: StockTwits pre-filter (skips Claude when sentiment is unambiguous
+# AND there is no stock-specific news that could override the social signal)
+STOCKTWITS_MIN_TAGGED      = 15   # min tagged messages to trust bullish_pct
+QUICK_SENTIMENT_BULL_PCT   = 70   # bullish_pct ≥ this → rule-based BULLISH, skip Claude
+QUICK_SENTIMENT_BEAR_PCT   = 30   # bullish_pct ≤ this → rule-based BEARISH, skip Claude
+QUICK_SENTIMENT_SCORE_BULL =  55  # combined_sentiment_score assigned to rule-based BULLISH
+QUICK_SENTIMENT_SCORE_BEAR = -55  # combined_sentiment_score assigned to rule-based BEARISH
+
+# Trading agent: auto-approve pre-filter
+# composite > this threshold + VWAP↑ + RSI 50–72 + MACD positive → auto-BUY, skip Claude
+AUTO_BUY_COMPOSITE_THRESHOLD = 35

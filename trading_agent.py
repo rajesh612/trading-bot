@@ -151,11 +151,12 @@ def _top_indicators_aligned(iv: IndicatorValues) -> bool:
 def _prefilter_decision(iv: IndicatorValues) -> str:
     """
     Returns AUTO_SKIP | AUTO_BUY | ASK_CLAUDE.
-    AUTO_BUY only when composite > 35 and all top indicators aligned.
+    AUTO_BUY when composite exceeds the high-confidence threshold and all top
+    indicators are aligned — entry gates still apply in Phase 2 before buy.
     """
     if iv.composite_score <= config.COMPOSITE_SCORE_THRESHOLD:
         return "AUTO_SKIP"
-    if iv.composite_score > 35 and _top_indicators_aligned(iv):
+    if iv.composite_score > config.AUTO_BUY_COMPOSITE_THRESHOLD and _top_indicators_aligned(iv):
         return "AUTO_BUY"
     return "ASK_CLAUDE"
 
@@ -493,6 +494,8 @@ def _close_position(
         "entry_sentiment_score": pos.get("entry_sentiment_score"),
         "claude_reasoning": pos.get("claude_reasoning", ""),
         "indicator_signals_at_entry": pos.get("indicator_signals", {}),
+        "mode_at_entry": pos.get("mode_at_entry"),
+        "regime_at_entry": pos.get("regime_at_entry"),
     })
 
     record_daily_closed(symbol)
@@ -617,6 +620,13 @@ def run_position_monitor():
             _close_position(symbol, alpaca, open_positions, current_price, None, "monitor_take_profit")
 
     save_open_positions(open_positions)
+
+    # ── Swing position tiered TP / trailing stop ──────────────────────────────
+    try:
+        from swing_manager import monitor_swing_positions
+        monitor_swing_positions(alpaca)
+    except Exception as exc:
+        logger.warning(f"Swing position monitor failed: {exc}")
 
 
 # ── Flash crash market monitor (every 5 min) ─────────────────────────────────
@@ -788,7 +798,13 @@ def run_trading_cycle():
     # every 10 min for a HOLD/CLOSE opinion on an already-bracketed position
     # burns tokens without adding value — the view doesn't change that fast.
     # Claude is only needed to validate potential NEW entries.
-    needs_claude: list[tuple[str, IndicatorValues, dict | None]] = []
+    #
+    # AUTO_BUY path: composite > AUTO_BUY_COMPOSITE_THRESHOLD + all top indicators
+    # aligned → skip Claude, use mode-default SL/TP.  Entry gates still run to
+    # block earnings, event-risk, stop-hunt, and bot-herding scenarios.
+    needs_claude:      list[tuple[str, IndicatorValues, dict | None]] = []
+    auto_buy_decisions: dict[str, dict] = {}
+
     for symbol, iv, existing_pos in stock_data:
         if existing_pos:
             pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
@@ -796,15 +812,42 @@ def run_trading_cycle():
                 f"BRACKET-MANAGED {symbol}: P&L={pnl_pct:+.2f}%, "
                 f"composite={iv.composite_score:+.1f} — Alpaca bracket active, skipping Claude"
             )
-        elif iv.composite_score > config.COMPOSITE_SCORE_THRESHOLD:
-            needs_claude.append((symbol, iv, None))
         else:
-            logger.info(
-                f"SKIP-CLAUDE {symbol}: composite={iv.composite_score:+.1f} — no position, below entry threshold"
-            )
+            path = _prefilter_decision(iv)
+            if path == "AUTO_BUY":
+                mode = get_active_mode(regime, symbol)
+                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv)
+                if gate_ok:
+                    sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
+                    auto_buy_decisions[symbol] = {
+                        "action": "BUY",
+                        "confidence": 75,
+                        "reasoning": (
+                            f"Auto-approved: composite={iv.composite_score:+.1f} "
+                            f"with VWAP↑ RSI={iv.rsi:.0f} MACD positive."
+                        ),
+                        "stop_loss_pct": sl_pct,
+                        "take_profit_pct": tp_pct,
+                        "indicator_signals": {
+                            "VWAP": "correct", "RSI": "correct", "MACD": "correct",
+                            "BB": "neutral", "EMA": "correct", "Volume": "neutral",
+                        },
+                    }
+                    logger.info(
+                        f"AUTO-BUY {symbol}: composite={iv.composite_score:+.1f} — "
+                        f"all top indicators aligned, skipping Claude"
+                    )
+                else:
+                    logger.info(f"AUTO-BUY blocked {symbol}: {gate_reason}")
+            elif path == "ASK_CLAUDE":
+                needs_claude.append((symbol, iv, None))
+            else:
+                logger.info(
+                    f"SKIP-CLAUDE {symbol}: composite={iv.composite_score:+.1f} — below entry threshold"
+                )
 
     # ── Phase 3: Batch Claude calls (CLAUDE_BATCH_SIZE stocks per call) ───────
-    decisions: dict[str, dict] = {}
+    decisions: dict[str, dict] = dict(auto_buy_decisions)  # seed with pre-approved entries
     for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
         batch = needs_claude[i : i + config.CLAUDE_BATCH_SIZE]
         batch_decisions = _ask_claude_batch(batch, research, strategy_memory, weights, ai)
@@ -834,10 +877,59 @@ def run_trading_cycle():
                     logger.info(f"SKIP {symbol} — VWAP slope {iv.vwap_slope:.3f}% < {params['vwap_slope_min']}% (downtrend).")
                     continue
 
-                qty = _position_size(portfolio_value, iv.current_price, iv.atr)
-                qty = max(1.0, round(qty * pos_mult))
-                sl_pct = float(decision.get("stop_loss_pct") or config.STOP_LOSS_PCT)
-                tp_pct = float(decision.get("take_profit_pct") or config.TAKE_PROFIT_PCT)
+                # Mode routing: PEAD > regime-based; CASH blocks all entries
+                mode = get_active_mode(regime, symbol)
+                if mode == "CASH":
+                    logger.info(f"SKIP {symbol} — CASH mode (CRISIS regime).")
+                    continue
+
+                # Per-mode concurrent position limits (SHORT_TERM and PEAD are capital-intensive)
+                _mode_limits = {"SHORT_TERM": config.SHORT_TERM_MAX_POSITIONS, "PEAD": config.SHORT_TERM_MAX_POSITIONS}
+                if mode in _mode_limits:
+                    _count = sum(1 for p in open_positions.values() if p.get("mode_at_entry") == mode)
+                    _limit = _mode_limits[mode]
+                    if _count >= _limit:
+                        logger.info(f"SKIP {symbol} — {mode} at position limit ({_count}/{_limit})")
+                        continue
+
+                # Entry gates: earnings, event risk, stop-hunt, bot herding
+                # (For AUTO_BUY these already ran in Phase 2; re-check here is cheap + safe)
+                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv)
+                if not gate_ok:
+                    logger.info(f"SKIP {symbol} — entry gate: {gate_reason}")
+                    continue
+
+                # Effective composite gate — squeeze loosens, herding/choppy tightens
+                if iv.squeeze_setup:
+                    effective_gate = 12
+                elif iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
+                    effective_gate = config.HERD_ENTRY_GATE
+                elif regime == "CHOPPY":
+                    effective_gate = config.CHOPPY_COMPOSITE_GATE
+                else:
+                    effective_gate = config.COMPOSITE_SCORE_THRESHOLD
+                if iv.composite_score < effective_gate:
+                    logger.info(
+                        f"SKIP {symbol} — composite={iv.composite_score:+.1f} "
+                        f"below effective gate {effective_gate} (regime={regime})"
+                    )
+                    continue
+
+                # Position sizing: mode-aware max %, herding reduction, regime multiplier
+                qty = compute_position_size_for_mode(
+                    portfolio_value, iv.current_price, iv.atr, mode,
+                    iv.bot_herding_score, iv.squeeze_setup,
+                )
+                qty = max(1, int(round(qty * pos_mult)))
+
+                # SL/TP: mode/regime defaults, Claude override if provided, squeeze fast-exit
+                sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
+                if decision.get("stop_loss_pct"):
+                    sl_pct = float(decision["stop_loss_pct"])
+                if decision.get("take_profit_pct"):
+                    tp_pct = float(decision["take_profit_pct"])
+                if iv.squeeze_setup and decision.get("confidence", 0) >= config.SQUEEZE_CONFIDENCE_GATE:
+                    sl_pct, tp_pct = 6.0, 5.0  # fast trailing exit for squeeze plays
 
                 # Guard against concurrent cycles (same process multiple threads, or multiple
                 # processes from bot restarts) both seeing an empty slot and both buying.
@@ -871,6 +963,8 @@ def run_trading_cycle():
                     "claude_reasoning": decision.get("reasoning", ""),
                     "indicator_signals": decision.get("indicator_signals", {}),
                     "order_id": order.get("id"),
+                    "mode_at_entry": mode,
+                    "regime_at_entry": regime,
                 }
                 open_positions[symbol] = position_data
                 buying_power -= iv.current_price * qty
@@ -899,13 +993,14 @@ def run_trading_cycle():
                     "stop_loss_price": order["stop_loss_price"],
                     "take_profit_price": order["take_profit_price"],
                     "vix_regime": regime,
+                    "mode_at_entry": mode,
                     "vix_level": regime_info.get("vix_current"),
                     "vwap_slope": iv.vwap_slope,
                     "pnl_pct": None,
                     "pnl_dollar": None,
                 })
                 logger.info(
-                    f"BUY {qty:.0f}x {symbol} @ ~${iv.current_price:.2f} | "
+                    f"BUY {qty:.0f}x {symbol} @ ~${iv.current_price:.2f} | mode={mode} | "
                     f"SL=${order['stop_loss_price']} TP=${order['take_profit_price']} | "
                     f"{decision.get('reasoning', '')}"
                 )
@@ -926,15 +1021,27 @@ def run_trading_cycle():
 # ── End-of-day force close ───────────────────────────────────────────────────
 
 def force_close_all():
-    logger.info("Force-closing all positions @ 3:55 PM ET")
+    logger.info("Force-closing all day-trade positions @ 3:55 PM ET")
     alpaca = AlpacaClient()
 
     # Cancel all open orders first (including any pending bracket legs)
     alpaca.cancel_all_orders()
 
+    # Symbols promoted to overnight swing survive 3:55 PM — swing_manager owns them
+    try:
+        from swing_manager import load_swing_positions
+        swing_symbols = set(load_swing_positions().keys())
+    except Exception:
+        swing_symbols = set()
+    if swing_symbols:
+        logger.info(f"Preserving {len(swing_symbols)} swing position(s): {sorted(swing_symbols)}")
+
     open_positions = load_open_positions()
 
     for symbol, pos in list(open_positions.items()):
+        if symbol in swing_symbols:
+            continue  # promoted to swing — do not journal or close
+
         try:
             price = alpaca.get_latest_price(symbol)
         except Exception:
@@ -961,12 +1068,30 @@ def force_close_all():
             "entry_sentiment_score": pos.get("entry_sentiment_score"),
             "claude_reasoning": pos.get("claude_reasoning", ""),
             "indicator_signals_at_entry": pos.get("indicator_signals", {}),
+            "mode_at_entry": pos.get("mode_at_entry"),
+            "regime_at_entry": pos.get("regime_at_entry"),
         })
         logger.info(f"EOD close {symbol}: P&L={pnl_pct:+.2f}% (${pnl_dollar:+.2f})")
 
-    alpaca.close_all_positions()
-    save_open_positions({})
-    logger.info("All positions force-closed.")
+    # Close only non-swing Alpaca positions (preserves promoted swings)
+    try:
+        alpaca_positions = alpaca.get_positions()
+        for sym in list(alpaca_positions.keys()):
+            if sym not in swing_symbols:
+                try:
+                    alpaca.close_position(sym)
+                except Exception as exc:
+                    logger.warning(f"EOD: could not close {sym} in Alpaca: {exc}")
+    except Exception as exc:
+        logger.warning(f"EOD: get_positions failed: {exc}")
+
+    # Clear local state — swing positions remain in swing_positions.json
+    remaining = {sym: pos for sym, pos in open_positions.items() if sym in swing_symbols}
+    save_open_positions(remaining)
+    logger.info(
+        f"Day-trade positions force-closed. "
+        f"{len(swing_symbols)} swing position(s) preserved."
+    )
 
 
 if __name__ == "__main__":

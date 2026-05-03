@@ -197,6 +197,31 @@ def job_force_close():
     force_close_all()
 
 
+def job_evaluate_eod_holds():
+    logger.info("━━━ SWING EOD EVALUATION ━━━")
+    from swing_manager import evaluate_eod_holds
+    evaluate_eod_holds()
+
+
+def job_swing_gap_check():
+    logger.info("━━━ SWING GAP CHECK ━━━")
+    from swing_manager import run_gap_check
+    from alpaca_client import AlpacaClient
+    run_gap_check(AlpacaClient())
+
+
+def job_market_monitor():
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        return
+    if now.hour < 9 or (now.hour == 9 and now.minute < 30):
+        return
+    if now.hour >= 16:
+        return
+    from trading_agent import run_market_monitor
+    run_market_monitor()
+
+
 def job_learning():
     logger.info("━━━ LEARNING AGENT ━━━")
     from learning_agent import run_learning_agent
@@ -232,10 +257,12 @@ def setup_scheduler():
     scheduler.add_job(job_volatility_screener, CronTrigger(hour=8,  minute=45, **kw), id="volatility_screener", replace_existing=True)
     scheduler.add_job(job_macro_regime,        CronTrigger(hour=8,  minute=55, **kw), id="macro_regime",        replace_existing=True)
     scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list")
-    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",   replace_existing=True)
-    scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",    replace_existing=True)
-    scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",      replace_existing=True)
-    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=30, **kw), id="daily_report",  replace_existing=True)
+    scheduler.add_job(job_swing_gap_check,     CronTrigger(hour=9,  minute=30, **kw), id="swing_gap_check",     replace_existing=True)
+    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True)
+    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True)
+    scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",          replace_existing=True)
+    scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",            replace_existing=True)
+    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=30, **kw), id="daily_report",        replace_existing=True)
 
     # Research once at 9:15 AM — after watch list is built, before first trades
     scheduler.add_job(job_research, CronTrigger(hour=9, minute=15, **kw), id="research", replace_existing=True)
@@ -254,6 +281,13 @@ def setup_scheduler():
         id="position_monitor",
         replace_existing=True,
     )
+    # Flash-crash market monitor every 5 min — one SPY call, no Claude
+    scheduler.add_job(
+        job_market_monitor,
+        CronTrigger(minute="*/5", hour="9-15", **kw),
+        id="market_monitor",
+        replace_existing=True,
+    )
     # Heartbeat every 30 min all day — confirms scheduler is alive
     scheduler.add_job(
         job_heartbeat,
@@ -270,6 +304,8 @@ def _reconcile_positions():
     1. Bracket SL/TP fired → position closed in Alpaca but still in local state.
     2. Bot crashed mid-entry → position open in Alpaca but absent from local state.
     3. Bot starts after 3:55 PM with positions still open → force-close immediately.
+    Swing positions (swing_positions.json) are intentional overnight holds and are
+    always skipped — swing_manager owns them.
     """
     from trading_agent import load_open_positions, save_open_positions, append_trade
     from alpaca_client import AlpacaClient
@@ -282,11 +318,22 @@ def _reconcile_positions():
         now   = datetime.now(ET)
         changed = False
 
+        # Swing positions are held overnight intentionally — skip them in all checks
+        try:
+            from swing_manager import load_swing_positions
+            swing_symbols = set(load_swing_positions().keys())
+        except Exception:
+            swing_symbols = set()
+        if swing_symbols:
+            logger.info(f"RECONCILE: {len(swing_symbols)} swing position(s) active — skipping: {sorted(swing_symbols)}")
+
         # ── 1. In Alpaca but not locally ──────────────────────────────────
         # Bot crashed between placing the order and writing open_positions.json,
         # or the entry was placed but the bot never wrote local state.
         for symbol, ap in alpaca_positions.items():
             if symbol not in local_positions:
+                if symbol in swing_symbols:
+                    continue  # swing hold — swing_manager owns it, not a crash
                 entry_price = float(ap.avg_entry_price)
                 qty         = int(float(ap.qty))
                 logger.warning(
@@ -358,14 +405,16 @@ def _reconcile_positions():
         else:
             logger.info(f"RECONCILE: State updated — {n} position(s) now active.")
 
-        # ── 3. Starting after 3:55 PM ET with open positions ──────────────
+        # ── 3. Starting after 3:55 PM ET with open day-trade positions ──────
         # The scheduled force_close never ran (bot crashed or laptop closed).
-        # Close everything now so we don't hold overnight.
+        # Close non-swing positions now so we don't hold day-trades overnight.
+        # Swing positions are intentional holds — job_force_close already skips them.
         past_force_close = now.hour > 15 or (now.hour == 15 and now.minute >= 55)
-        if past_force_close and local_positions:
+        day_trade_open = {s: p for s, p in local_positions.items() if s not in swing_symbols}
+        if past_force_close and day_trade_open:
             logger.warning(
-                f"RECONCILE: Starting after 3:55 PM with {len(local_positions)} open "
-                "position(s) — force-closing now to avoid overnight hold"
+                f"RECONCILE: Starting after 3:55 PM with {len(day_trade_open)} open "
+                "day-trade position(s) — force-closing now to avoid overnight hold"
             )
             job_force_close()
 

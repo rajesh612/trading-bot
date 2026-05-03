@@ -38,11 +38,11 @@ class AlpacaClient:
         from market_data import get_latest_price
         return get_latest_price(symbol)
 
-    def get_intraday_bars(self, symbol: str, lookback: int = 100) -> pd.DataFrame:
+    def get_intraday_bars(self, symbol: str, lookback: int = config.BARS_LOOKBACK) -> pd.DataFrame:
         from market_data import get_intraday_bars
         return get_intraday_bars(symbol, lookback=lookback)
 
-    def get_daily_bars(self, symbol: str, days: int = 30) -> pd.DataFrame:
+    def get_daily_bars(self, symbol: str, days: int = config.DAILY_BARS_LOOKBACK) -> pd.DataFrame:
         from market_data import get_daily_bars
         return get_daily_bars(symbol, days=days)
 

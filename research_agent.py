@@ -256,6 +256,54 @@ def _detect_capitulation_candidate(
     return drawdown_from_20d_high <= -20.0 and sector_sentiment < -20 and obv_trend > 0.10
 
 
+# ── Rule-based pre-filter (saves Claude tokens for ambiguous cases) ──────────
+
+def _quick_sentiment_result(stocktwits: dict, stock_news: list[dict]) -> dict | None:
+    """
+    Returns a filled analysis dict when StockTwits signal is unambiguous AND there
+    is no stock-specific news that could override social sentiment.  Returns None
+    when Claude is still needed (news present, weak signal, or insufficient data).
+
+    Fires only when:
+      - StockTwits is available with ≥ STOCKTWITS_MIN_TAGGED tagged messages
+      - bullish_pct ≥ QUICK_SENTIMENT_BULL_PCT  →  rule-based BULLISH
+      - bullish_pct ≤ QUICK_SENTIMENT_BEAR_PCT  →  rule-based BEARISH
+      - zero stock-specific news items (news could carry a catalyst that overrides social)
+    """
+    if stock_news:
+        return None  # always ask Claude when news exists — catalyst could flip the signal
+
+    if not stocktwits.get("available"):
+        return None
+
+    tagged = stocktwits.get("bullish_count", 0) + stocktwits.get("bearish_count", 0)
+    bullish_pct = stocktwits.get("bullish_pct")
+
+    if tagged < config.STOCKTWITS_MIN_TAGGED or bullish_pct is None:
+        return None
+
+    if bullish_pct >= config.QUICK_SENTIMENT_BULL_PCT:
+        label, score = "BULLISH", config.QUICK_SENTIMENT_SCORE_BULL
+    elif bullish_pct <= config.QUICK_SENTIMENT_BEAR_PCT:
+        label, score = "BEARISH", config.QUICK_SENTIMENT_SCORE_BEAR
+    else:
+        return None  # ambiguous — ask Claude
+
+    return {
+        "news_sentiment_score":    0,
+        "news_sentiment_label":    "NEUTRAL",
+        "social_sentiment_score":  score,
+        "social_sentiment_label":  label,
+        "combined_sentiment_score": score,
+        "combined_sentiment_label": label,
+        "key_catalyst":   None,
+        "risk_flag":      None,
+        "divergence_alert": None,
+        "summary":   f"Rule-based: StockTwits {bullish_pct}% bullish ({tagged} tagged msgs, no news).",
+        "strategy":  f"Social sentiment strongly {label.lower()} — trade with trend.",
+    }
+
+
 # ── Claude unified analysis ───────────────────────────────────────────────────
 
 def _analyze_stock(
@@ -268,12 +316,15 @@ def _analyze_stock(
     ai: anthropic.Anthropic,
     cached_system: list[dict],
 ) -> dict:
-    news_block = "\n".join(f"- {n['title']}: {n['summary']}" for n in stock_news) or "No specific news."
+    # Cap input size: 3 headlines, 200-char summaries to reduce input tokens
+    news_block = "\n".join(
+        f"- {n['title']}: {n['summary'][:200]}" for n in stock_news[:3]
+    ) or "No specific news."
 
     # StockTwits block
     if stocktwits.get("available"):
         st_snippets = "\n".join(
-            f"  [{s.get('sentiment','?')}] {s['text']}" for s in stocktwits["snippets"][:5]
+            f"  [{s.get('sentiment','?')}] {s['text']}" for s in stocktwits["snippets"][:3]
         )
         st_block = (
             f"StockTwits: {stocktwits['message_count']} messages | "
@@ -310,7 +361,7 @@ def _analyze_stock(
 
     response = ai.messages.create(
         model=config.CLAUDE_MODEL,
-        max_tokens=800,
+        max_tokens=500,
         system=cached_system,
         messages=[
             {
@@ -414,9 +465,17 @@ def run_research_agent(watch_list: list[str]) -> dict:
             reddit_data = _fetch_reddit(symbol)
             x_data      = _fetch_x_posts(symbol)
 
-            analysis = _analyze_stock(
-                symbol, stock_news, market_context_block, stocktwits, reddit_data, x_data, ai, cached_system
-            )
+            quick = _quick_sentiment_result(stocktwits, stock_news)
+            if quick is not None:
+                logger.info(
+                    f"    {symbol}: rule-based sentiment ({quick['combined_sentiment_label']}, "
+                    f"pct={stocktwits.get('bullish_pct')}%) — Claude skipped"
+                )
+                analysis = quick
+            else:
+                analysis = _analyze_stock(
+                    symbol, stock_news, market_context_block, stocktwits, reddit_data, x_data, ai, cached_system
+                )
         except Exception as exc:
             logger.warning(f"  {symbol}: research failed, using neutral defaults — {exc}")
             analysis = {

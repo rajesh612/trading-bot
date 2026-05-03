@@ -1,5 +1,5 @@
 """
-Plan 1 + 2 foundation unit tests. Run with: pytest tests/test_foundation.py -v -m unit
+Plans 1–3 foundation unit tests. Run with: pytest tests/test_foundation.py -v -m unit
 No API calls — all tests use synthetic fixtures.
 """
 import json
@@ -1231,3 +1231,330 @@ class TestEarningsCalendar:
         qualifies, score = ec.detect_pead_setup("NVDA")
         assert qualifies is True
         assert score == 100
+
+
+# ── Plan 3: Mode Routing & Learning ──────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestGetActiveMode:
+    """trading_agent.get_active_mode pure routing logic."""
+
+    def test_bull_trend_returns_hybrid(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("BULL_TREND") == "HYBRID"
+
+    def test_opportunity_returns_hybrid(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("OPPORTUNITY") == "HYBRID"
+
+    def test_capitulation_returns_short_term(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("CAPITULATION") == "SHORT_TERM"
+
+    def test_crash_recovery_returns_short_term(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("CRASH_RECOVERY") == "SHORT_TERM"
+
+    def test_crisis_returns_cash(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("CRISIS") == "CASH"
+
+    def test_normal_returns_day_trade(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("NORMAL") == "DAY_TRADE"
+
+    def test_choppy_returns_day_trade(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("CHOPPY") == "DAY_TRADE"
+
+    def test_defensive_returns_day_trade(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("DEFENSIVE") == "DAY_TRADE"
+
+    def test_unknown_regime_returns_day_trade(self):
+        from trading_agent import get_active_mode
+        assert get_active_mode("SOME_NEW_REGIME") == "DAY_TRADE"
+
+
+@pytest.mark.unit
+class TestGetSlTpForModeAndRegime:
+    """trading_agent.get_sl_tp_for_mode_and_regime table lookups."""
+
+    def test_day_trade_normal(self):
+        from trading_agent import get_sl_tp_for_mode_and_regime
+        sl, tp = get_sl_tp_for_mode_and_regime("DAY_TRADE", "NORMAL")
+        assert sl == 3.0 and tp == 5.0
+
+    def test_day_trade_choppy(self):
+        from trading_agent import get_sl_tp_for_mode_and_regime
+        sl, tp = get_sl_tp_for_mode_and_regime("DAY_TRADE", "CHOPPY")
+        assert sl == 5.0 and tp == 6.0
+
+    def test_hybrid_bull_trend(self):
+        from trading_agent import get_sl_tp_for_mode_and_regime
+        sl, tp = get_sl_tp_for_mode_and_regime("HYBRID", "BULL_TREND")
+        assert sl == 7.0 and tp == 15.0
+
+    def test_short_term_capitulation(self):
+        from trading_agent import get_sl_tp_for_mode_and_regime
+        sl, tp = get_sl_tp_for_mode_and_regime("SHORT_TERM", "CAPITULATION")
+        assert sl == 12.0 and tp == 20.0
+
+    def test_pead_any_regime(self):
+        from trading_agent import get_sl_tp_for_mode_and_regime
+        sl, tp = get_sl_tp_for_mode_and_regime("PEAD", "NORMAL")
+        assert sl == 8.0 and tp == 8.0
+
+    def test_unknown_combo_falls_back_to_config_defaults(self):
+        import config
+        from trading_agent import get_sl_tp_for_mode_and_regime
+        sl, tp = get_sl_tp_for_mode_and_regime("UNKNOWN_MODE", "UNKNOWN_REGIME")
+        assert sl == config.STOP_LOSS_PCT and tp == config.TAKE_PROFIT_PCT
+
+
+@pytest.mark.unit
+class TestComputePositionSizeForMode:
+    """trading_agent.compute_position_size_for_mode sizing logic."""
+
+    def test_day_trade_uses_5pct_cap(self):
+        from trading_agent import compute_position_size_for_mode
+        portfolio = 10_000.0
+        price = 100.0
+        atr = 1.0  # trivially small ATR so risk-based won't cap
+        qty = compute_position_size_for_mode(portfolio, price, atr, "DAY_TRADE", 0, False)
+        # 5% of 10k / $100 = 5 shares
+        assert qty == 5
+
+    def test_hybrid_uses_3pct_cap(self):
+        from trading_agent import compute_position_size_for_mode
+        qty = compute_position_size_for_mode(10_000.0, 100.0, 0.01, "HYBRID", 0, False)
+        # 3% of 10k / $100 = 3 shares
+        assert qty == 3
+
+    def test_short_term_uses_2_5pct_cap(self):
+        from trading_agent import compute_position_size_for_mode
+        qty = compute_position_size_for_mode(10_000.0, 100.0, 0.01, "SHORT_TERM", 0, False)
+        # 2.5% of 10k / $100 = 2.5 → rounds to 2 or 3
+        assert qty in (2, 3)
+
+    def test_herding_reduces_size_by_30pct(self):
+        import config
+        from trading_agent import compute_position_size_for_mode
+        base = compute_position_size_for_mode(10_000.0, 100.0, 0.01, "DAY_TRADE", 0, False)
+        herding = compute_position_size_for_mode(
+            10_000.0, 100.0, 0.01, "DAY_TRADE",
+            config.BOT_HERD_ALERT_SCORE + 1, False
+        )
+        assert herding <= base
+        assert herding >= 1
+
+    def test_squeeze_skips_herding_reduction(self):
+        import config
+        from trading_agent import compute_position_size_for_mode
+        no_squeeze = compute_position_size_for_mode(
+            10_000.0, 100.0, 0.01, "DAY_TRADE",
+            config.BOT_HERD_ALERT_SCORE + 1, False
+        )
+        with_squeeze = compute_position_size_for_mode(
+            10_000.0, 100.0, 0.01, "DAY_TRADE",
+            config.BOT_HERD_ALERT_SCORE + 1, True  # squeeze overrides herding reduction
+        )
+        assert with_squeeze > no_squeeze
+
+    def test_minimum_one_share(self):
+        from trading_agent import compute_position_size_for_mode
+        # Very high price relative to portfolio → floors at 1
+        qty = compute_position_size_for_mode(100.0, 10_000.0, 1.0, "DAY_TRADE", 0, False)
+        assert qty >= 1
+
+
+@pytest.mark.unit
+class TestPrefilterDecision:
+    """trading_agent._prefilter_decision routing."""
+
+    def _make_iv(self, composite, price=100.0, vwap=99.0, rsi=60.0, macd_hist=0.1):
+        """Build a minimal IndicatorValues-like namespace."""
+        import types
+        iv = types.SimpleNamespace(
+            composite_score=composite,
+            current_price=price,
+            vwap=vwap,
+            rsi=rsi,
+            macd_hist=macd_hist,
+        )
+        return iv
+
+    def test_below_threshold_returns_auto_skip(self):
+        import config
+        from trading_agent import _prefilter_decision
+        iv = self._make_iv(config.COMPOSITE_SCORE_THRESHOLD)  # exactly threshold
+        assert _prefilter_decision(iv) == "AUTO_SKIP"
+
+    def test_strong_signal_aligned_returns_auto_buy(self):
+        import config
+        from trading_agent import _prefilter_decision
+        iv = self._make_iv(config.AUTO_BUY_COMPOSITE_THRESHOLD + 1)  # above auto-buy gate
+        assert _prefilter_decision(iv) == "AUTO_BUY"
+
+    def test_above_threshold_misaligned_returns_ask_claude(self):
+        import config
+        from trading_agent import _prefilter_decision
+        # composite above threshold but MACD negative → not aligned
+        iv = self._make_iv(
+            config.AUTO_BUY_COMPOSITE_THRESHOLD + 1,
+            macd_hist=-0.01,
+        )
+        assert _prefilter_decision(iv) == "ASK_CLAUDE"
+
+    def test_moderate_composite_returns_ask_claude(self):
+        import config
+        from trading_agent import _prefilter_decision
+        # composite above base threshold but below AUTO_BUY threshold
+        mid = (config.COMPOSITE_SCORE_THRESHOLD + config.AUTO_BUY_COMPOSITE_THRESHOLD) // 2
+        iv = self._make_iv(mid)
+        assert _prefilter_decision(iv) == "ASK_CLAUDE"
+
+
+@pytest.mark.unit
+class TestClampThreshold:
+    """learning_agent._clamp_threshold hard-bound clamping."""
+
+    def test_within_bounds_unchanged(self):
+        from learning_agent import _clamp_threshold
+        assert _clamp_threshold("stop_loss_pct", 4.0) == 4.0
+
+    def test_below_lower_bound_clamped_up(self):
+        from learning_agent import _clamp_threshold
+        # stop_loss_pct lower bound is 1.5
+        result = _clamp_threshold("stop_loss_pct", 0.5)
+        assert result == 1.5
+
+    def test_above_upper_bound_clamped_down(self):
+        from learning_agent import _clamp_threshold
+        # stop_loss_pct upper bound is 12.0
+        result = _clamp_threshold("stop_loss_pct", 20.0)
+        assert result == 12.0
+
+    def test_integer_key_returns_int(self):
+        from learning_agent import _clamp_threshold
+        # rsi_buy_max bounds: (30, 80) — both int
+        result = _clamp_threshold("rsi_buy_max", 45)
+        assert isinstance(result, int)
+        assert result == 45
+
+    def test_unknown_key_returns_value_unchanged(self):
+        from learning_agent import _clamp_threshold
+        assert _clamp_threshold("nonexistent_key", 99.9) == 99.9
+
+
+@pytest.mark.unit
+class TestAggregateByRegime:
+    """learning_agent._aggregate_by_regime grouping logic."""
+
+    @staticmethod
+    def _make_trade(symbol, pnl_pct, pnl_dollar, regime="NORMAL", mode="DAY_TRADE"):
+        return {
+            "symbol": symbol,
+            "pnl_pct": pnl_pct,
+            "pnl_dollar": pnl_dollar,
+            "regime_at_entry": regime,
+            "mode_at_entry": mode,
+            "close_reason": "monitor_stop_loss",
+            "entry_sentiment_score": 0,
+        }
+
+    def test_groups_by_regime(self):
+        from learning_agent import _aggregate_by_regime
+        trades = [
+            self._make_trade("A", 2.0, 20.0, regime="NORMAL"),
+            self._make_trade("B", -1.0, -10.0, regime="NORMAL"),
+            self._make_trade("C", 3.0, 30.0, regime="CHOPPY"),
+        ]
+        result = _aggregate_by_regime(trades)
+        assert "NORMAL" in result["by_regime"]
+        assert "CHOPPY" in result["by_regime"]
+        assert result["by_regime"]["NORMAL"]["count"] == 2
+        assert result["by_regime"]["CHOPPY"]["count"] == 1
+
+    def test_win_rate_calculation(self):
+        from learning_agent import _aggregate_by_regime
+        trades = [
+            self._make_trade("A",  2.0,  20.0, regime="NORMAL"),
+            self._make_trade("B",  1.0,  10.0, regime="NORMAL"),
+            self._make_trade("C", -1.0, -10.0, regime="NORMAL"),
+        ]
+        result = _aggregate_by_regime(trades)
+        nr = result["by_regime"]["NORMAL"]
+        assert nr["winners"] == 2
+        assert nr["losers"] == 1
+        assert nr["win_rate_pct"] == pytest.approx(66.7, abs=0.1)
+
+    def test_groups_by_mode(self):
+        from learning_agent import _aggregate_by_regime
+        trades = [
+            self._make_trade("A", 1.0, 10.0, mode="DAY_TRADE"),
+            self._make_trade("B", 2.0, 20.0, mode="HYBRID"),
+        ]
+        result = _aggregate_by_regime(trades)
+        assert result["by_mode"]["DAY_TRADE"]["count"] == 1
+        assert result["by_mode"]["HYBRID"]["count"] == 1
+
+    def test_missing_regime_falls_back_to_unknown(self):
+        from learning_agent import _aggregate_by_regime
+        trades = [{"symbol": "X", "pnl_pct": 1.0, "pnl_dollar": 10.0}]
+        result = _aggregate_by_regime(trades)
+        assert "UNKNOWN" in result["by_regime"]
+
+
+@pytest.mark.unit
+class TestClassifyLossSource:
+    """learning_agent._classify_loss_source classification priority."""
+
+    def test_earnings_close_reason(self):
+        from learning_agent import _classify_loss_source
+        trade = {"close_reason": "earnings_gap_down", "pnl_pct": -5.0, "entry_indicators": {}}
+        assert _classify_loss_source(trade) == "earnings_surprise"
+
+    def test_crisis_regime_at_entry(self):
+        from learning_agent import _classify_loss_source
+        trade = {"close_reason": "monitor_stop_loss", "regime_at_entry": "CRISIS",
+                 "pnl_pct": -3.0, "entry_indicators": {}}
+        assert _classify_loss_source(trade) == "market_structure"
+
+    def test_flash_crash_close_reason(self):
+        from learning_agent import _classify_loss_source
+        trade = {"close_reason": "flash_crash", "pnl_pct": -4.0, "entry_indicators": {}}
+        assert _classify_loss_source(trade) == "market_structure"
+
+    def test_momentum_exhaustion_at_entry(self):
+        from learning_agent import _classify_loss_source
+        trade = {
+            "close_reason": "monitor_stop_loss",
+            "regime_at_entry": "NORMAL",
+            "entry_indicators": {"momentum_exhaustion": True},
+            "pnl_pct": -2.0,
+        }
+        assert _classify_loss_source(trade) == "momentum_exhaustion"
+
+    def test_negative_sentiment_sector_narrative(self):
+        from learning_agent import _classify_loss_source
+        trade = {
+            "close_reason": "monitor_stop_loss",
+            "regime_at_entry": "NORMAL",
+            "entry_indicators": {},
+            "entry_sentiment_score": -30,
+            "pnl_pct": -1.5,
+        }
+        assert _classify_loss_source(trade) == "sector_narrative"
+
+    def test_unknown_when_no_signal(self):
+        from learning_agent import _classify_loss_source
+        trade = {
+            "close_reason": "monitor_stop_loss",
+            "regime_at_entry": "NORMAL",
+            "entry_indicators": {},
+            "entry_sentiment_score": 5,
+            "pnl_pct": -1.0,
+        }
+        assert _classify_loss_source(trade) == "unknown"

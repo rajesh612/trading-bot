@@ -49,7 +49,11 @@ def _yahoo_bars(symbol: str, interval: str, period: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def get_intraday_bars(symbol: str, lookback: int = 100, timeframe_min: int = 5) -> pd.DataFrame:
+def get_intraday_bars(
+    symbol: str,
+    lookback: int = config.BARS_LOOKBACK,
+    timeframe_min: int = config.BAR_TIMEFRAME_MINUTES,
+) -> pd.DataFrame:
     """Return up to `lookback` bars of intraday OHLCV with tz-aware DatetimeIndex."""
     provider = config.MARKET_DATA_PROVIDER
     interval = f"{timeframe_min}m"
@@ -67,7 +71,7 @@ def get_intraday_bars(symbol: str, lookback: int = 100, timeframe_min: int = 5) 
     return AlpacaClient().get_intraday_bars(symbol, lookback)
 
 
-def get_daily_bars(symbol: str, days: int = 30) -> pd.DataFrame:
+def get_daily_bars(symbol: str, days: int = config.DAILY_BARS_LOOKBACK) -> pd.DataFrame:
     """Return up to `days` daily OHLCV bars with tz-aware DatetimeIndex."""
     provider = config.MARKET_DATA_PROVIDER
 
