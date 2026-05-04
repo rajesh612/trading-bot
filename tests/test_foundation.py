@@ -1685,3 +1685,25 @@ class TestOrphanOrderDrain:
         client._trading = mock_trading
         client.cancel_order("order-xyz")
         mock_trading.cancel_order_by_id.assert_called_once_with("order-xyz")
+
+
+# ── Flash crash config constant ───────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestFlashCrashConfig:
+    def test_check_flash_crash_uses_config_threshold(self, monkeypatch):
+        import config
+        from macro_regime import check_flash_crash
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -5.0)
+        # -4% drop should NOT trigger when threshold is -5%
+        assert check_flash_crash(spy_current=96.0, spy_prev_close=100.0) is False
+        # -6% drop SHOULD trigger
+        assert check_flash_crash(spy_current=94.0, spy_prev_close=100.0) is True
+
+    def test_load_macro_regime_default_has_candidate_field(self, tmp_path, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
+        assert "flash_crash_candidate" in result
+        assert result["flash_crash_candidate"] is None

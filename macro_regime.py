@@ -349,10 +349,10 @@ def _load_fred_modifier() -> int:
 # ── Flash crash ───────────────────────────────────────────────────────────────
 
 def check_flash_crash(spy_current: float, spy_prev_close: float) -> bool:
-    """Return True if SPY has dropped ≥ 2.5% from previous close intraday."""
+    """Return True if SPY has dropped ≥ FLASH_CRASH_SPY_DROP_PCT from previous close intraday."""
     if spy_prev_close <= 0:
         return False
-    return (spy_current - spy_prev_close) / spy_prev_close * 100 <= -2.5
+    return (spy_current - spy_prev_close) / spy_prev_close * 100 <= config.FLASH_CRASH_SPY_DROP_PCT
 
 
 def _load_bot_net_pnl() -> float:
@@ -539,6 +539,7 @@ def fetch_macro_regime() -> dict:
             "spy_5day_return":         round(spy_5day_return, 2),
             "flash_crash_active":      flash_crash_active,
             "flash_crash_until":       flash_crash_until,
+            "flash_crash_candidate":   None,
             "event_risk_today":        event_risk_today,
             "event_risk_details":      event_risk_details,
             "capitulation_candidates": capitulation_candidates,
@@ -564,6 +565,7 @@ def fetch_macro_regime() -> dict:
             "spy_5day_return":         0.0,
             "flash_crash_active":      False,
             "flash_crash_until":       None,
+            "flash_crash_candidate":   None,
             "event_risk_today":        False,
             "event_risk_details":      "",
             "capitulation_candidates": [],
@@ -601,6 +603,7 @@ def load_macro_regime() -> dict:
         "spy_5day_return": 0.0,
         "flash_crash_active": False,
         "flash_crash_until": None,
+        "flash_crash_candidate": None,
         "event_risk_today": False,
         "event_risk_details": "",
         "capitulation_candidates": [],
