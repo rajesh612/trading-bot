@@ -573,6 +573,7 @@ def _handle_shutdown(signum, frame):
     logger.info("Shutdown signal received — stopping.")
     _clear_pid()
     scheduler.shutdown(wait=False)
+    _reset_bot_health()
     sys.exit(0)
 
 
@@ -580,6 +581,7 @@ def main():
     # Acquire exclusive lock first — exits immediately if another instance is live.
     # This prevents launchd + start.sh races from spawning two bots simultaneously.
     _acquire_instance_lock()
+    _check_crash_loop()
 
     logger.info("Trading Bot initialising…")
 
