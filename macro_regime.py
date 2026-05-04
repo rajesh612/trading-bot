@@ -400,6 +400,25 @@ def _is_post_crisis_recovery() -> bool:
     return False
 
 
+def _evaluate_lockout_recovery(
+    flash_crash_active: bool,
+    flash_crash_until: str | None,
+    vix_current: float,
+    spy_5day_return: float,
+    now: datetime,
+) -> tuple[bool, str | None]:
+    """Return updated (flash_crash_active, flash_crash_until). Pure — no side effects."""
+    if not (flash_crash_active and flash_crash_until):
+        return flash_crash_active, flash_crash_until
+    until_dt = datetime.fromisoformat(flash_crash_until)
+    if now >= until_dt:
+        return False, None
+    if (vix_current < config.FLASH_CRASH_VIX_RECOVERY
+            and spy_5day_return > config.FLASH_CRASH_SPY_RECOVERY_PCT):
+        return False, None
+    return True, flash_crash_until
+
+
 # ── Main orchestration ────────────────────────────────────────────────────────
 
 def fetch_macro_regime() -> dict:
@@ -507,13 +526,17 @@ def fetch_macro_regime() -> dict:
                     prev = json.load(f)
                 flash_crash_active = prev.get("flash_crash_active", False)
                 flash_crash_until  = prev.get("flash_crash_until")
-                if flash_crash_active and flash_crash_until:
-                    until_dt = datetime.fromisoformat(flash_crash_until)
-                    if now < until_dt:
-                        regime = "CRISIS"
-                    else:
-                        flash_crash_active = False
-                        flash_crash_until  = None
+                flash_crash_active, flash_crash_until = _evaluate_lockout_recovery(
+                    flash_crash_active, flash_crash_until, vix_current, spy_5day_return, now
+                )
+                if flash_crash_active:
+                    regime = "CRISIS"
+                    logger.info("Flash crash lockout still active — CRISIS regime carried forward")
+                elif prev.get("flash_crash_active") and not flash_crash_active:
+                    logger.info(
+                        f"Flash crash lockout auto-cleared — "
+                        f"VIX={vix_current:.1f}, SPY5d={spy_5day_return:+.2f}%"
+                    )
         except Exception:
             pass
 

@@ -1825,3 +1825,65 @@ class TestFlashCrashTwoReading:
         data = json.loads((tmp_path / "macro_regime.json").read_text())
         assert data["flash_crash_active"] is True
         assert data["flash_crash_candidate"] is None
+
+
+# ── Auto-clear lockout ────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestEvaluateLockoutRecovery:
+    def _future(self, hours=24):
+        from datetime import timedelta
+        return (datetime.now(ET) + timedelta(hours=hours)).isoformat()
+
+    def _past(self, hours=1):
+        from datetime import timedelta
+        return (datetime.now(ET) - timedelta(hours=hours)).isoformat()
+
+    def test_no_lockout_unchanged(self):
+        from macro_regime import _evaluate_lockout_recovery
+        active, until = _evaluate_lockout_recovery(False, None, 20.0, 1.0, datetime.now(ET))
+        assert active is False
+        assert until is None
+
+    def test_naturally_expired_clears(self):
+        from macro_regime import _evaluate_lockout_recovery
+        active, until = _evaluate_lockout_recovery(
+            True, self._past(1), 50.0, -10.0, datetime.now(ET)
+        )
+        assert active is False
+        assert until is None
+
+    def test_conditions_recovered_clears(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "FLASH_CRASH_VIX_RECOVERY", 35)
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_RECOVERY_PCT", -5.0)
+        from macro_regime import _evaluate_lockout_recovery
+        active, until = _evaluate_lockout_recovery(
+            True, self._future(24), 30.0, -2.0, datetime.now(ET)
+        )
+        assert active is False
+        assert until is None
+
+    def test_vix_still_high_preserves_lockout(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "FLASH_CRASH_VIX_RECOVERY", 35)
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_RECOVERY_PCT", -5.0)
+        from macro_regime import _evaluate_lockout_recovery
+        future = self._future(24)
+        active, until = _evaluate_lockout_recovery(
+            True, future, 42.0, -2.0, datetime.now(ET)
+        )
+        assert active is True
+        assert until == future
+
+    def test_spy_still_weak_preserves_lockout(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "FLASH_CRASH_VIX_RECOVERY", 35)
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_RECOVERY_PCT", -5.0)
+        from macro_regime import _evaluate_lockout_recovery
+        future = self._future(24)
+        active, until = _evaluate_lockout_recovery(
+            True, future, 28.0, -8.0, datetime.now(ET)
+        )
+        assert active is True
+        assert until == future
