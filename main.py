@@ -1,11 +1,12 @@
 import fcntl
+import json
 import logging
 import os
 import signal
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -297,6 +298,55 @@ def setup_scheduler():
     )
 
 
+def _reset_bot_health() -> None:
+    """Write crash_count=0 to bot_health.json. Called on clean shutdown."""
+    try:
+        data = {
+            "crash_count": 0,
+            "window_start": datetime.now(ET).isoformat(),
+            "backoff_until": None,
+        }
+        config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
+    except Exception as exc:
+        logger.warning(f"Could not reset bot_health.json: {exc}")
+
+
+def _check_crash_loop() -> None:
+    """Increment crash counter and sleep CRASH_BACKOFF_MINUTES if loop detected."""
+    now = datetime.now(ET)
+    try:
+        if config.BOT_HEALTH_FILE.exists():
+            data = json.loads(config.BOT_HEALTH_FILE.read_text())
+        else:
+            data = {"crash_count": 0, "window_start": now.isoformat(), "backoff_until": None}
+
+        window_start = datetime.fromisoformat(data.get("window_start", now.isoformat()))
+        if (now - window_start).total_seconds() / 60 > config.CRASH_LOOP_WINDOW_MINUTES:
+            data["crash_count"] = 0
+            data["window_start"] = now.isoformat()
+
+        crash_count = data.get("crash_count", 0)
+        if crash_count == 0:
+            data["window_start"] = now.isoformat()
+        crash_count += 1
+        data["crash_count"] = crash_count
+        config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
+
+        if crash_count >= config.CRASH_LOOP_THRESHOLD:
+            backoff_until = now + timedelta(minutes=config.CRASH_BACKOFF_MINUTES)
+            data["backoff_until"] = backoff_until.isoformat()
+            config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
+            logger.critical(
+                f"CRASH LOOP: {crash_count} crashes in {config.CRASH_LOOP_WINDOW_MINUTES} min "
+                f"— pausing {config.CRASH_BACKOFF_MINUTES} min until "
+                f"{backoff_until.strftime('%H:%M ET')}"
+            )
+            time.sleep((backoff_until - datetime.now(ET)).total_seconds())
+            _reset_bot_health()
+    except Exception as exc:
+        logger.warning(f"Crash loop check failed: {exc}")
+
+
 def _reconcile_positions():
     """Sync local open_positions.json with Alpaca's actual open positions at startup.
 
@@ -404,6 +454,28 @@ def _reconcile_positions():
             logger.info(f"RECONCILE: Positions in sync — {n} open, no discrepancies.")
         else:
             logger.info(f"RECONCILE: State updated — {n} position(s) now active.")
+
+        # ── 4. Orphan BUY order drain ─────────────────────────────────────────
+        # Cancel any open BUY orders left in Alpaca from a crashed trading cycle.
+        # Filled bracket BUY legs have status=filled (not open) — safe to cancel all open BUYs.
+        try:
+            open_buys = alpaca.get_open_buy_orders()
+            cancelled = 0
+            for order in open_buys:
+                try:
+                    alpaca.cancel_order(order["id"])
+                    logger.warning(
+                        f"RECONCILE: Cancelled orphan BUY order {order['id']} for {order['symbol']}"
+                    )
+                    cancelled += 1
+                except Exception as exc:
+                    logger.warning(f"RECONCILE: Could not cancel order {order['id']}: {exc}")
+            if cancelled:
+                logger.info(f"RECONCILE: Drained {cancelled} orphan BUY order(s).")
+            else:
+                logger.info("RECONCILE: No orphan BUY orders found.")
+        except Exception as exc:
+            logger.error(f"RECONCILE: Orphan drain failed — {exc}")
 
         # ── 3. Starting after 3:55 PM ET with open day-trade positions ──────
         # The scheduled force_close never ran (bot crashed or laptop closed).
@@ -523,6 +595,7 @@ def _handle_shutdown(signum, frame):
     logger.info("Shutdown signal received — stopping.")
     _clear_pid()
     scheduler.shutdown(wait=False)
+    _reset_bot_health()
     sys.exit(0)
 
 
@@ -530,6 +603,7 @@ def main():
     # Acquire exclusive lock first — exits immediately if another instance is live.
     # This prevents launchd + start.sh races from spawning two bots simultaneously.
     _acquire_instance_lock()
+    _check_crash_loop()
 
     logger.info("Trading Bot initialising…")
 

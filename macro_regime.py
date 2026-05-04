@@ -349,10 +349,10 @@ def _load_fred_modifier() -> int:
 # ── Flash crash ───────────────────────────────────────────────────────────────
 
 def check_flash_crash(spy_current: float, spy_prev_close: float) -> bool:
-    """Return True if SPY has dropped ≥ 2.5% from previous close intraday."""
+    """Return True if SPY has dropped ≥ FLASH_CRASH_SPY_DROP_PCT from previous close intraday."""
     if spy_prev_close <= 0:
         return False
-    return (spy_current - spy_prev_close) / spy_prev_close * 100 <= -2.5
+    return (spy_current - spy_prev_close) / spy_prev_close * 100 <= config.FLASH_CRASH_SPY_DROP_PCT
 
 
 def _load_bot_net_pnl() -> float:
@@ -398,6 +398,25 @@ def _is_post_crisis_recovery() -> bool:
     except Exception:
         pass
     return False
+
+
+def _evaluate_lockout_recovery(
+    flash_crash_active: bool,
+    flash_crash_until: str | None,
+    vix_current: float,
+    spy_5day_return: float,
+    now: datetime,
+) -> tuple[bool, str | None]:
+    """Return updated (flash_crash_active, flash_crash_until). Pure — no side effects."""
+    if not (flash_crash_active and flash_crash_until):
+        return flash_crash_active, flash_crash_until
+    until_dt = datetime.fromisoformat(flash_crash_until)
+    if now >= until_dt:
+        return False, None
+    if (vix_current < config.FLASH_CRASH_VIX_RECOVERY
+            and spy_5day_return > config.FLASH_CRASH_SPY_RECOVERY_PCT):
+        return False, None
+    return True, flash_crash_until
 
 
 # ── Main orchestration ────────────────────────────────────────────────────────
@@ -507,13 +526,17 @@ def fetch_macro_regime() -> dict:
                     prev = json.load(f)
                 flash_crash_active = prev.get("flash_crash_active", False)
                 flash_crash_until  = prev.get("flash_crash_until")
-                if flash_crash_active and flash_crash_until:
-                    until_dt = datetime.fromisoformat(flash_crash_until)
-                    if now < until_dt:
-                        regime = "CRISIS"
-                    else:
-                        flash_crash_active = False
-                        flash_crash_until  = None
+                flash_crash_active, flash_crash_until = _evaluate_lockout_recovery(
+                    flash_crash_active, flash_crash_until, vix_current, spy_5day_return, now
+                )
+                if flash_crash_active:
+                    regime = "CRISIS"
+                    logger.info("Flash crash lockout still active — CRISIS regime carried forward")
+                elif prev.get("flash_crash_active") and not flash_crash_active:
+                    logger.info(
+                        f"Flash crash lockout auto-cleared — "
+                        f"VIX={vix_current:.1f}, SPY5d={spy_5day_return:+.2f}%"
+                    )
         except Exception:
             pass
 
@@ -539,6 +562,7 @@ def fetch_macro_regime() -> dict:
             "spy_5day_return":         round(spy_5day_return, 2),
             "flash_crash_active":      flash_crash_active,
             "flash_crash_until":       flash_crash_until,
+            "flash_crash_candidate":   None,
             "event_risk_today":        event_risk_today,
             "event_risk_details":      event_risk_details,
             "capitulation_candidates": capitulation_candidates,
@@ -564,6 +588,7 @@ def fetch_macro_regime() -> dict:
             "spy_5day_return":         0.0,
             "flash_crash_active":      False,
             "flash_crash_until":       None,
+            "flash_crash_candidate":   None,
             "event_risk_today":        False,
             "event_risk_details":      "",
             "capitulation_candidates": [],
@@ -601,6 +626,7 @@ def load_macro_regime() -> dict:
         "spy_5day_return": 0.0,
         "flash_crash_active": False,
         "flash_crash_until": None,
+        "flash_crash_candidate": None,
         "event_risk_today": False,
         "event_risk_details": "",
         "capitulation_candidates": [],

@@ -153,3 +153,12 @@ QUICK_SENTIMENT_SCORE_BEAR = -55  # combined_sentiment_score assigned to rule-ba
 # Trading agent: auto-approve pre-filter
 # composite > this threshold + VWAP↑ + RSI 50–72 + MACD positive → auto-BUY, skip Claude
 AUTO_BUY_COMPOSITE_THRESHOLD = 35
+
+# ── Crash Recovery ────────────────────────────────────────────────────────────
+BOT_HEALTH_FILE              = BASE_DIR / "bot_health.json"
+CRASH_LOOP_THRESHOLD         = 3      # restarts within window before backoff triggers
+CRASH_LOOP_WINDOW_MINUTES    = 10     # rolling window for crash counting
+CRASH_BACKOFF_MINUTES        = 30     # pause before resuming after crash loop
+FLASH_CRASH_SPY_DROP_PCT     = -2.5   # replaces hardcoded -2.5 in check_flash_crash()
+FLASH_CRASH_VIX_RECOVERY     = 35     # auto-clear lockout if VIX drops below this
+FLASH_CRASH_SPY_RECOVERY_PCT = -5.0   # auto-clear lockout if SPY 5d return above this
