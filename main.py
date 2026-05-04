@@ -455,6 +455,28 @@ def _reconcile_positions():
         else:
             logger.info(f"RECONCILE: State updated — {n} position(s) now active.")
 
+        # ── 4. Orphan BUY order drain ─────────────────────────────────────────
+        # Cancel any open BUY orders left in Alpaca from a crashed trading cycle.
+        # Filled bracket BUY legs have status=filled (not open) — safe to cancel all open BUYs.
+        try:
+            open_buys = alpaca.get_open_buy_orders()
+            cancelled = 0
+            for order in open_buys:
+                try:
+                    alpaca.cancel_order(order["id"])
+                    logger.warning(
+                        f"RECONCILE: Cancelled orphan BUY order {order['id']} for {order['symbol']}"
+                    )
+                    cancelled += 1
+                except Exception as exc:
+                    logger.warning(f"RECONCILE: Could not cancel order {order['id']}: {exc}")
+            if cancelled:
+                logger.info(f"RECONCILE: Drained {cancelled} orphan BUY order(s).")
+            else:
+                logger.info("RECONCILE: No orphan BUY orders found.")
+        except Exception as exc:
+            logger.error(f"RECONCILE: Orphan drain failed — {exc}")
+
         # ── 3. Starting after 3:55 PM ET with open day-trade positions ──────
         # The scheduled force_close never ran (bot crashed or laptop closed).
         # Close non-swing positions now so we don't hold day-trades overnight.

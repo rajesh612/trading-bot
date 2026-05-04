@@ -112,3 +112,16 @@ class AlpacaClient:
 
     def cancel_all_orders(self) -> None:
         self._trading.cancel_orders()
+
+    def get_open_buy_orders(self) -> list[dict]:
+        """Return all pending BUY orders (free Trading API, all Alpaca tiers)."""
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus, OrderSide
+        orders = self._trading.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, side=OrderSide.BUY)
+        )
+        return [{"id": str(o.id), "symbol": o.symbol} for o in orders]
+
+    def cancel_order(self, order_id: str) -> None:
+        """Cancel a single order by ID."""
+        self._trading.cancel_order_by_id(order_id)

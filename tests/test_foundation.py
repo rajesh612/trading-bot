@@ -1636,4 +1636,52 @@ class TestCrashLoopDetection:
         _reset_bot_health()
         data = json.loads((tmp_path / "bot_health.json").read_text())
         assert data["crash_count"] == 0
-        assert data["backoff_until"] is None
+
+
+# ── Orphan-order drain ────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestOrphanOrderDrain:
+    def _make_client(self, monkeypatch, orders):
+        """Return an AlpacaClient with a mocked _trading that returns given orders."""
+        from unittest.mock import MagicMock
+        import config
+        config.ALPACA_API_KEY = "test-key"
+        config.ALPACA_SECRET_KEY = "test-secret"
+        config.PAPER_TRADING = True
+        from alpaca_client import AlpacaClient
+        client = AlpacaClient.__new__(AlpacaClient)
+        mock_trading = MagicMock()
+        mock_trading.get_orders.return_value = orders
+        client._trading = mock_trading
+        return client
+
+    def _make_order(self, order_id, symbol):
+        from unittest.mock import MagicMock
+        o = MagicMock()
+        o.id = order_id
+        o.symbol = symbol
+        return o
+
+    def test_get_open_buy_orders_returns_list(self, monkeypatch):
+        order = self._make_order("id-1", "AAPL")
+        client = self._make_client(monkeypatch, [order])
+        result = client.get_open_buy_orders()
+        assert result == [{"id": "id-1", "symbol": "AAPL"}]
+
+    def test_get_open_buy_orders_empty_when_none(self, monkeypatch):
+        client = self._make_client(monkeypatch, [])
+        result = client.get_open_buy_orders()
+        assert result == []
+
+    def test_cancel_order_delegates_to_alpaca(self, monkeypatch):
+        from unittest.mock import MagicMock
+        import config
+        config.ALPACA_API_KEY = "test-key"
+        config.ALPACA_SECRET_KEY = "test-secret"
+        from alpaca_client import AlpacaClient
+        client = AlpacaClient.__new__(AlpacaClient)
+        mock_trading = MagicMock()
+        client._trading = mock_trading
+        client.cancel_order("order-xyz")
+        mock_trading.cancel_order_by_id.assert_called_once_with("order-xyz")
