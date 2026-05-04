@@ -235,6 +235,7 @@ trading_bot.log
 launchd_trading_bot.log
 cron_trading_bot.log
 daily_report_sent.json
+bot_health.json
 
 # ── Live trading state (personal data, not for sharing) ──────────────────────
 open_positions.json
