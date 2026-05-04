@@ -15,7 +15,7 @@ from alpaca_client import AlpacaClient
 from earnings_calendar import detect_pead_setup, is_earnings_imminent
 from economic_calendar import is_event_risk_window
 from indicator_engine import IndicatorValues, compute_indicators
-from macro_regime import check_flash_crash, load_macro_regime
+from macro_regime import load_macro_regime
 from market_data import get_daily_bars, get_intraday_bars, get_latest_price
 from tier1_config import is_tier1
 from vix_regime import load_trading_params
@@ -176,7 +176,6 @@ def _check_entry_gates(
     4. Bot herding score HIGH (blocks unless squeeze overrides)
     5. Momentum exhaustion (blocks unless squeeze overrides)
     """
-    import datetime as _dt
     now = datetime.now(ET)
 
     # 1. Earnings imminent

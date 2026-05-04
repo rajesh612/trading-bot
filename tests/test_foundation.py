@@ -1648,7 +1648,6 @@ class TestOrphanOrderDrain:
         import config
         config.ALPACA_API_KEY = "test-key"
         config.ALPACA_SECRET_KEY = "test-secret"
-        config.PAPER_TRADING = True
         from alpaca_client import AlpacaClient
         client = AlpacaClient.__new__(AlpacaClient)
         mock_trading = MagicMock()
