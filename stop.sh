@@ -13,7 +13,8 @@ while IFS= read -r pid; do
         kill -TERM "$pid" 2>/dev/null || true
         KILLED=$((KILLED + 1))
     fi
-done < <(pgrep -f "python3 main\.py" 2>/dev/null || true)
+# Match both "python3 main.py" (Linux) and "Python main.py" (macOS Python.framework)
+done < <(pgrep -f "[Pp]ython.* main\.py" 2>/dev/null || true)
 
 if [ "$KILLED" -gt 0 ]; then
     sleep 2
