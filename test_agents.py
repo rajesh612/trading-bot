@@ -448,52 +448,6 @@ class TestResearchAgent:
 class TestTradingAgent:
 
     @pytest.mark.unit
-    def test_position_sizing_scales_with_atr(self):
-        from trading_agent import _position_size
-        # Use a cheap stock so shares_by_risk (not the % cap) is the binding constraint.
-        # portfolio=$50k, price=$5, MAX_POSITION_PCT=5% → cap = 500 shares
-        # atr=0.10 → shares_by_risk = 500/0.10 = 5000 → capped at 500
-        # atr=1.00 → shares_by_risk = 500/1.00 = 500 → exactly at cap (tie)
-        # Use exaggerated ATR so risk constraint bites before the % cap:
-        # price=$500, cap = 50000*0.05/500 = 5 shares
-        # atr=0.50 → risk_amount=500, shares_by_risk=1000 → capped at 5
-        # Fine — let's just test the formula directly with ATR small enough to be binding:
-        # portfolio=$1_000_000, price=$10, cap=5000 shares
-        # atr=0.10 → shares_by_risk=1_000_000*0.01/0.10 = 100_000 → capped at 5000
-        # So % cap always wins at scale. Test the raw formula instead:
-        portfolio = 10_000.0
-        price = 200.0
-        # cap = 10000*0.05/200 = 2.5 shares → min(shares_by_risk, 2.5) will differ
-        # atr=5.0 → shares_by_risk = 100/5 = 20 → min(20,2.5)=2.5
-        # Use large portfolio where risk constraint dominates:
-        portfolio = 1_000_000.0
-        price = 10.0
-        # cap = 1_000_000*0.05/10 = 5000
-        # atr=0.10 → risk=10_000, shares_by_risk=100_000 → capped at 5000
-        # atr=50.0 → risk=10_000, shares_by_risk=200 → binding (200 < 5000)
-        qty_low_atr  = _position_size(portfolio, price, atr=0.50)   # shares_by_risk=20000 → 5000
-        qty_high_atr = _position_size(portfolio, price, atr=50.0)   # shares_by_risk=200   → 200
-        assert qty_low_atr > qty_high_atr, (
-            f"Expected low-ATR qty ({qty_low_atr}) > high-ATR qty ({qty_high_atr})"
-        )
-
-    @pytest.mark.unit
-    def test_position_size_capped_by_portfolio_pct(self):
-        from trading_agent import _position_size
-        portfolio = 100_000.0
-        price = 10.0
-        atr = 0.01  # tiny ATR would produce huge qty without cap
-        qty = _position_size(portfolio, price, atr)
-        max_allowed = (portfolio * config.MAX_POSITION_PCT) / price
-        assert qty <= max_allowed
-
-    @pytest.mark.unit
-    def test_position_size_minimum_one_share(self):
-        from trading_agent import _position_size
-        qty = _position_size(portfolio_value=1000.0, price=999.0, atr=0.0)
-        assert qty >= 1.0
-
-    @pytest.mark.unit
     def test_open_positions_persistence(self, tmp_path, monkeypatch):
         from trading_agent import save_open_positions, load_open_positions
         pos_file = tmp_path / "open_positions.json"

@@ -226,14 +226,6 @@ def compute_position_size_for_mode(
     return int(qty)
 
 
-# ── Position sizing ──────────────────────────────────────────────────────────
-
-def _position_size(portfolio_value: float, price: float, atr: float) -> float:
-    risk_amount = portfolio_value * config.RISK_PER_TRADE_PCT
-    shares_by_risk = risk_amount / (atr if atr > 0 else price * 0.02)
-    shares_by_pct = (portfolio_value * config.MAX_POSITION_PCT) / price
-    return max(1.0, round(min(shares_by_risk, shares_by_pct)))
-
 
 # ── Claude decision (batched) ────────────────────────────────────────────────
 
