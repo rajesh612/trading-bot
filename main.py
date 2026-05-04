@@ -1,11 +1,12 @@
 import fcntl
+import json
 import logging
 import os
 import signal
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -295,6 +296,55 @@ def setup_scheduler():
         id="heartbeat",
         replace_existing=True,
     )
+
+
+def _reset_bot_health() -> None:
+    """Write crash_count=0 to bot_health.json. Called on clean shutdown."""
+    try:
+        data = {
+            "crash_count": 0,
+            "window_start": datetime.now(ET).isoformat(),
+            "backoff_until": None,
+        }
+        config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
+    except Exception as exc:
+        logger.warning(f"Could not reset bot_health.json: {exc}")
+
+
+def _check_crash_loop() -> None:
+    """Increment crash counter and sleep CRASH_BACKOFF_MINUTES if loop detected."""
+    now = datetime.now(ET)
+    try:
+        if config.BOT_HEALTH_FILE.exists():
+            data = json.loads(config.BOT_HEALTH_FILE.read_text())
+        else:
+            data = {"crash_count": 0, "window_start": now.isoformat(), "backoff_until": None}
+
+        window_start = datetime.fromisoformat(data.get("window_start", now.isoformat()))
+        if (now - window_start).total_seconds() / 60 > config.CRASH_LOOP_WINDOW_MINUTES:
+            data["crash_count"] = 0
+            data["window_start"] = now.isoformat()
+
+        crash_count = data.get("crash_count", 0)
+        if crash_count == 0:
+            data["window_start"] = now.isoformat()
+        crash_count += 1
+        data["crash_count"] = crash_count
+        config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
+
+        if crash_count >= config.CRASH_LOOP_THRESHOLD:
+            backoff_until = now + timedelta(minutes=config.CRASH_BACKOFF_MINUTES)
+            data["backoff_until"] = backoff_until.isoformat()
+            config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
+            logger.critical(
+                f"CRASH LOOP: {crash_count} crashes in {config.CRASH_LOOP_WINDOW_MINUTES} min "
+                f"— pausing {config.CRASH_BACKOFF_MINUTES} min until "
+                f"{backoff_until.strftime('%H:%M ET')}"
+            )
+            time.sleep((backoff_until - datetime.now(ET)).total_seconds())
+            _reset_bot_health()
+    except Exception as exc:
+        logger.warning(f"Crash loop check failed: {exc}")
 
 
 def _reconcile_positions():

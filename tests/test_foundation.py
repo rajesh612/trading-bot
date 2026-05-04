@@ -1558,3 +1558,82 @@ class TestClassifyLossSource:
             "pnl_pct": -1.0,
         }
         assert _classify_loss_source(trade) == "unknown"
+
+
+# ── Crash loop detection ───────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestCrashLoopDetection:
+    def _write_health(self, tmp_path, **overrides):
+        base = {
+            "crash_count": 0,
+            "window_start": datetime.now(ET).isoformat(),
+            "backoff_until": None,
+        }
+        base.update(overrides)
+        (tmp_path / "bot_health.json").write_text(json.dumps(base))
+
+    def test_missing_file_creates_count_of_one(self, tmp_path):
+        import config
+        from main import _check_crash_loop
+        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
+        config.CRASH_LOOP_THRESHOLD = 5
+        config.CRASH_LOOP_WINDOW_MINUTES = 10
+        config.CRASH_BACKOFF_MINUTES = 30
+        _check_crash_loop()
+        data = json.loads((tmp_path / "bot_health.json").read_text())
+        assert data["crash_count"] == 1
+        assert data["backoff_until"] is None
+
+    def test_count_increments_within_window(self, tmp_path):
+        import config
+        from main import _check_crash_loop
+        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
+        config.CRASH_LOOP_THRESHOLD = 5
+        config.CRASH_LOOP_WINDOW_MINUTES = 10
+        config.CRASH_BACKOFF_MINUTES = 30
+        self._write_health(tmp_path, crash_count=2)
+        _check_crash_loop()
+        data = json.loads((tmp_path / "bot_health.json").read_text())
+        assert data["crash_count"] == 3
+        assert data["backoff_until"] is None
+
+    def test_expired_window_resets_before_increment(self, tmp_path):
+        import config
+        from datetime import timedelta
+        from main import _check_crash_loop
+        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
+        config.CRASH_LOOP_THRESHOLD = 5
+        config.CRASH_LOOP_WINDOW_MINUTES = 10
+        config.CRASH_BACKOFF_MINUTES = 30
+        old = (datetime.now(ET) - timedelta(minutes=15)).isoformat()
+        self._write_health(tmp_path, crash_count=4, window_start=old)
+        _check_crash_loop()
+        data = json.loads((tmp_path / "bot_health.json").read_text())
+        assert data["crash_count"] == 1  # reset to 0, then incremented
+
+    def test_threshold_triggers_backoff_then_resets(self, tmp_path, monkeypatch):
+        import config
+        import main as main_mod
+        from main import _check_crash_loop
+        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
+        config.CRASH_LOOP_THRESHOLD = 3
+        config.CRASH_LOOP_WINDOW_MINUTES = 10
+        config.CRASH_BACKOFF_MINUTES = 30
+        monkeypatch.setattr(main_mod.time, "sleep", lambda _: None)
+        self._write_health(tmp_path, crash_count=2)
+        _check_crash_loop()
+        data = json.loads((tmp_path / "bot_health.json").read_text())
+        # After backoff completes, _reset_bot_health() sets count=0
+        assert data["crash_count"] == 0
+        assert data["backoff_until"] is None
+
+    def test_reset_writes_zero_count(self, tmp_path):
+        import config
+        from main import _reset_bot_health
+        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
+        self._write_health(tmp_path, crash_count=5, backoff_until="sometime")
+        _reset_bot_health()
+        data = json.loads((tmp_path / "bot_health.json").read_text())
+        assert data["crash_count"] == 0
+        assert data["backoff_until"] is None
