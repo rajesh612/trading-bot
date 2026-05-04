@@ -126,9 +126,24 @@ The bot is designed to run continuously (overnight, weekends) and recover gracef
 
 - **Single-instance lock** — prevents two bot processes from running simultaneously.
 - **PID + watchdog** — watchdog exits the process if the scheduler freezes; launchd/systemd restarts it.
-- **Position reconciliation at startup** — syncs `open_positions.json` with Alpaca's actual state. Handles bracket fills that happened while offline and crashed mid-entry restores.
+- **Crash loop gate** — `bot_health.json` tracks restart frequency. If the bot crashes ≥ 3 times within 10 minutes, startup pauses 30 minutes before resuming. A clean `stop.sh` resets the counter.
+- **Orphan-order drain** — on every startup, any pending BUY orders left in Alpaca from a crashed cycle are cancelled before the trading cycle resumes. Prevents duplicate bracket orders.
+- **Position reconciliation** — syncs `open_positions.json` with Alpaca's actual state. Handles bracket fills that happened while offline and crashed mid-entry restores.
+- **Flash crash confirmation** — requires two consecutive SPY readings ≥ −2.5% (5 min apart) before triggering a 48h lockout. If `POLYGON_API_KEY` is set, a Massive API cross-check replaces the 5-min wait. A single bad data tick no longer locks the bot out.
+- **Flash crash auto-recovery** — the 8:55 AM `fetch_macro_regime()` job auto-clears the lockout if VIX < 35 and SPY 5-day return > −5%, without manual intervention.
 - **Swing position safety** — reconciliation skips swing positions (intentional holds); force-close at 3:55 PM also skips them.
 - **Daily closed list** — `daily_closed.json` prevents re-entering a symbol on the same day, even across crash/restart cycles.
+
+**macOS crash recovery:** The LaunchAgent uses `KeepAlive={SuccessfulExit: false}` — launchd restarts the bot automatically on crash but not on a clean `stop.sh` shutdown. A `ThrottleInterval` of 15 seconds ensures a minimum gap between restarts.
+
+**Linux crash recovery:** Use a systemd unit instead of cron for intra-day crash recovery:
+```ini
+[Service]
+ExecStart=/path/to/trading-bot/start.sh --foreground
+Restart=on-failure
+RestartSec=15
+```
+The provided `setup_cron.sh` handles scheduled start/stop only and does not restart on crash.
 
 ---
 
@@ -216,6 +231,7 @@ If your laptop is asleep at the scheduled time, launchd fires when you open the 
 | `strategy_memory.md` | Freeform strategy notes written by learning agent, fed to Claude |
 | `watch_list.txt` | Today's 10–15 selected tickers |
 | `daily_closed.json` | Symbols closed today — prevents same-day re-entry after crash |
+| `bot_health.json` | Crash loop counter — restart frequency tracker (auto-created, reset on clean stop) |
 
 ---
 
@@ -272,17 +288,14 @@ grep RECONCILE trading_bot.log | tail -20
 The bot reconciles at every startup. If something looks wrong, check these lines.
 
 **Flash crash lockout active after a false positive**
+
+The bot now auto-recovers: the 8:55 AM macro regime job clears the lockout if VIX < 35 and SPY 5-day return > −5%. Wait until the next trading morning — no manual action needed.
+
+If you need to clear it immediately:
 ```bash
-# Manually clear the lockout in macro_regime.json:
-python3 -c "
-import json; f=open('macro_regime.json')
-d=json.load(f); f.close()
-d['flash_crash_active']=False; d.pop('flash_crash_until',None)
-json.dump(d,open('macro_regime.json','w'),indent=2)
-print('Lockout cleared.')
-"
 ./stop.sh && ./start.sh
 ```
+The startup `fetch_macro_regime()` will evaluate conditions and clear automatically.
 
 **API key errors**
 Double-check `.env` uses the **Paper** Alpaca keys (not Live) and has no trailing spaces.

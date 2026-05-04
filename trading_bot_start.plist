@@ -30,7 +30,12 @@
     <string>PLACEHOLDER_PROJECT_DIR/launchd_trading_bot.log</string>
 
     <key>KeepAlive</key>
-    <false/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
     <key>RunAtLoad</key>
     <false/>
 </dict>
