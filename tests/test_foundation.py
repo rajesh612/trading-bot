@@ -1707,3 +1707,121 @@ class TestFlashCrashConfig:
         result = load_macro_regime()
         assert "flash_crash_candidate" in result
         assert result["flash_crash_candidate"] is None
+
+
+# ── Polygon helper ────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestVerifySpyWithPolygon:
+    def test_no_key_returns_none(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
+        from trading_agent import _verify_spy_with_polygon
+        assert _verify_spy_with_polygon(-3.0) is None
+
+    def test_confirmed_drop_returns_true(self, monkeypatch):
+        import config
+        from unittest.mock import MagicMock
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json.return_value = {"ticker": {"todaysChangePerc": -3.1}}
+        import trading_agent
+        monkeypatch.setattr(trading_agent.requests, "get", lambda *a, **kw: mock_resp)
+        from trading_agent import _verify_spy_with_polygon
+        assert _verify_spy_with_polygon(-3.1) is True
+
+    def test_bad_tick_returns_false(self, monkeypatch):
+        import config
+        from unittest.mock import MagicMock
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json.return_value = {"ticker": {"todaysChangePerc": -0.5}}
+        import trading_agent
+        monkeypatch.setattr(trading_agent.requests, "get", lambda *a, **kw: mock_resp)
+        from trading_agent import _verify_spy_with_polygon
+        assert _verify_spy_with_polygon(-2.6) is False
+
+    def test_network_error_returns_none(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
+        import trading_agent
+        monkeypatch.setattr(trading_agent.requests, "get",
+                            lambda *a, **kw: (_ for _ in ()).throw(Exception("timeout")))
+        from trading_agent import _verify_spy_with_polygon
+        assert _verify_spy_with_polygon(-3.0) is None
+
+
+@pytest.mark.unit
+class TestFlashCrashTwoReading:
+    def _write_regime(self, tmp_path, candidate=None):
+        data = {
+            "regime": "NORMAL",
+            "flash_crash_active": False,
+            "flash_crash_until": None,
+            "flash_crash_candidate": candidate,
+        }
+        (tmp_path / "macro_regime.json").write_text(json.dumps(data))
+
+    def test_no_candidate_writes_stage1(self, tmp_path, monkeypatch):
+        import config
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        self._write_regime(tmp_path, candidate=None)
+        from trading_agent import _handle_flash_crash_stage2
+        _handle_flash_crash_stage2(-2.7)
+        data = json.loads((tmp_path / "macro_regime.json").read_text())
+        assert data["flash_crash_candidate"] is not None
+        assert data["flash_crash_candidate"]["spy_pct"] == -2.7
+
+    def test_fresh_candidate_triggers_lockout(self, tmp_path, monkeypatch):
+        import config
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
+        self._write_regime(tmp_path, candidate=fresh)
+        triggered = []
+        import trading_agent
+        monkeypatch.setattr(trading_agent, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
+        from trading_agent import _handle_flash_crash_stage2
+        _handle_flash_crash_stage2(-3.0)
+        assert len(triggered) == 1
+
+    def test_stale_candidate_overwritten_no_lockout(self, tmp_path, monkeypatch):
+        import config
+        from datetime import timedelta
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        old_time = (datetime.now(ET) - timedelta(minutes=20)).isoformat()
+        stale = {"spy_pct": -2.7, "detected_at": old_time}
+        self._write_regime(tmp_path, candidate=stale)
+        triggered = []
+        import trading_agent
+        monkeypatch.setattr(trading_agent, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
+        from trading_agent import _handle_flash_crash_stage2
+        _handle_flash_crash_stage2(-3.0)
+        assert len(triggered) == 0
+        data = json.loads((tmp_path / "macro_regime.json").read_text())
+        new_ts = datetime.fromisoformat(data["flash_crash_candidate"]["detected_at"])
+        assert (datetime.now(ET) - new_ts).total_seconds() < 5
+
+    def test_spy_recovery_clears_candidate(self, tmp_path, monkeypatch):
+        import config
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
+        self._write_regime(tmp_path, candidate=fresh)
+        from trading_agent import _clear_flash_crash_candidate
+        _clear_flash_crash_candidate()
+        data = json.loads((tmp_path / "macro_regime.json").read_text())
+        assert data["flash_crash_candidate"] is None
+
+    def test_set_crisis_lockout_clears_candidate(self, tmp_path, monkeypatch):
+        import config
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        candidate = {"spy_pct": -3.0, "detected_at": datetime.now(ET).isoformat()}
+        self._write_regime(tmp_path, candidate=candidate)
+        from trading_agent import _set_crisis_lockout
+        _set_crisis_lockout(hours=1)
+        data = json.loads((tmp_path / "macro_regime.json").read_text())
+        assert data["flash_crash_active"] is True
+        assert data["flash_crash_candidate"] is None

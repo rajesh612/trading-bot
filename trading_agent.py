@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import requests
 import anthropic
 
 import api_budget
@@ -643,21 +644,102 @@ def _get_spy_prev_close() -> float:
     return 0.0
 
 
+def _verify_spy_with_polygon(spy_pct: float) -> bool | None:
+    """Cross-check SPY drop with Massive API. Returns True/False/None (None = unavailable)."""
+    if not config.POLYGON_API_KEY:
+        return None
+    try:
+        resp = requests.get(
+            "https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers/SPY",
+            headers={"Authorization": f"Bearer {config.POLYGON_API_KEY}"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        polygon_pct = float(resp.json()["ticker"]["todaysChangePerc"])
+        return polygon_pct <= config.FLASH_CRASH_SPY_DROP_PCT
+    except Exception as exc:
+        logger.warning(f"Polygon/Massive check failed ({exc}) — falling back to two-reading confirmation")
+        return None
+
+
+def _write_flash_crash_candidate(spy_pct: float, now: datetime) -> None:
+    """Write Stage 1 candidate to macro_regime.json."""
+    try:
+        data = json.loads(config.MACRO_REGIME_FILE.read_text()) if config.MACRO_REGIME_FILE.exists() else {}
+        data["flash_crash_candidate"] = {"spy_pct": round(spy_pct, 2), "detected_at": now.isoformat()}
+        with open(config.MACRO_REGIME_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as exc:
+        logger.warning(f"Could not write flash_crash_candidate: {exc}")
+
+
+def _clear_flash_crash_candidate() -> None:
+    """Clear flash_crash_candidate in macro_regime.json."""
+    try:
+        if not config.MACRO_REGIME_FILE.exists():
+            return
+        data = json.loads(config.MACRO_REGIME_FILE.read_text())
+        if data.get("flash_crash_candidate") is not None:
+            data["flash_crash_candidate"] = None
+            with open(config.MACRO_REGIME_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+    except Exception as exc:
+        logger.warning(f"Could not clear flash_crash_candidate: {exc}")
+
+
+def _trigger_flash_crash_lockout() -> None:
+    """Force-close all positions and set 48h CRISIS lockout."""
+    force_close_all()
+    try:
+        from swing_manager import load_swing_positions, _execute_full_close
+        alpaca = AlpacaClient()
+        for sym, pos in list(load_swing_positions().items()):
+            _execute_full_close(sym, pos, alpaca, "flash_crash")
+    except Exception as exc:
+        logger.warning(f"flash crash: swing close failed: {exc}")
+    _set_crisis_lockout(hours=48)
+
+
+def _handle_flash_crash_stage2(spy_pct: float) -> None:
+    """Two-reading confirmation path (no Polygon key, or Polygon returned None)."""
+    now = datetime.now(ET)
+    try:
+        candidate = None
+        if config.MACRO_REGIME_FILE.exists():
+            data = json.loads(config.MACRO_REGIME_FILE.read_text())
+            candidate = data.get("flash_crash_candidate")
+
+        if candidate is None:
+            _write_flash_crash_candidate(spy_pct, now)
+            logger.warning("Flash crash Stage 1 — awaiting Stage 2 confirmation in 5 min")
+            return
+
+        age_min = (now - datetime.fromisoformat(candidate["detected_at"])).total_seconds() / 60
+        if age_min <= 15:
+            logger.critical(f"Flash crash Stage 2 confirmed — SPY still at {spy_pct:+.1f}%")
+            _trigger_flash_crash_lockout()
+        else:
+            _write_flash_crash_candidate(spy_pct, now)
+            logger.warning("Flash crash stale candidate overwritten — awaiting fresh Stage 2")
+    except Exception as exc:
+        logger.warning(f"Flash crash stage 2 check failed: {exc}")
+
+
 def _set_crisis_lockout(hours: int = 48) -> None:
     """Write flash_crash_active=True with flash_crash_until timestamp to macro_regime.json."""
-    import json as _json
     try:
         if config.MACRO_REGIME_FILE.exists():
             with open(config.MACRO_REGIME_FILE) as f:
-                data = _json.load(f)
+                data = json.load(f)
         else:
             data = {}
         until = (datetime.now(ET) + __import__("datetime").timedelta(hours=hours)).isoformat()
         data["flash_crash_active"] = True
         data["flash_crash_until"]  = until
         data["regime"] = "CRISIS"
+        data["flash_crash_candidate"] = None
         with open(config.MACRO_REGIME_FILE, "w") as f:
-            _json.dump(data, f, indent=2)
+            json.dump(data, f, indent=2)
         logger.critical(f"FLASH CRASH LOCKOUT set — CRISIS regime active until {until}")
     except Exception as exc:
         logger.error(f"Could not write flash crash lockout: {exc}")
@@ -665,30 +747,38 @@ def _set_crisis_lockout(hours: int = 48) -> None:
 
 def run_market_monitor() -> None:
     """
-    Called every 5 min during market hours. Checks for SPY flash crash (≥ -2.5%).
-    On detection: force-closes all positions and sets 48h CRISIS lockout.
-    Cheap — one HTTP call, zero Claude calls.
+    Called every 5 min during market hours. Checks for SPY flash crash.
+    Requires two consecutive readings (or one Polygon-confirmed reading) before lockout.
     """
     try:
         spy_current = get_latest_price("SPY")
         spy_prev    = _get_spy_prev_close()
         if spy_prev <= 0:
             return
-        if check_flash_crash(spy_current, spy_prev):
-            logger.critical(
-                f"FLASH CRASH DETECTED: SPY={spy_current:.2f} vs prev_close={spy_prev:.2f} "
-                f"({(spy_current - spy_prev) / spy_prev * 100:.1f}%)"
-            )
-            force_close_all()
-            # Also close swing positions
-            try:
-                from swing_manager import load_swing_positions, _execute_full_close
-                alpaca = AlpacaClient()
-                for sym, pos in list(load_swing_positions().items()):
-                    _execute_full_close(sym, pos, alpaca, "flash_crash")
-            except Exception as exc:
-                logger.warning(f"run_market_monitor: swing close failed: {exc}")
-            _set_crisis_lockout(hours=48)
+        spy_pct = (spy_current - spy_prev) / spy_prev * 100
+
+        if spy_pct > config.FLASH_CRASH_SPY_DROP_PCT:
+            _clear_flash_crash_candidate()
+            return
+
+        logger.warning(
+            f"FLASH CRASH CANDIDATE: SPY={spy_current:.2f} prev={spy_prev:.2f} ({spy_pct:+.1f}%)"
+        )
+
+        if config.POLYGON_API_KEY:
+            result = _verify_spy_with_polygon(spy_pct)
+            if result is True:
+                logger.critical("Polygon confirmed flash crash — triggering lockout immediately")
+                _trigger_flash_crash_lockout()
+                return
+            if result is False:
+                logger.info("Polygon disagrees — bad SPY tick, discarding candidate")
+                _clear_flash_crash_candidate()
+                return
+            # result is None → Polygon unavailable → fall through to Stage 2
+
+        _handle_flash_crash_stage2(spy_pct)
+
     except Exception as exc:
         logger.debug(f"run_market_monitor: {exc}")
 
