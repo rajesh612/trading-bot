@@ -760,7 +760,7 @@ class TestDailyReport:
 
     @pytest.mark.unit
     def test_send_email_uses_certifi(self, monkeypatch):
-        """SSL context must be built with certifi's CA bundle."""
+        """SSL context must load certifi's CA bundle via load_verify_locations."""
         import config as cfg
         import ssl
         monkeypatch.setattr(cfg, "EMAIL_SENDER", "bot@example.com")
@@ -771,8 +771,13 @@ class TestDailyReport:
         real_create = ssl.create_default_context
 
         def fake_create_context(*args, **kwargs):
-            captured["cafile"] = kwargs.get("cafile")
-            return real_create(*args, **kwargs)
+            ctx = real_create(*args, **kwargs)
+            real_load = ctx.load_verify_locations
+            def capturing_load(*a, **kw):
+                captured["cafile"] = kw.get("cafile")
+                return real_load(*a, **kw)
+            ctx.load_verify_locations = capturing_load
+            return ctx
 
         class FakeSMTP:
             def __init__(self, *a, **kw): pass
