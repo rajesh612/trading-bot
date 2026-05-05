@@ -9,6 +9,35 @@ STOP_SRC="$SCRIPT_DIR/trading_bot_stop.plist"
 START_DEST="$LAUNCH_AGENTS_DIR/trading_bot_start.plist"
 STOP_DEST="$LAUNCH_AGENTS_DIR/trading_bot_stop.plist"
 
+# ── macOS TCC guard ────────────────────────────────────────────────────────────
+# When the project lives in ~/Documents, ~/Desktop, or ~/Downloads, macOS TCC
+# (Privacy & Security) blocks launchd-spawned bash from reading scripts in those
+# directories, producing: "bash: /path/script.sh: Operation not permitted".
+# /bin/bash must hold Full Disk Access; otherwise launchd silently fails and
+# (if KeepAlive is set) spams the log with EPERM errors every ThrottleInterval.
+_check_fda() {
+    case "$SCRIPT_DIR" in
+        "$HOME/Documents/"*|"$HOME/Desktop/"*|"$HOME/Downloads/"*)
+            echo ""
+            echo "  ┌─────── IMPORTANT: macOS Full Disk Access required ────────────────┐"
+            echo "  │   The project is inside ~/Documents (or ~/Desktop/~/Downloads).   │"
+            echo "  │   launchd's bash process needs Full Disk Access to read scripts   │"
+            echo "  │   from TCC-protected folders; without it every launch attempt     │"
+            echo "  │   silently fails with 'Operation not permitted'.                  │"
+            echo "  │                                                                   │"
+            echo "  │   Grant FDA to /bin/bash (one-time):                              │"
+            echo "  │    System Settings → Privacy & Security → Full Disk Access        │"
+            echo "  │    Click '+' → Cmd+Shift+G → type /bin → select 'bash' → Open     │"
+            echo "  │                                                                   │"
+            echo "  │   To verify after granting:                                       │"
+            echo "  │     launchctl start trading_bot_start                             │"
+            echo "  │     sleep 5 && tail launchd_trading_bot.log                       │"
+            echo "  └───────────────────────────────────────────────────────────────────┘"
+            echo ""
+            ;;
+    esac
+}
+
 _remove_old_plist() {
     local old="$LAUNCH_AGENTS_DIR/com.tradingbot.plist"
     if [ -f "$old" ]; then
@@ -45,3 +74,5 @@ echo "  If laptop is asleep at the scheduled time, launchd fires on next wake."
 echo "  Logs: $SCRIPT_DIR/launchd_trading_bot.log"
 echo ""
 echo "  To uninstall: ./setup_launchagent.sh uninstall"
+
+_check_fda

@@ -113,58 +113,96 @@ def _clear_pid():
 
 # ── Job wrappers ─────────────────────────────────────────────────────────────
 
+def _job_guard(name: str, fn) -> None:
+    """Run fn(); send a Telegram alert on exception, then re-raise so APScheduler logs it."""
+    try:
+        fn()
+    except Exception as exc:
+        import telegram_notify
+        telegram_notify.notify_job_failure(name, f"{type(exc).__name__}: {exc}")
+        raise
+
+
+def _validate_state_files() -> None:
+    """Check JSON state files on startup; reset corrupt ones and alert via Telegram."""
+    import telegram_notify
+    candidates = [
+        (config.TRADE_JOURNAL_FILE,      []),
+        (config.OPEN_POSITIONS_FILE,     {}),
+        (config.SWING_POSITIONS_FILE,    {}),
+        (config.INDICATOR_WEIGHTS_FILE,  {}),
+    ]
+    for path, default in candidates:
+        if not path.exists():
+            continue
+        try:
+            json.loads(path.read_text())
+        except (json.JSONDecodeError, ValueError):
+            backup = path.with_suffix(".corrupt.json")
+            path.rename(backup)
+            path.write_text(json.dumps(default))
+            logger.error(f"CORRUPT state file reset: {path.name} → backup {backup.name}")
+            telegram_notify.notify_file_corruption(path.name)
+
+
 def job_earnings_calendar():
     logger.info("━━━ EARNINGS CALENDAR ━━━")
-    from earnings_calendar import refresh_earnings_calendar
-    from tier1_config import TIER1_NAMES
-    watch_list = []
-    if config.WATCH_LIST_FILE.exists():
-        watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
-    symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))
-    refresh_earnings_calendar(symbols)
+    def _run():
+        from earnings_calendar import refresh_earnings_calendar
+        from tier1_config import TIER1_NAMES
+        watch_list = []
+        if config.WATCH_LIST_FILE.exists():
+            watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
+        symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))
+        refresh_earnings_calendar(symbols)
+    _job_guard("earnings_calendar", _run)
 
 
 def job_economic_calendar():
     logger.info("━━━ ECONOMIC CALENDAR ━━━")
     from economic_calendar import refresh_economic_calendar
-    refresh_economic_calendar()
+    _job_guard("economic_calendar", refresh_economic_calendar)
 
 
 def job_macro_regime():
     logger.info("━━━ MACRO REGIME ━━━")
     from macro_regime import fetch_macro_regime
-    fetch_macro_regime()
+    _job_guard("macro_regime", fetch_macro_regime)
 
 
 def job_fred_cache():
     logger.info("━━━ FRED CACHE REFRESH ━━━")
     from macro_regime import refresh_fred_cache
-    refresh_fred_cache()
+    _job_guard("fred_cache", refresh_fred_cache)
 
 
 def job_volatility_screener():
     logger.info("━━━ VOLATILITY SCREENER ━━━")
     from volatility_screener import run_volatility_screener
-    run_volatility_screener()
+    _job_guard("volatility_screener", run_volatility_screener)
 
 
 def job_watch_list():
     logger.info("━━━ WATCH LIST AGENT ━━━")
-    from trading_agent import reset_daily_closed
-    reset_daily_closed()
-    from watch_list_agent import run_watch_list_agent
-    run_watch_list_agent()
+    def _run():
+        from trading_agent import reset_daily_closed
+        reset_daily_closed()
+        from watch_list_agent import run_watch_list_agent
+        run_watch_list_agent()
+    _job_guard("watch_list", _run)
 
 
 def job_research():
     logger.info("━━━ RESEARCH AGENT ━━━")
-    from research_agent import run_research_agent
-    if config.WATCH_LIST_FILE.exists():
-        watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
-    else:
-        from watch_list_agent import _load_universe
-        watch_list = _load_universe()[: config.WATCH_LIST_MAX]
-    run_research_agent(watch_list)
+    def _run():
+        from research_agent import run_research_agent
+        if config.WATCH_LIST_FILE.exists():
+            watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
+        else:
+            from watch_list_agent import _load_universe
+            watch_list = _load_universe()[: config.WATCH_LIST_MAX]
+        run_research_agent(watch_list)
+    _job_guard("research", _run)
 
 
 def job_trading():
@@ -177,7 +215,7 @@ def job_trading():
         return
     logger.info("━━━ TRADING CYCLE ━━━")
     from trading_agent import run_trading_cycle
-    run_trading_cycle()
+    _job_guard("trading_cycle", run_trading_cycle)
 
 
 def job_position_monitor():
@@ -189,26 +227,28 @@ def job_position_monitor():
     if now.hour > 15 or (now.hour == 15 and now.minute >= 55):
         return
     from trading_agent import run_position_monitor
-    run_position_monitor()
+    _job_guard("position_monitor", run_position_monitor)
 
 
 def job_force_close():
     logger.info("━━━ FORCE CLOSE ALL POSITIONS ━━━")
     from trading_agent import force_close_all
-    force_close_all()
+    _job_guard("force_close", force_close_all)
 
 
 def job_evaluate_eod_holds():
     logger.info("━━━ SWING EOD EVALUATION ━━━")
     from swing_manager import evaluate_eod_holds
-    evaluate_eod_holds()
+    _job_guard("evaluate_eod_holds", evaluate_eod_holds)
 
 
 def job_swing_gap_check():
     logger.info("━━━ SWING GAP CHECK ━━━")
-    from swing_manager import run_gap_check
-    from alpaca_client import AlpacaClient
-    run_gap_check(AlpacaClient())
+    def _run():
+        from swing_manager import run_gap_check
+        from alpaca_client import AlpacaClient
+        run_gap_check(AlpacaClient())
+    _job_guard("swing_gap_check", _run)
 
 
 def job_market_monitor():
@@ -220,19 +260,19 @@ def job_market_monitor():
     if now.hour >= 16:
         return
     from trading_agent import run_market_monitor
-    run_market_monitor()
+    _job_guard("market_monitor", run_market_monitor)
 
 
 def job_learning():
     logger.info("━━━ LEARNING AGENT ━━━")
     from learning_agent import run_learning_agent
-    run_learning_agent()
+    _job_guard("learning_agent", run_learning_agent)
 
 
 def job_daily_report():
     logger.info("━━━ DAILY REPORT ━━━")
     from daily_report import send_daily_report
-    send_daily_report()
+    _job_guard("daily_report", send_daily_report)
 
 
 def job_heartbeat():
@@ -263,7 +303,7 @@ def setup_scheduler():
     scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True)
     scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",          replace_existing=True)
     scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",            replace_existing=True)
-    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=30, **kw), id="daily_report",        replace_existing=True)
+    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=20, **kw), id="daily_report",        replace_existing=True)
 
     # Research once at 9:15 AM — after watch list is built, before first trades
     scheduler.add_job(job_research, CronTrigger(hour=9, minute=15, **kw), id="research", replace_existing=True)
@@ -579,11 +619,11 @@ def _catchup_missed_agents():
 
 
 def _catchup_daily_report():
-    """Send the daily report on startup if it was missed (bot offline at 4:30 PM ET)."""
+    """Send the daily report on startup if it was missed (bot offline at 4:20 PM ET)."""
     now = datetime.now(ET)
     if now.weekday() >= 5:
         return  # weekend
-    report_due = now.hour > 16 or (now.hour == 16 and now.minute >= 30)
+    report_due = now.hour > 16 or (now.hour == 16 and now.minute >= 20)
     if not report_due:
         return
     from daily_report import send_daily_report
@@ -596,6 +636,8 @@ def _handle_shutdown(signum, frame):
     _clear_pid()
     scheduler.shutdown(wait=False)
     _reset_bot_health()
+    import telegram_notify
+    telegram_notify.notify_shutdown()
     sys.exit(0)
 
 
@@ -620,6 +662,7 @@ def main():
     signal.signal(signal.SIGTERM, _handle_shutdown)
     signal.signal(signal.SIGINT,  _handle_shutdown)
 
+    _validate_state_files()
     _reconcile_positions()
     _catchup_missed_agents()
     _catchup_daily_report()
@@ -633,6 +676,17 @@ def main():
     threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()
     logger.info("Watchdog thread started.")
     logger.info("Bot is live. Press Ctrl+C to stop.")
+
+    import telegram_notify
+    from macro_regime import load_macro_regime
+    from trading_agent import load_open_positions
+    try:
+        regime = load_macro_regime().get("regime", "UNKNOWN")
+        n_pos  = len(load_open_positions())
+    except Exception:
+        regime, n_pos = "UNKNOWN", 0
+    telegram_notify.notify_startup(regime, n_pos)
+
     scheduler.start()
 
 

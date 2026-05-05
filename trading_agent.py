@@ -38,8 +38,10 @@ def _load_json(path, default):
 
 
 def _save_json(path, data):
-    with open(path, "w") as f:
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+    tmp.replace(path)  # atomic on POSIX; prevents partial-write corruption
 
 
 def load_watch_list() -> list[str]:
@@ -380,7 +382,7 @@ def _ask_claude_batch(
                 "Prioritise capital preservation. Never hold overnight.\n"
                 f"Current indicator weights: {json.dumps(weights)}"
             ),
-            "cache_control": {"type": "ephemeral", "ttl": "3600"},
+            "cache_control": {"type": "ephemeral"},
         }
     ]
     if strategy_memory:
@@ -388,7 +390,7 @@ def _ask_claude_batch(
             {
                 "type": "text",
                 "text": f"Today's strategy memory:\n{strategy_memory}",
-                "cache_control": {"type": "ephemeral", "ttl": "3600"},
+                "cache_control": {"type": "ephemeral"},
             }
         )
 
@@ -407,6 +409,8 @@ def _ask_claude_batch(
                 f"CLAUDE API ERROR — circuit breaker tripped: {_claude_disabled_reason}\n"
                 f"  Resolve at https://console.anthropic.com — all Claude calls suspended until restart."
             )
+            import telegram_notify
+            telegram_notify.notify_claude_disabled(_claude_disabled_reason)
         else:
             logger.error(f"Claude API error HTTP {exc.status_code}: {exc.message[:200]}")
         return {sym: _default_hold(sym) for sym in symbols}
@@ -492,6 +496,13 @@ def _close_position(
 
     record_daily_closed(symbol)
     logger.info(f"CLOSE {symbol}: P&L={pnl_pct:+.2f}% (${pnl_dollar:+.2f}) | {reason} | no re-entry today")
+    import telegram_notify
+    telegram_notify.notify_close(
+        symbol=symbol, qty=qty,
+        entry=entry_price, exit_price=current_price,
+        pnl_dollar=round(pnl_dollar, 2), pnl_pct=round(pnl_pct, 2),
+        reason=reason,
+    )
 
 
 # ── Position monitor (runs every 60 s) ───────────────────────────────────────
@@ -581,6 +592,13 @@ def run_position_monitor():
             logger.info(
                 f"BRACKET FILL detected: {symbol} closed via {close_reason} | "
                 f"P&L={pnl_pct:+.2f}% (${pnl_dollar:+.2f}) | no re-entry today"
+            )
+            import telegram_notify
+            telegram_notify.notify_close(
+                symbol=symbol, qty=pos["qty"],
+                entry=entry_price, exit_price=exit_price,
+                pnl_dollar=round(pnl_dollar, 2), pnl_pct=round(pnl_pct, 2),
+                reason=close_reason,
             )
             continue
 
@@ -1084,6 +1102,13 @@ def run_trading_cycle():
                     f"BUY {qty:.0f}x {symbol} @ ~${iv.current_price:.2f} | mode={mode} | "
                     f"SL=${order['stop_loss_price']} TP=${order['take_profit_price']} | "
                     f"{decision.get('reasoning', '')}"
+                )
+                import telegram_notify
+                telegram_notify.notify_buy(
+                    symbol=symbol, qty=qty, price=iv.current_price,
+                    sl=order["stop_loss_price"], tp=order["take_profit_price"],
+                    mode=mode, score=iv.composite_score,
+                    confidence=decision.get("confidence", 0),
                 )
 
             elif action == "CLOSE" and existing_pos:

@@ -6,10 +6,16 @@
     <key>Label</key>
     <string>trading_bot_stop</string>
 
+    <!-- /bin/bash must have Full Disk Access when the project lives in ~/Documents.
+         See setup_launchagent.sh output for instructions. -->
     <key>ProgramArguments</key>
     <array>
+        <string>/bin/bash</string>
         <string>PLACEHOLDER_PROJECT_DIR/stop.sh</string>
     </array>
+
+    <key>WorkingDirectory</key>
+    <string>PLACEHOLDER_PROJECT_DIR</string>
 
     <!-- Fire Mon-Fri at 13:30 PT (= 16:30 ET, after 16:15 ET learning agent).
          PT is always ET-3 regardless of DST — no timezone confusion.

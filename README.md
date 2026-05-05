@@ -92,7 +92,7 @@ tail -f trading_bot.log
 | 3:55 PM | Force Close | Cancels orders, closes all day-trade positions (swing positions preserved) |
 | 4:00 PM | FRED Cache Refresh | Updates Fed/CPI/unemployment macro modifiers |
 | 4:15 PM | Learning Agent | Reviews closed trades, updates indicator weights and trading params |
-| 4:30 PM | Daily Email Report | P&L summary, trade log, updated weights (optional — needs Gmail config) |
+| 4:20 PM | Daily Email Report | P&L summary, trade log, updated weights (optional — needs Gmail config) |
 
 If you start the bot mid-day, it automatically catches up any missed pre-market agents.
 
@@ -174,7 +174,7 @@ Restart after any `config.py` change: `./stop.sh && ./start.sh`
 
 ## Setting Up the Daily Email Report
 
-At 4:30 PM ET each trading day the bot emails a P&L summary.
+At 4:20 PM ET each trading day the bot emails a P&L summary.
 
 **Create a Gmail App Password:**
 1. [myaccount.google.com](https://myaccount.google.com) → Security → 2-Step Verification → App Passwords → Create
@@ -189,6 +189,50 @@ Leave `EMAIL_SENDER` blank to disable.
 
 ---
 
+## Setting Up the Telegram notifications
+
+To activate Telegram (3 steps):
+                                      
+1. Open Telegram → search @BotFather → send /newbot → follow prompts → copy the token it gives you.
+2. Message your new bot (send it any text — e.g. "hello"), then run:
+   ```
+   ! curl "https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates"
+   ```
+Find "id" inside "chat" — that's your chat_id.
+3. Add both to .env:
+   ```
+   TELEGRAM_BOT_TOKEN=<token from BotFather>
+   TELEGRAM_CHAT_ID=<chat id from getUpdates>
+   ```
+
+What you'll receive on Telegram:                                
+  ┌─────────────────┬─────────────────────────────────────────────────────┐
+  │      Event      │                       Message                       │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Bot starts      │ 🟢 Bot started — Regime: BULL_TREND | Open: 0       │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Bot stops       │ 🔴 Bot stopped                                      │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ BUY order       │ 📈 BUY NVDA — 15 shares @ $890.20, SL $856, TP $935 │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ CLOSE (win)     │ ✅ CLOSE NVDA — +$234.00 (+3.8%)                    │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ CLOSE (loss)    │ 🔻 CLOSE AAPL — -$45.00 (-1.2%)                     │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Claude disabled │ 🚫 Claude disabled — no trades until restart        │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Job failure     │ ❌ Job failed: force_close — JSONDecodeError        │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Corrupt file    │ ⚠️  Corrupt state file reset: trade_journal.json    │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Regime shift    │ 🚨 Regime change: NORMAL → CRISIS                   │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ Flash crash     │ 🚨 FLASH CRASH detected — CRISIS lockout            │
+  ├─────────────────┼─────────────────────────────────────────────────────┤
+  │ EOD summary     │ 📊 P&L: +$127.40 (+1.27%) | 4 trades | 75% win      │
+  └─────────────────┴─────────────────────────────────────────────────────┘
+
+---
 ## Auto-Start/Stop
 
 | Event | ET |

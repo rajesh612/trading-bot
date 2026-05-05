@@ -1,0 +1,21 @@
+[run]
+omit =
+    # APScheduler orchestration — not a testable library module
+    main.py
+    # Backtest utility script
+    backtest.py
+    # Legacy test file at repo root (superseded by tests/test_foundation.py)
+    test_agents.py
+    # Pure Claude-API orchestrator with no pure functions
+    watch_list_agent.py
+    # Pure Yahoo-API scraper with no pure functions
+    volatility_screener.py
+    # Virtual environment
+    .venv/*
+    tests/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError

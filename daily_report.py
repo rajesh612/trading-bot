@@ -180,6 +180,18 @@ def send_daily_report() -> None:
 
     subject, body = build_report_body(todays_trades, account, regime, watch_list, weights)
 
+    # Compact Telegram EOD summary — sent regardless of email outcome
+    try:
+        import telegram_notify
+        closes = [t for t in todays_trades if t.get("type") == "CLOSE"]
+        pv  = account.get("portfolio_value", 0.0)
+        le  = account.get("last_equity", 0.0)
+        day_pnl     = pv - le
+        day_pnl_pct = (day_pnl / le * 100) if le else 0.0
+        telegram_notify.notify_eod_summary(closes, day_pnl, day_pnl_pct, pv, regime)
+    except Exception as exc:
+        logger.warning(f"DAILY REPORT: Telegram summary failed — {exc}")
+
     try:
         _send_email(subject, body)
         _mark_sent()

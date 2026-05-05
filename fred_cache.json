@@ -1,0 +1,8 @@
+{
+  "fed_funds_rate": 3.64,
+  "fed_direction": "paused",
+  "cpi_trend": "stable",
+  "unemployment_rising": false,
+  "fred_modifier": 0,
+  "updated_at": "2026-05-04T16:00:08.819089-04:00"
+}

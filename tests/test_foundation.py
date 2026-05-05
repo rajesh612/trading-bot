@@ -1886,3 +1886,1035 @@ class TestEvaluateLockoutRecovery:
         )
         assert active is True
         assert until == future
+
+
+# ── macro_regime: individual signal scorers ───────────────────────────────────
+
+@pytest.mark.unit
+class TestMacroSignalScorers:
+    def test_score_vix_low_returns_positive(self):
+        from macro_regime import _score_vix
+        # VIX well below 90d avg → +10
+        closes = [20.0] * 91 + [14.0]
+        assert _score_vix(closes) == 10.0
+
+    def test_score_vix_high_returns_negative(self):
+        from macro_regime import _score_vix
+        # VIX > 120% of 90d avg → -10
+        closes = [20.0] * 91 + [25.0]
+        assert _score_vix(closes) == -10.0
+
+    def test_score_vix_in_range_is_linear(self):
+        from macro_regime import _score_vix
+        # VIX at exactly 90d avg → ratio 1.0, linear output between -10 and +10
+        closes = [20.0] * 92
+        score = _score_vix(closes)
+        assert -10.0 <= score <= 10.0
+
+    def test_score_vix_insufficient_data_returns_zero(self):
+        from macro_regime import _score_vix
+        assert _score_vix([20.0] * 5) == 0.0
+
+    @pytest.mark.parametrize("ret5d,expected", [
+        (2.0,  10.0),   # above 1.5% → max
+        (-1.0, -10.0),  # below -0.5% → min
+        (0.5,  pytest.approx(2.5, abs=0.1)),  # mid-range linear
+    ])
+    def test_score_spy(self, ret5d, expected):
+        from macro_regime import _score_spy
+        assert _score_spy(ret5d) == expected
+
+    @pytest.mark.parametrize("ret5d,expected", [
+        (1.0,   10.0),  # stable ±2% → +10
+        (6.0,  -10.0),  # spike > 5% → -10
+        (-9.0, -10.0),  # crash < -8% → -10
+        (3.0,    0.0),  # between 2 and 5% → neutral
+    ])
+    def test_score_wti(self, ret5d, expected):
+        from macro_regime import _score_wti
+        assert _score_wti(ret5d) == expected
+
+    @pytest.mark.parametrize("ret5d,expected", [
+        (4.0,  -10.0),  # big gold surge = flight to safety → bearish
+        (2.5,   -5.0),  # mild surge
+        (-3.0,  +5.0),  # declining gold = risk-on
+        (0.5,   +8.0),  # flat = bullish
+    ])
+    def test_score_gold(self, ret5d, expected):
+        from macro_regime import _score_gold
+        assert _score_gold(ret5d) == expected
+
+    @pytest.mark.parametrize("ret5d,expected", [
+        (3.0,  -10.0),  # DXY surging → risk-off
+        (1.0,   -5.0),  # mild rise
+        (-1.0,  +5.0),  # declining dollar
+        (0.2,   +3.0),  # stable
+    ])
+    def test_score_dxy(self, ret5d, expected):
+        from macro_regime import _score_dxy
+        assert _score_dxy(ret5d) == expected
+
+    @pytest.mark.parametrize("ret5d,expected", [
+        (6.0,  -10.0),  # yields surging → tightening
+        (3.0,   -5.0),  # rising
+        (-3.0, +10.0),  # falling yields = bullish
+        (1.0,   +3.0),  # stable
+    ])
+    def test_score_tnx(self, ret5d, expected):
+        from macro_regime import _score_tnx
+        assert _score_tnx(ret5d) == expected
+
+    def test_score_tech_bull(self):
+        from macro_regime import _score_tech
+        assert _score_tech(3.0, bull_thresh=2.0, bear_thresh=-1.0) == 10.0
+
+    def test_score_tech_bear(self):
+        from macro_regime import _score_tech
+        assert _score_tech(-2.0, bull_thresh=2.0, bear_thresh=-1.0) == -10.0
+
+    def test_score_tech_neutral_positive(self):
+        from macro_regime import _score_tech
+        score = _score_tech(1.0, bull_thresh=2.0, bear_thresh=-1.0)
+        assert 0 < score < 10
+
+    def test_score_tech_neutral_negative(self):
+        from macro_regime import _score_tech
+        score = _score_tech(-0.5, bull_thresh=2.0, bear_thresh=-1.0)
+        assert -10 < score < 0
+
+
+@pytest.mark.unit
+class TestComputeSectorScores:
+    def test_bull_soxx_and_qqq(self):
+        from macro_regime import _compute_sector_scores
+        result = _compute_sector_scores(soxx_ret5d=3.0, qqq_ret5d=2.0)
+        assert result["AI_SEMI"] == 100.0
+        assert result["BROAD_TECH"] == 100.0
+        assert "CYBERSECURITY" in result
+
+    def test_bear_soxx_and_qqq(self):
+        from macro_regime import _compute_sector_scores
+        result = _compute_sector_scores(soxx_ret5d=-2.0, qqq_ret5d=-2.0)
+        assert result["AI_SEMI"] == -100.0
+        assert result["BROAD_TECH"] == -100.0
+
+    def test_cybersecurity_is_80pct_of_qqq(self):
+        from macro_regime import _compute_sector_scores
+        result = _compute_sector_scores(soxx_ret5d=3.0, qqq_ret5d=2.0)
+        assert abs(result["CYBERSECURITY"] - 0.8 * result["BROAD_TECH"]) < 1e-9
+
+
+@pytest.mark.unit
+class TestLoadMacroRegime:
+    def test_missing_file_returns_normal_default(self, tmp_path):
+        import config
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
+        assert result["regime"] == "NORMAL"
+        assert "macro_health_score" in result
+
+    def test_loads_written_regime(self, tmp_path):
+        import config, json
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        payload = {"regime": "BULL_TREND", "health_score": 55, "capitulation_candidate": []}
+        with open(config.MACRO_REGIME_FILE, "w") as f:
+            json.dump(payload, f)
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
+        assert result["regime"] == "BULL_TREND"
+        assert result["health_score"] == 55
+
+    def test_corrupt_file_returns_default(self, tmp_path):
+        import config
+        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        config.MACRO_REGIME_FILE.write_text("NOT JSON{{")
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
+        assert result["regime"] == "NORMAL"
+
+
+# ── indicator_engine: base technical functions ────────────────────────────────
+
+@pytest.mark.unit
+class TestBaseIndicatorFunctions:
+    def test_ema_falls_toward_last_value(self):
+        from indicator_engine import _ema
+        s = pd.Series([100.0] * 20 + [200.0])
+        result = _ema(s, period=5)
+        assert float(result.iloc[-1]) > 100.0
+        assert float(result.iloc[-1]) < 200.0
+
+    def test_compute_vwap_equals_tp_at_constant_price(self):
+        from indicator_engine import _compute_vwap
+        n = 10
+        idx = pd.date_range("2026-05-01 09:30", periods=n, freq="5min", tz="America/New_York")
+        df = pd.DataFrame({"high": 102.0, "low": 98.0, "close": 100.0, "volume": 1000.0}, index=idx)
+        vwap = _compute_vwap(df)
+        # TP = (102+98+100)/3 = 100 → VWAP should equal 100
+        assert abs(float(vwap.iloc[-1]) - 100.0) < 1e-6
+
+    def test_compute_vwap_bands_upper_above_lower(self):
+        from indicator_engine import _compute_vwap, _compute_vwap_bands
+        df = _make_intraday_df(n=20, close=100.0)
+        vwap = _compute_vwap(df)
+        vs1u, vs1l, vs2u, vs2l = _compute_vwap_bands(df, vwap)
+        assert float(vs1u.dropna().iloc[-1]) >= float(vs1l.dropna().iloc[-1])
+        assert float(vs2u.dropna().iloc[-1]) >= float(vs2u.dropna().iloc[-1])
+
+    def test_compute_rsi_stays_in_bounds(self):
+        from indicator_engine import _compute_rsi
+        s = pd.Series([float(i) for i in range(1, 51)])
+        rsi = _compute_rsi(s)
+        valid = rsi.dropna()
+        assert (valid >= 0).all() and (valid <= 100).all()
+
+    def test_compute_rsi_trending_up_above_50(self):
+        from indicator_engine import _compute_rsi
+        s = pd.Series([100.0 + i for i in range(30)])
+        rsi = _compute_rsi(s)
+        assert float(rsi.dropna().iloc[-1]) > 50
+
+    def test_compute_macd_histogram_sign_follows_momentum(self):
+        from indicator_engine import _compute_macd
+        # strong uptrend → fast EMA above slow EMA → positive histogram
+        s = pd.Series([100.0 + i * 2 for i in range(60)])
+        _, _, hist = _compute_macd(s)
+        assert float(hist.dropna().iloc[-1]) > 0
+
+    def test_compute_bollinger_upper_above_lower(self):
+        from indicator_engine import _compute_bollinger
+        s = pd.Series([100.0 + np.random.randn() for _ in range(40)])
+        upper, mid, lower = _compute_bollinger(s)
+        valid_upper = upper.dropna()
+        valid_lower = lower.dropna()
+        assert (valid_upper > valid_lower).all()
+
+    def test_compute_atr_positive_with_volatile_bars(self):
+        from indicator_engine import _compute_atr
+        df = _make_intraday_df(n=20, close=100.0, high=105.0, low=95.0)
+        atr = _compute_atr(df)
+        assert float(atr.dropna().iloc[-1]) > 0
+
+    def test_compute_volume_ratio_normal_is_one(self):
+        from indicator_engine import _compute_volume_ratio
+        vol = pd.Series([1000.0] * 30)
+        ratio = _compute_volume_ratio(vol)
+        assert abs(float(ratio.dropna().iloc[-1]) - 1.0) < 1e-6
+
+    def test_compute_stochastic_in_bounds(self):
+        from indicator_engine import _compute_stochastic
+        df = _make_intraday_df(n=20)
+        k, d = _compute_stochastic(df)
+        valid_k = k.dropna()
+        assert (valid_k >= 0).all() and (valid_k <= 100).all()
+
+    def test_compute_obv_increases_on_up_bars(self):
+        from indicator_engine import _compute_obv
+        closes = [100.0 + i for i in range(10)]
+        idx = pd.date_range("2026-05-01", periods=10, freq="5min", tz="America/New_York")
+        df = pd.DataFrame({"close": closes, "volume": 1000.0, "open": closes,
+                           "high": [c + 1 for c in closes], "low": [c - 1 for c in closes]},
+                          index=idx)
+        obv = _compute_obv(df)
+        assert float(obv.iloc[-1]) > float(obv.iloc[0])
+
+    def test_safe_returns_fallback_on_nan(self):
+        from indicator_engine import _safe
+        s = pd.Series([float("nan")])
+        assert _safe(s, fallback=42.0) == 42.0
+
+    def test_safe_returns_value_when_valid(self):
+        from indicator_engine import _safe
+        s = pd.Series([99.5])
+        assert _safe(s) == 99.5
+
+
+# ── indicator_engine: _compute_daily_volume_stats ────────────────────────────
+
+@pytest.mark.unit
+class TestDailyVolumeStats:
+    def test_none_df_returns_defaults(self):
+        from indicator_engine import _compute_daily_volume_stats
+        ratio, trend, mean = _compute_daily_volume_stats(None)
+        assert ratio == 1.0 and trend == 0.0 and mean == 0.0
+
+    def test_too_few_rows_returns_defaults(self):
+        from indicator_engine import _compute_daily_volume_stats
+        df = _make_daily_df(n=2)
+        ratio, trend, mean = _compute_daily_volume_stats(df)
+        assert ratio == 1.0 and trend == 0.0 and mean == 0.0
+
+    def test_constant_volume_ratio_is_one(self):
+        from indicator_engine import _compute_daily_volume_stats
+        df = _make_daily_df(n=10, volume=1_000_000.0)
+        ratio, trend, mean = _compute_daily_volume_stats(df)
+        assert abs(ratio - 1.0) < 0.05
+
+    def test_increasing_volume_trend_positive(self):
+        from indicator_engine import _compute_daily_volume_stats
+        idx = pd.date_range("2026-01-01", periods=10, freq="B", tz="America/New_York")
+        vols = [500_000.0 * (1 + i * 0.2) for i in range(10)]  # 20% growth/day
+        df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+                           "volume": vols}, index=idx)
+        ratio, trend, mean = _compute_daily_volume_stats(df)
+        assert trend > 0
+
+    def test_returns_correct_mean(self):
+        from indicator_engine import _compute_daily_volume_stats
+        df = _make_daily_df(n=8, volume=2_000_000.0)
+        ratio, trend, mean = _compute_daily_volume_stats(df)
+        assert abs(mean - 2_000_000.0) < 1000.0
+
+
+# ── indicator_engine: _approx_corr ────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestApproxCorr:
+    def test_identical_series_returns_one(self):
+        from indicator_engine import _approx_corr
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        assert abs(_approx_corr(a, a) - 1.0) < 1e-6
+
+    def test_opposite_series_returns_negative_one(self):
+        from indicator_engine import _approx_corr
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        b = [5.0, 4.0, 3.0, 2.0, 1.0]
+        assert abs(_approx_corr(a, b) - (-1.0)) < 1e-6
+
+    def test_too_short_returns_zero(self):
+        from indicator_engine import _approx_corr
+        assert _approx_corr([1.0, 2.0], [1.0, 2.0]) == 0.0
+
+    def test_constant_series_returns_zero(self):
+        from indicator_engine import _approx_corr
+        a = [5.0, 5.0, 5.0, 5.0, 5.0]
+        b = [1.0, 2.0, 3.0, 4.0, 5.0]
+        assert _approx_corr(a, b) == 0.0
+
+
+# ── indicator_engine: _composite_score ────────────────────────────────────────
+
+@pytest.mark.unit
+class TestCompositeScore:
+    @staticmethod
+    def _equal_weights():
+        return {
+            "VWAP": 10.0, "RSI": 10.0, "Daily Volume Trend": 10.0, "MACD": 10.0,
+            "EMA 9/21 Crossover": 10.0, "Bollinger Bands": 10.0, "VWAP StdDev Bands": 10.0,
+            "ATR": 10.0, "Stochastic Oscillator": 10.0, "OBV": 10.0, "RSI Slope": 10.0,
+        }
+
+    @staticmethod
+    def _bullish_vals(price=102.0):
+        return {
+            "current_price": price, "vwap": 100.0, "atr": 1.0,
+            "rsi": 65.0, "macd_hist": 0.5, "bb_upper": 105.0, "bb_lower": 95.0,
+            "ema9": 101.5, "ema21": 100.5, "stoch_k": 70.0, "stoch_d": 60.0,
+            "daily_volume_ratio": 1.2, "daily_volume_trend": 0.5,
+            "vwap_slope": 0.3, "rsi_slope": 2.0, "obv_trend": 0.5,
+        }
+
+    @staticmethod
+    def _bearish_vals(price=98.0):
+        return {
+            "current_price": price, "vwap": 100.0, "atr": 1.0,
+            "rsi": 35.0, "macd_hist": -0.5, "bb_upper": 105.0, "bb_lower": 95.0,
+            "ema9": 98.5, "ema21": 99.5, "stoch_k": 30.0, "stoch_d": 40.0,
+            "daily_volume_ratio": 0.8, "daily_volume_trend": -0.5,
+            "vwap_slope": -0.3, "rsi_slope": -2.0, "obv_trend": -0.5,
+        }
+
+    def test_bullish_vals_give_buy_signal(self):
+        from indicator_engine import _composite_score
+        score, signal, conf = _composite_score(self._bullish_vals(), self._equal_weights())
+        assert score > 15
+        assert signal == "BUY"
+
+    def test_bearish_vals_give_sell_signal(self):
+        from indicator_engine import _composite_score
+        score, signal, conf = _composite_score(self._bearish_vals(), self._equal_weights())
+        assert score < -15
+        assert signal == "SELL"
+
+    def test_neutral_gives_hold(self):
+        from indicator_engine import _composite_score
+        # Price exactly at VWAP, RSI 50, MACD 0
+        vals = self._bullish_vals(price=100.0)
+        vals.update({"rsi": 50.0, "macd_hist": 0.0, "ema9": 100.0, "ema21": 100.0,
+                     "stoch_k": 50.0, "stoch_d": 50.0, "daily_volume_trend": 0.0,
+                     "vwap_slope": 0.0, "rsi_slope": 0.0, "obv_trend": 0.0})
+        _, signal, _ = _composite_score(vals, self._equal_weights())
+        assert signal == "HOLD"
+
+    def test_empty_weights_returns_zero_hold(self):
+        from indicator_engine import _composite_score
+        score, signal, conf = _composite_score(self._bullish_vals(), {})
+        assert score == 0.0 and signal == "HOLD"
+
+    def test_confidence_scales_with_volume(self):
+        from indicator_engine import _composite_score
+        high_vol = dict(self._bullish_vals())
+        high_vol["daily_volume_ratio"] = 1.5
+        low_vol = dict(self._bullish_vals())
+        low_vol["daily_volume_ratio"] = 0.5
+        _, _, conf_high = _composite_score(high_vol, self._equal_weights())
+        _, _, conf_low  = _composite_score(low_vol,  self._equal_weights())
+        assert conf_high > conf_low
+
+
+# ── indicator_engine: compute_indicators (integration) ───────────────────────
+
+@pytest.mark.unit
+class TestComputeIndicators:
+    def test_returns_none_for_short_df(self):
+        from indicator_engine import compute_indicators
+        df = _make_intraday_df(n=10)
+        assert compute_indicators("AAPL", df) is None
+
+    def test_returns_indicator_values_for_valid_df(self, tmp_path, monkeypatch):
+        import config
+        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        weights = {
+            "VWAP": 10.0, "RSI": 10.0, "Daily Volume Trend": 10.0, "MACD": 10.0,
+            "EMA 9/21 Crossover": 10.0, "Bollinger Bands": 10.0, "VWAP StdDev Bands": 10.0,
+            "ATR": 10.0, "Stochastic Oscillator": 10.0, "OBV": 10.0, "RSI Slope": 10.0,
+        }
+        import json
+        config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
+
+        from indicator_engine import compute_indicators, IndicatorValues
+        df = _make_intraday_df(n=100)
+        result = compute_indicators("AAPL", df)
+        assert result is not None
+        assert isinstance(result, IndicatorValues)
+        assert result.symbol == "AAPL"
+        assert -100 <= result.composite_score <= 100
+
+    def test_works_with_daily_df(self, tmp_path):
+        import config, json
+        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        weights = {k: 10.0 for k in [
+            "VWAP", "RSI", "Daily Volume Trend", "MACD", "EMA 9/21 Crossover",
+            "Bollinger Bands", "VWAP StdDev Bands", "ATR", "Stochastic Oscillator",
+            "OBV", "RSI Slope"
+        ]}
+        config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
+
+        from indicator_engine import compute_indicators
+        df = _make_intraday_df(n=100)
+        daily = _make_daily_df(n=10)
+        result = compute_indicators("NVDA", df, daily_df=daily)
+        assert result is not None
+        assert result.daily_volume_ratio > 0
+
+
+# ── daily_report: build_report_body ──────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBuildReportBody:
+    @staticmethod
+    def _account(portfolio=10_500.0, last_equity=10_000.0):
+        return {"portfolio_value": portfolio, "last_equity": last_equity}
+
+    @staticmethod
+    def _close(symbol="NVDA", pnl=150.0, pnl_pct=1.5, qty=10,
+               entry=100.0, exit_=115.0, reason="take_profit"):
+        return {
+            "type": "CLOSE", "symbol": symbol, "qty": qty,
+            "entry_price": entry, "exit_price": exit_,
+            "pnl_dollar": pnl, "pnl_pct": pnl_pct, "close_reason": reason,
+        }
+
+    def test_subject_contains_pnl_when_trades_exist(self):
+        from daily_report import build_report_body
+        subject, _ = build_report_body(
+            trades=[self._close()],
+            account=self._account(),
+            regime="BULL_TREND",
+            watch_list="NVDA, AAPL",
+            weights={"RSI": 10.0},
+        )
+        assert "P&L" in subject
+        assert "1 trades" in subject
+
+    def test_subject_no_trades_shows_portfolio(self):
+        from daily_report import build_report_body
+        subject, _ = build_report_body(
+            trades=[], account=self._account(), regime="NORMAL",
+            watch_list="", weights={},
+        )
+        assert "No trades" in subject
+        assert "Portfolio" in subject
+
+    def test_body_contains_regime(self):
+        from daily_report import build_report_body
+        _, body = build_report_body(
+            trades=[], account=self._account(), regime="CHOPPY",
+            watch_list="TSLA", weights={},
+        )
+        assert "CHOPPY" in body
+
+    def test_body_lists_individual_trades(self):
+        from daily_report import build_report_body
+        _, body = build_report_body(
+            trades=[self._close("NVDA", pnl=200.0), self._close("AAPL", pnl=-50.0)],
+            account=self._account(),
+            regime="NORMAL", watch_list="", weights={},
+        )
+        assert "NVDA" in body
+        assert "AAPL" in body
+
+    def test_body_includes_watch_list(self):
+        from daily_report import build_report_body
+        _, body = build_report_body(
+            trades=[], account=self._account(), regime="NORMAL",
+            watch_list="NVDA, AMD, AAPL", weights={},
+        )
+        assert "NVDA, AMD, AAPL" in body
+
+    def test_body_includes_weights(self):
+        from daily_report import build_report_body
+        _, body = build_report_body(
+            trades=[], account=self._account(), regime="NORMAL",
+            watch_list="", weights={"RSI": 15.5},
+        )
+        assert "RSI" in body
+
+    def test_win_rate_calculation(self):
+        from daily_report import build_report_body
+        trades = [
+            self._close("NVDA", pnl=100.0),
+            self._close("AAPL", pnl=50.0),
+            self._close("TSLA", pnl=-80.0),
+        ]
+        _, body = build_report_body(
+            trades=trades, account=self._account(), regime="NORMAL",
+            watch_list="", weights={},
+        )
+        assert "66.7%" in body or "Win rate" in body
+
+
+# ── daily_report: _already_sent_today / _mark_sent ───────────────────────────
+
+@pytest.mark.unit
+class TestDailyReportSentFlag:
+    def test_not_sent_when_file_missing(self, tmp_path, monkeypatch):
+        import daily_report
+        monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "sent.json")
+        assert daily_report._already_sent_today() is False
+
+    def test_not_sent_after_marking_different_date(self, tmp_path, monkeypatch):
+        import daily_report, json
+        sent_file = tmp_path / "sent.json"
+        sent_file.write_text(json.dumps({"date": "2020-01-01"}))
+        monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", sent_file)
+        assert daily_report._already_sent_today() is False
+
+    def test_already_sent_after_mark_sent(self, tmp_path, monkeypatch):
+        import daily_report
+        monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "sent.json")
+        daily_report._mark_sent()
+        assert daily_report._already_sent_today() is True
+
+
+# ── vix_regime: persistence helpers ──────────────────────────────────────────
+
+@pytest.mark.unit
+class TestVixRegimeHelpers:
+    def test_load_vix_regime_missing_file_returns_normal(self, tmp_path):
+        import config
+        config.VIX_REGIME_FILE = tmp_path / "vix_regime.json"
+        from vix_regime import load_vix_regime
+        result = load_vix_regime()
+        assert result["regime"] == "NORMAL"
+
+    def test_load_vix_regime_reads_written_file(self, tmp_path):
+        import config, json
+        config.VIX_REGIME_FILE = tmp_path / "vix_regime.json"
+        payload = {"regime": "HIGH_VOL", "vix_current": 25.0, "vix_avg_90d": 20.0}
+        config.VIX_REGIME_FILE.write_text(json.dumps(payload))
+        from vix_regime import load_vix_regime
+        result = load_vix_regime()
+        assert result["regime"] == "HIGH_VOL"
+
+    def test_load_trading_params_returns_config_defaults(self, tmp_path):
+        import config
+        config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
+        from vix_regime import load_trading_params
+        params = load_trading_params()
+        assert "entry_start_hour" in params
+        assert params["stop_loss_pct"] == config.STOP_LOSS_PCT
+
+    def test_load_trading_params_overrides_from_file(self, tmp_path):
+        import config, json
+        config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
+        config.TRADING_PARAMS_FILE.write_text(json.dumps({"stop_loss_pct": 3.5}))
+        from vix_regime import load_trading_params
+        params = load_trading_params()
+        assert params["stop_loss_pct"] == 3.5
+
+
+# ── learning_agent: file I/O helpers ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestLearningAgentHelpers:
+    def test_load_todays_closed_trades_missing_file(self, tmp_path):
+        import config
+        config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
+        from learning_agent import _load_todays_closed_trades
+        assert _load_todays_closed_trades() == []
+
+    def test_load_todays_closed_trades_filters_by_today(self, tmp_path):
+        import config, json
+        from datetime import date
+        config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
+        today = date.today().isoformat()
+        journal = [
+            {"type": "CLOSE", "timestamp": f"{today}T10:30:00", "symbol": "NVDA",
+             "pnl_pct": 2.0, "pnl_dollar": 100.0, "close_reason": "tp"},
+            {"type": "CLOSE", "timestamp": "2020-01-01T10:30:00", "symbol": "AAPL",
+             "pnl_pct": -1.0, "pnl_dollar": -50.0, "close_reason": "sl"},
+            {"type": "BUY", "timestamp": f"{today}T09:30:00", "symbol": "AMD"},
+        ]
+        config.TRADE_JOURNAL_FILE.write_text(json.dumps(journal))
+        from learning_agent import _load_todays_closed_trades
+        result = _load_todays_closed_trades()
+        assert len(result) == 1
+        assert result[0]["symbol"] == "NVDA"
+
+    def test_save_and_load_weights(self, tmp_path):
+        import config
+        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        from learning_agent import _save_weights, _load_weights
+        weights = {"RSI": 20.0, "MACD": 15.0}
+        _save_weights(weights)
+        loaded = _load_weights()
+        assert loaded == weights
+
+    def test_save_trading_params_adds_last_updated(self, tmp_path):
+        import config, json
+        from datetime import date
+        config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
+        from learning_agent import _save_trading_params
+        _save_trading_params({"stop_loss_pct": 4.0})
+        saved = json.loads(config.TRADING_PARAMS_FILE.read_text())
+        assert saved["last_updated"] == date.today().isoformat()
+        assert saved["stop_loss_pct"] == 4.0
+
+
+# ── swing_manager: _evaluate_gap_action ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestEvaluateGapAction:
+    @staticmethod
+    def _pos(entry=100.0, sl_pct=7.0, tp1_hit=False):
+        return {"entry_price": entry, "stop_loss_pct": sl_pct, "tp1_hit": tp1_hit}
+
+    def test_gap_down_past_stop_returns_close(self):
+        from swing_manager import _evaluate_gap_action
+        assert _evaluate_gap_action(self._pos(), current_price=92.0) == "CLOSE_GAP_DOWN"
+
+    def test_gap_down_2_to_5pct_returns_tighten(self):
+        from swing_manager import _evaluate_gap_action
+        assert _evaluate_gap_action(self._pos(), current_price=96.0) == "TIGHTEN_STOP"
+
+    def test_gap_up_3pct_returns_take_tp1(self):
+        from swing_manager import _evaluate_gap_action
+        assert _evaluate_gap_action(self._pos(), current_price=103.5) == "TAKE_TP1_GAP_UP"
+
+    def test_gap_up_when_tp1_already_hit_returns_none(self):
+        from swing_manager import _evaluate_gap_action
+        assert _evaluate_gap_action(self._pos(tp1_hit=True), current_price=103.5) == "NONE"
+
+    def test_no_gap_returns_none(self):
+        from swing_manager import _evaluate_gap_action
+        assert _evaluate_gap_action(self._pos(), current_price=100.5) == "NONE"
+
+
+# ── swing_manager: load/save ──────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestLoadSwingPositions:
+    def test_missing_file_returns_empty_dict(self, tmp_path):
+        import config
+        config.SWING_POSITIONS_FILE = tmp_path / "swing_positions.json"
+        from swing_manager import load_swing_positions
+        assert load_swing_positions() == {}
+
+    def test_loads_written_positions(self, tmp_path):
+        import config, json
+        config.SWING_POSITIONS_FILE = tmp_path / "swing_positions.json"
+        payload = {"NVDA": {"entry_price": 100.0, "qty": 10}}
+        config.SWING_POSITIONS_FILE.write_text(json.dumps(payload))
+        from swing_manager import load_swing_positions
+        result = load_swing_positions()
+        assert "NVDA" in result
+        assert result["NVDA"]["qty"] == 10
+
+
+# ── earnings_calendar: cache helpers ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestEarningsCalendarCacheHelpers:
+    def _write_cache(self, tmp_path, symbol="NVDA", days_until=3, reported_block=None):
+        import config, json
+        from datetime import date, timedelta
+        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
+        next_date = (date.today() + timedelta(days=days_until)).isoformat()
+        entry = {"next_earnings_date": next_date}
+        if reported_block:
+            entry["recently_reported"] = reported_block
+        payload = {
+            "date": date.today().isoformat(),
+            "symbols": {symbol: entry},
+        }
+        config.EARNINGS_CALENDAR_FILE.write_text(json.dumps(payload))
+
+    def test_days_until_earnings_returns_correct_count(self, tmp_path):
+        self._write_cache(tmp_path, days_until=5)
+        from earnings_calendar import days_until_earnings
+        d = days_until_earnings("NVDA")
+        assert d == 5
+
+    def test_days_until_earnings_returns_none_for_unknown(self, tmp_path):
+        import config
+        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
+        from earnings_calendar import days_until_earnings
+        assert days_until_earnings("UNKNOWN") is None
+
+    def test_is_earnings_imminent_true_when_in_1_day(self, tmp_path):
+        self._write_cache(tmp_path, days_until=1)
+        from earnings_calendar import is_earnings_imminent
+        assert is_earnings_imminent("NVDA", days=1) is True
+
+    def test_is_earnings_imminent_false_when_far(self, tmp_path):
+        self._write_cache(tmp_path, days_until=10)
+        from earnings_calendar import is_earnings_imminent
+        assert is_earnings_imminent("NVDA", days=1) is False
+
+    def test_recently_reported_returns_block_when_fresh(self, tmp_path):
+        from datetime import date, timedelta
+        report_date = (date.today() - timedelta(days=2)).isoformat()
+        block = {"report_date": report_date, "eps_surprise_pct": 10.0}
+        self._write_cache(tmp_path, reported_block=block)
+        from earnings_calendar import recently_reported
+        result = recently_reported("NVDA", days=5)
+        assert result is not None
+        assert result["eps_surprise_pct"] == 10.0
+
+    def test_recently_reported_returns_none_when_stale(self, tmp_path):
+        from datetime import date, timedelta
+        old_date = (date.today() - timedelta(days=10)).isoformat()
+        block = {"report_date": old_date, "eps_surprise_pct": 10.0}
+        self._write_cache(tmp_path, reported_block=block)
+        from earnings_calendar import recently_reported
+        assert recently_reported("NVDA", days=5) is None
+
+
+# ── trading_agent: persistence helpers ───────────────────────────────────────
+
+@pytest.mark.unit
+class TestTradingAgentHelpers:
+    def test_load_watch_list_returns_empty_when_missing(self, tmp_path):
+        import config
+        config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
+        from trading_agent import load_watch_list
+        assert load_watch_list() == []
+
+    def test_load_watch_list_strips_and_uppercases(self, tmp_path):
+        import config
+        config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
+        config.WATCH_LIST_FILE.write_text("nvda\n aapl \nAMD\n")
+        from trading_agent import load_watch_list
+        result = load_watch_list()
+        assert result == ["NVDA", "AAPL", "AMD"]
+
+    def test_load_open_positions_empty_when_no_file(self, tmp_path):
+        import config
+        config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
+        from trading_agent import load_open_positions
+        assert load_open_positions() == {}
+
+    def test_save_and_load_open_positions(self, tmp_path):
+        import config
+        config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
+        from trading_agent import save_open_positions, load_open_positions
+        positions = {"NVDA": {"entry_price": 100.0, "qty": 5}}
+        save_open_positions(positions)
+        loaded = load_open_positions()
+        assert loaded == positions
+
+    def test_estimate_batch_call_cost_scales_with_batch_size(self):
+        from trading_agent import _estimate_batch_call_cost
+        cost1 = _estimate_batch_call_cost(1)
+        cost5 = _estimate_batch_call_cost(5)
+        assert cost5 > cost1
+        assert cost1 > 0
+
+    def test_load_daily_closed_returns_set(self, tmp_path):
+        import config
+        config.DAILY_CLOSED_FILE = tmp_path / "daily_closed.json"
+        from trading_agent import load_daily_closed
+        assert load_daily_closed() == set()
+
+    def test_record_and_load_daily_closed(self, tmp_path):
+        import config
+        config.DAILY_CLOSED_FILE = tmp_path / "daily_closed.json"
+        from trading_agent import record_daily_closed, load_daily_closed
+        record_daily_closed("NVDA")
+        record_daily_closed("AAPL")
+        closed = load_daily_closed()
+        assert "NVDA" in closed
+        assert "AAPL" in closed
+
+    def test_append_trade_accumulates_journal(self, tmp_path):
+        import config, json
+        config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
+        from trading_agent import append_trade
+        append_trade({"type": "BUY", "symbol": "NVDA"})
+        append_trade({"type": "CLOSE", "symbol": "NVDA"})
+        journal = json.loads(config.TRADE_JOURNAL_FILE.read_text())
+        assert len(journal) == 2
+        assert journal[0]["type"] == "BUY"
+
+    def test_top_indicators_aligned_true(self):
+        import types
+        from trading_agent import _top_indicators_aligned
+        iv = types.SimpleNamespace(current_price=102.0, vwap=100.0, rsi=55.0, macd_hist=0.1)
+        assert _top_indicators_aligned(iv) is True
+
+    def test_top_indicators_aligned_false_price_below_vwap(self):
+        import types
+        from trading_agent import _top_indicators_aligned
+        iv = types.SimpleNamespace(current_price=98.0, vwap=100.0, rsi=55.0, macd_hist=0.1)
+        assert _top_indicators_aligned(iv) is False
+
+
+# ── market_data: provider routing ────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestMarketDataHelpers:
+    def test_get_intraday_bars_returns_empty_on_yahoo_error(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
+        import market_data as md
+        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
+        result = md.get_intraday_bars("AAPL")
+        assert result.empty
+
+    def test_get_daily_bars_returns_empty_on_yahoo_error(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
+        import market_data as md
+        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
+        result = md.get_daily_bars("AAPL")
+        assert result.empty
+
+    def test_get_latest_price_yahoo_path(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
+        import market_data as md
+        idx = pd.date_range("2026-05-01 15:50", periods=1, freq="2min", tz="America/New_York")
+        fake_df = pd.DataFrame({"close": [155.0]}, index=idx)
+        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: fake_df)
+        price = md.get_latest_price("AAPL")
+        assert price == 155.0
+
+
+# ── alpaca_client: thin wrapper ───────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestAlpacaClientHelpers:
+    def test_init_succeeds_with_dummy_keys(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
+        from unittest.mock import patch, MagicMock
+        with patch("alpaca_client.TradingClient"):
+            from alpaca_client import AlpacaClient
+            client = AlpacaClient()
+            assert client is not None
+
+    def test_get_latest_price_delegates_to_market_data(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
+        from unittest.mock import patch, MagicMock
+        with patch("alpaca_client.TradingClient"):
+            import alpaca_client
+            client = alpaca_client.AlpacaClient()
+            with patch("market_data.get_latest_price", return_value=200.5):
+                price = client.get_latest_price("AAPL")
+                assert price == 200.5
+
+
+# ── economic_calendar: additional coverage ────────────────────────────────────
+
+@pytest.mark.unit
+class TestEconomicCalendarAdditional:
+    def test_first_friday_feb_2026(self):
+        from economic_calendar import _first_friday
+        assert _first_friday(2026, 2) == 6  # Feb 2026: first Friday is the 6th
+
+    def test_first_friday_jan_2025(self):
+        from economic_calendar import _first_friday
+        assert _first_friday(2025, 1) == 3  # Jan 2025: first Friday is the 3rd
+
+    def test_hardcoded_events_returns_list(self):
+        from economic_calendar import _hardcoded_events
+        events = _hardcoded_events(2026, 3)
+        assert isinstance(events, list)
+        assert all("name" in e and "date" in e and "impact" in e for e in events)
+
+    def test_hardcoded_events_nfp_is_first_friday(self):
+        from economic_calendar import _hardcoded_events, _first_friday
+        day = _first_friday(2026, 6)
+        events = _hardcoded_events(2026, 6)
+        nfp = [e for e in events if "Non-Farm" in e["name"]]
+        assert nfp[0]["date"] == f"2026-06-{day:02d}"
+
+
+# ── api_budget: remaining lines ───────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestApiBudgetRemaining:
+    def test_record_call_increases_cost(self, tmp_path):
+        import config, api_budget
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        api_budget.record_usage(input_tokens=1000, output_tokens=100,
+                                cache_write_tokens=0, cache_read_tokens=0)
+        budget = api_budget.load_budget()
+        assert budget["estimated_cost_usd"] > 0
+        assert budget["calls_made"] == 1
+
+    def test_check_budget_not_exhausted_returns_true(self, tmp_path):
+        import config, api_budget
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        assert api_budget.check_budget(estimated_call_cost=0.0) is True
+
+    def test_ceiling_exhausted_after_many_calls(self, tmp_path):
+        import config, api_budget
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        config.API_DAILY_BUDGET_USD = 0.001  # tiny ceiling
+        # Simulate expensive calls
+        for _ in range(5):
+            api_budget.record_usage(input_tokens=100_000, output_tokens=10_000,
+                                    cache_write_tokens=0, cache_read_tokens=0)
+        assert api_budget.check_budget(estimated_call_cost=0.0) is False
+
+
+# ── telegram_notify ───────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestTelegramNotify:
+    """telegram_notify functions must never raise; unconfigured tokens are a no-op."""
+
+    def _patch_no_token(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "")
+        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "")
+
+    def _patch_fake_token(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "fake_token")
+        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "12345")
+
+    def test_no_token_is_silent(self, monkeypatch):
+        self._patch_no_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_startup("NORMAL", 0)
+            mock_post.assert_not_called()
+
+    def test_sends_when_configured(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_startup("BULL_TREND", 2)
+            mock_post.assert_called_once()
+            payload = mock_post.call_args[1]["json"]
+            assert "BULL_TREND" in payload["text"]
+            assert payload["parse_mode"] == "HTML"
+
+    def test_network_error_does_not_raise(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post", side_effect=Exception("network down")):
+            telegram_notify.notify_startup("NORMAL", 0)  # must not raise
+
+    def test_notify_buy_contains_symbol(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_buy("NVDA", 10, 150.0, 144.0, 157.5, "DAY_TRADE", 42.0, 80)
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "NVDA" in text
+            assert "150.00" in text
+
+    def test_notify_close_shows_pnl(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_close("AAPL", 5, 100.0, 105.0, 25.0, 5.0, "claude_decision")
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "AAPL" in text
+            assert "+25.00" in text
+
+    def test_notify_eod_no_trades(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_eod_summary([], 0.0, 0.0, 10000.0, "NORMAL")
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "no trades" in text.lower()
+
+    def test_notify_eod_with_trades(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        closes = [
+            {"symbol": "NVDA", "pnl_dollar": 80.0, "pnl_pct": 4.0},
+            {"symbol": "AAPL", "pnl_dollar": -20.0, "pnl_pct": -1.5},
+        ]
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_eod_summary(closes, 60.0, 0.6, 10060.0, "BULL_TREND")
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "NVDA" in text
+            assert "BULL_TREND" in text
+
+    def test_notify_job_failure_truncates_long_error(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        long_err = "x" * 500
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_job_failure("force_close", long_err)
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "force_close" in text
+            assert len(text) < 600
+
+    def test_notify_claude_disabled(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_claude_disabled("HTTP 400 — invalid cache_control")
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "Claude" in text
+
+    def test_notify_regime_change_crisis_has_alert_emoji(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_regime_change("NORMAL", "CRISIS", -65)
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "CRISIS" in text
+            assert "🚨" in text

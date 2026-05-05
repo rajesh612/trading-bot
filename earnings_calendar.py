@@ -183,9 +183,8 @@ def days_until_earnings(symbol: str) -> int | None:
     if not next_date:
         return None
     try:
-        delta = datetime.fromisoformat(next_date) - datetime.now(ET).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        from datetime import date as _date
+        delta = _date.fromisoformat(next_date) - datetime.now(ET).date()
         return max(0, delta.days)
     except Exception:
         return None

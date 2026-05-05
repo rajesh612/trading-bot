@@ -76,6 +76,12 @@ EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "")
 EMAIL_RECIPIENT    = os.getenv("EMAIL_RECIPIENT", "")
 DAILY_REPORT_SENT_FILE = BASE_DIR / "daily_report_sent.json"
 
+# Telegram notifications (optional — leave blank to disable)
+# Setup: message @BotFather → /newbot → get token.
+# Then message your bot once and GET api.telegram.org/bot<TOKEN>/getUpdates for chat_id.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
 # ── Plan 1: Regime-Adaptive Foundation ────────────────────────────────────────
 
 # State file paths

@@ -6,11 +6,18 @@
     <key>Label</key>
     <string>trading_bot_start</string>
 
+    <!-- /bin/bash must have Full Disk Access (System Settings > Privacy & Security >
+         Full Disk Access) when the project lives in ~/Documents. Without FDA the
+         shell gets EPERM reading the script and launchd loops on the failure. -->
     <key>ProgramArguments</key>
     <array>
+        <string>/bin/bash</string>
         <string>PLACEHOLDER_PROJECT_DIR/start.sh</string>
         <string>--foreground</string>
     </array>
+
+    <key>WorkingDirectory</key>
+    <string>PLACEHOLDER_PROJECT_DIR</string>
 
     <!-- Fire Mon-Fri at 05:30 PT (= 08:30 ET, before 08:45 ET volatility screener).
          PT is always ET-3 regardless of DST — no timezone confusion.
@@ -29,13 +36,12 @@
     <key>StandardErrorPath</key>
     <string>PLACEHOLDER_PROJECT_DIR/launchd_trading_bot.log</string>
 
+    <!-- Do NOT use KeepAlive here. If bash is blocked by TCC (no FDA) launchd
+         would restart every ThrottleInterval seconds, flooding the log. The bot's
+         own crash-loop guard (main.py) handles intra-session recovery; launchd's
+         StartCalendarInterval handles the next-day restart. -->
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
-    <key>ThrottleInterval</key>
-    <integer>15</integer>
+    <false/>
     <key>RunAtLoad</key>
     <false/>
 </dict>
