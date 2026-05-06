@@ -2977,3 +2977,135 @@ class TestFetchWithRetry:
             raise ConnectionError("down")
         with pytest.raises(ConnectionError):
             _fetch_with_retry(fn, attempts=3, base_delay=0)
+
+
+@pytest.mark.unit
+class TestCapabilitySummary:
+    def test_degraded_items_identified_when_keys_missing(self, monkeypatch):
+        """_log_capability_summary returns list of degraded integration names."""
+        import config as cfg
+        monkeypatch.setattr(cfg, "FRED_API_KEY", "")
+        monkeypatch.setattr(cfg, "POLYGON_API_KEY", "")
+        monkeypatch.setattr(cfg, "EMAIL_SENDER", "user@example.com")
+        monkeypatch.setattr(cfg, "EMAIL_APP_PASSWORD", "pass")
+        monkeypatch.setattr(cfg, "TELEGRAM_BOT_TOKEN", "tok")
+        monkeypatch.setattr(cfg, "TELEGRAM_CHAT_ID", "123")
+        from main import _log_capability_summary
+        degraded = _log_capability_summary()
+        assert any("FRED" in item for item in degraded)
+        assert any("Polygon" in item for item in degraded)
+        assert not any("Email" in item for item in degraded)
+
+    def test_no_degraded_when_all_keys_present(self, monkeypatch, tmp_path):
+        import config as cfg
+        from pathlib import Path
+        monkeypatch.setattr(cfg, "FRED_API_KEY", "abc")
+        monkeypatch.setattr(cfg, "POLYGON_API_KEY", "xyz")
+        monkeypatch.setattr(cfg, "EMAIL_SENDER", "user@example.com")
+        monkeypatch.setattr(cfg, "EMAIL_APP_PASSWORD", "pass")
+        monkeypatch.setattr(cfg, "TELEGRAM_BOT_TOKEN", "tok")
+        monkeypatch.setattr(cfg, "TELEGRAM_CHAT_ID", "123")
+        # Point FRED_CACHE_FILE at a non-existent tmp path so no real file is read
+        monkeypatch.setattr(cfg, "FRED_CACHE_FILE", tmp_path / "fred_cache.json")
+        from main import _log_capability_summary
+        degraded = _log_capability_summary()
+        assert degraded == []
+
+
+@pytest.mark.unit
+class TestBuildMarketContextBlock:
+    def _regime(self, **overrides) -> dict:
+        base = {
+            "regime": "BULL_TREND",
+            "macro_health_score": 32,
+            "vix_current": 18.2,
+        }
+        base.update(overrides)
+        return base
+
+    def _fred(self, **overrides) -> dict:
+        base = {
+            "fed_direction": "cutting",
+            "cpi_trend": "falling",
+            "unemployment_rising": False,
+        }
+        base.update(overrides)
+        return base
+
+    def _meta(self, **overrides) -> dict:
+        base = {
+            "macro_shock_score": 0,
+            "sector_sentiment": {"AI_SEMI": 28.0, "DATA_CENTER": 15.0},
+            "capitulation_candidates": [],
+        }
+        base.update(overrides)
+        return base
+
+    def test_contains_all_six_fields(self, monkeypatch):
+        monkeypatch.setattr(
+            "economic_calendar.is_event_risk_window", lambda now: (False, "")
+        )
+        from trading_agent import _build_market_context_block
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+        block = _build_market_context_block(self._regime(), self._fred(), self._meta(), now)
+        assert "BULL_TREND" in block
+        assert "cutting" in block
+        assert "falling" in block
+        assert "None active" in block
+        assert "AI_SEMI" in block
+        assert "Capitulation watch" in block
+
+    def test_shock_score_omitted_when_zero(self, monkeypatch):
+        monkeypatch.setattr(
+            "economic_calendar.is_event_risk_window", lambda now: (False, "")
+        )
+        from trading_agent import _build_market_context_block
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+        block = _build_market_context_block(self._regime(), self._fred(), self._meta(macro_shock_score=0), now)
+        assert "0/100" in block
+        assert "elevated" not in block
+
+    def test_shock_score_flagged_when_elevated(self, monkeypatch):
+        monkeypatch.setattr(
+            "economic_calendar.is_event_risk_window", lambda now: (False, "")
+        )
+        from trading_agent import _build_market_context_block
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+        block = _build_market_context_block(
+            self._regime(), self._fred(), self._meta(macro_shock_score=55), now
+        )
+        assert "55/100" in block
+        assert "elevated" in block
+
+    def test_active_event_risk_flagged(self, monkeypatch):
+        monkeypatch.setattr(
+            "economic_calendar.is_event_risk_window",
+            lambda now: (True, "Non-Farm Payrolls"),
+        )
+        from trading_agent import _build_market_context_block
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime(2026, 5, 5, 8, 35, tzinfo=ZoneInfo("America/New_York"))
+        block = _build_market_context_block(self._regime(), self._fred(), self._meta(), now)
+        assert "Non-Farm Payrolls" in block
+        assert "avoid" in block
+
+    def test_capitulation_candidates_listed(self, monkeypatch):
+        monkeypatch.setattr(
+            "economic_calendar.is_event_risk_window", lambda now: (False, "")
+        )
+        from trading_agent import _build_market_context_block
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+        block = _build_market_context_block(
+            self._regime(), self._fred(), self._meta(capitulation_candidates=["SMCI", "PLTR"]), now
+        )
+        assert "SMCI" in block
+        assert "PLTR" in block

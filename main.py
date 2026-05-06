@@ -158,6 +158,7 @@ def _cleanup_stale_files() -> None:
     - Delete .corrupt.json backups older than CORRUPT_BACKUP_MAX_DAYS
     - Archive trade_journal.json entries older than TRADE_JOURNAL_MAX_DAYS
     - Delete leftover .tmp files from crashed writes
+    - Delete stale research_report.json from a prior trading day
     """
     cutoff = datetime.now(ET) - timedelta(days=config.CORRUPT_BACKUP_MAX_DAYS)
     for f in config.BASE_DIR.glob("*.corrupt.json"):
@@ -175,6 +176,22 @@ def _cleanup_stale_files() -> None:
             logger.info(f"Deleted leftover tmp file: {f.name}")
         except Exception as exc:
             logger.warning(f"Could not delete {f.name}: {exc}")
+
+    # Prune research_report.json if it is from a prior trading day.
+    try:
+        if config.RESEARCH_REPORT_FILE.exists():
+            rr = json.loads(config.RESEARCH_REPORT_FILE.read_text())
+            meta_ts = rr.get("__meta__", {}).get("timestamp", "")
+            if meta_ts:
+                report_dt = datetime.fromisoformat(meta_ts)
+                if report_dt.tzinfo is None:
+                    report_dt = report_dt.replace(tzinfo=ET)
+                today_start = datetime.now(ET).replace(hour=0, minute=0, second=0, microsecond=0)
+                if report_dt < today_start:
+                    config.RESEARCH_REPORT_FILE.unlink()
+                    logger.info("Deleted stale research_report.json (from prior trading day)")
+    except Exception as exc:
+        logger.debug(f"research_report.json prune skipped: {exc}")
 
     try:
         from trading_agent import archive_old_journal_entries
@@ -671,6 +688,61 @@ def _catchup_daily_report():
     send_daily_report()
 
 
+def _log_capability_summary() -> list[str]:
+    """
+    Log one line per integration at startup. Returns degraded item descriptions
+    for Telegram alert. Called once after hard key validation.
+    """
+    degraded: list[str] = []
+
+    # FRED
+    if config.FRED_API_KEY:
+        try:
+            fred_data = json.loads(config.FRED_CACHE_FILE.read_text()) if config.FRED_CACHE_FILE.exists() else {}
+            fed = fred_data.get("fed_direction", "unknown")
+            cpi = fred_data.get("cpi_trend", "unknown")
+            logger.info(f"[✓] FRED         — macro modifier active (Fed {fed}, CPI {cpi})")
+        except Exception as exc:
+            logger.warning("[~] FRED         — key set, cache unreadable: %s", exc)
+    else:
+        logger.info("[✗] FRED         — macro regime modifier = 0 (key not set)")
+        degraded.append("FRED key missing — macro regime modifier = 0 (neutral)")
+
+    # Polygon
+    if config.POLYGON_API_KEY:
+        logger.info("[✓] Polygon      — flash-crash dual-source verification active")
+    else:
+        logger.info("[✗] Polygon      — flash-crash single-source only (SPY two-reading fallback)")
+        degraded.append("Polygon key missing — flash-crash confirmation is single-source only")
+
+    # Reddit
+    logger.info("[✓] Reddit       — public JSON API, no credentials needed")
+
+    # X / Twitter
+    if config.X_BEARER_TOKEN:
+        logger.info("[✓] X/Twitter    — tweet sentiment active")
+    else:
+        logger.info("[~] X/Twitter    — disabled (X_BEARER_TOKEN not set; $100/mo optional)")
+
+    # Email
+    if config.EMAIL_SENDER and config.EMAIL_APP_PASSWORD:
+        logger.info(f"[✓] Email        — daily report → {config.EMAIL_RECIPIENT or config.EMAIL_SENDER}")
+    else:
+        logger.info("[✗] Email        — daily report will not be sent (EMAIL_SENDER not configured)")
+        degraded.append("Email not configured — daily P&L report will not be sent")
+
+    # Telegram
+    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+        logger.info("[✓] Telegram     — notifications active")
+    else:
+        logger.info("[~] Telegram     — disabled (TELEGRAM_BOT_TOKEN not set)")
+
+    # Market data provider
+    logger.info(f"[~] Market data  — provider={config.MARKET_DATA_PROVIDER}")
+
+    return degraded
+
+
 def _handle_shutdown(signum, frame):
     logger.info("Shutdown signal received — stopping.")
     _clear_pid()
@@ -694,6 +766,10 @@ def main():
     if not config.ANTHROPIC_API_KEY:
         logger.error("Missing ANTHROPIC_API_KEY in .env")
         sys.exit(1)
+
+    degraded_integrations = _log_capability_summary()
+    if degraded_integrations:
+        telegram_notify.notify_degraded_integrations(degraded_integrations)
 
     _kill_existing_instance()
     _write_pid()

@@ -45,6 +45,14 @@ def notify_shutdown(reason: str = "normal stop") -> None:
     _send(f"<b>🔴 Bot stopped</b> — {reason}")
 
 
+def notify_degraded_integrations(items: list[str]) -> None:
+    """Send one Telegram message listing degraded integrations at startup."""
+    if not items:
+        return
+    bullet_list = "\n".join(f"  • {item}" for item in items)
+    _send(f"<b>⚠️ Bot started with degraded integrations:</b>\n{bullet_list}")
+
+
 # ── Job failures ──────────────────────────────────────────────────────────────
 
 def notify_job_failure(job_name: str, error: str) -> None:

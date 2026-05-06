@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -13,6 +14,7 @@ import telegram_notify
 import api_budget
 import config
 from alpaca_client import AlpacaClient
+import economic_calendar as _ec_mod
 from earnings_calendar import detect_pead_setup, is_earnings_imminent
 from economic_calendar import is_event_risk_window
 from indicator_engine import IndicatorValues, compute_indicators
@@ -64,7 +66,27 @@ def load_watch_list() -> list[str]:
 
 
 def load_research() -> dict:
-    return _load_json(config.RESEARCH_REPORT_FILE, {})
+    data = _load_json(config.RESEARCH_REPORT_FILE, {})
+    symbols = [k for k in data if k != "__meta__"]
+    if not symbols:
+        logger.warning("Research report is empty — Claude will have no sentiment context this cycle")
+        return data
+    try:
+        ts_str = data.get("__meta__", {}).get("timestamp") or next(
+            (data[s].get("timestamp") for s in symbols if data[s].get("timestamp")), None
+        )
+        if ts_str:
+            report_dt = datetime.fromisoformat(ts_str)
+            if report_dt.tzinfo is None:
+                report_dt = report_dt.replace(tzinfo=ET)
+            age_hours = (datetime.now(ET) - report_dt).total_seconds() / 3600
+            if age_hours > 6:
+                logger.warning(
+                    f"Research report is {age_hours:.1f}h old — sentiment may not reflect current conditions"
+                )
+    except Exception:
+        pass
+    return data
 
 
 def load_open_positions() -> dict:
@@ -254,6 +276,50 @@ def _check_entry_gates(
     return True, ""
 
 
+def _build_market_context_block(
+    regime_info: dict,
+    fred_cache: dict,
+    research_meta: dict,
+    now: datetime,
+) -> str:
+    """
+    Assemble a compact (~150 token) market context string for the Claude system prompt.
+    Pure — no file I/O; callers load the dicts and pass them in.
+    """
+    regime = regime_info.get("regime", "NORMAL")
+    health = regime_info.get("macro_health_score", 0)
+    vix    = regime_info.get("vix_current", 0.0)
+
+    fed   = fred_cache.get("fed_direction", "unknown")
+    cpi   = fred_cache.get("cpi_trend", "unknown")
+    unemp = "rising" if fred_cache.get("unemployment_rising") else "stable"
+
+    event_active, event_name = _ec_mod.is_event_risk_window(now)
+    if event_active:
+        event_line = f"⚠ ACTIVE: {event_name} — avoid new entries"
+    else:
+        event_line = "None active"
+
+    shock = research_meta.get("macro_shock_score", 0)
+    shock_line = f"{shock}/100" + (" — elevated macro stress" if shock >= 40 else "")
+
+    sectors = research_meta.get("sector_sentiment", {})
+    sector_str = " ".join(f"{s}={v:+.0f}" for s, v in sectors.items()) or "N/A"
+
+    caps = research_meta.get("capitulation_candidates", [])
+    cap_str = ", ".join(caps) if caps else "None"
+
+    return (
+        f"MARKET CONTEXT ({now.strftime('%H:%M')} ET):\n"
+        f"Regime: {regime} | health={health:+d} | VIX={vix:.1f}\n"
+        f"FRED: Fed {fed} | CPI {cpi} | Unemployment {unemp}\n"
+        f"Event risk: {event_line}\n"
+        f"Macro shock: {shock_line}\n"
+        f"Sector sentiment: {sector_str}\n"
+        f"Capitulation watch: {cap_str}"
+    )
+
+
 def compute_position_size_for_mode(
     portfolio_value: float,
     price: float,
@@ -308,6 +374,12 @@ def _build_stock_block(
     elif iv.daily_volume_ratio > 3.0:
         dvol += " HIGH"
 
+    pead_ok, pead_score = detect_pead_setup(symbol)
+    pead_line = (
+        f"\n  PEAD: {pead_score}/100 conditions met — expect multi-day drift"
+        if pead_ok else ""
+    )
+
     return (
         f"=={symbol}== composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
         f"  P=${price:.2f} VWAP=${iv.vwap:.2f}({'↑' if price>=iv.vwap else '↓'})"
@@ -316,6 +388,7 @@ def _build_stock_block(
         f" ATR={iv.atr:.4f} Stoch={iv.stoch_k:.1f}/{iv.stoch_d:.1f} Vol={dvol}\n"
         f"  NEWS: {sentiment_label}({sentiment_score:+d}) catalyst={catalyst} risk={risk_flag}\n"
         f"  {news_summary}"
+        f"{pead_line}"
     )
 
 
@@ -373,12 +446,22 @@ def _get_current_regime() -> str:
         return "NORMAL"
 
 
+def _get_current_regime_info() -> dict:
+    """Best-effort regime read — returns full dict for context block building."""
+    try:
+        return load_macro_regime()
+    except Exception:
+        return {"regime": "NORMAL", "macro_health_score": 0, "vix_current": 0.0}
+
+
 def _ask_claude_batch(
     batch: list[tuple[str, IndicatorValues, dict | None]],
     research: dict,
     strategy_memory: str,
     weights: dict,
     ai: anthropic.Anthropic,
+    fred_cache: dict,
+    research_meta: dict,
 ) -> dict[str, dict]:
     """Ask Claude for decisions on multiple stocks in a single API call."""
     global _claude_disabled, _claude_disabled_reason
@@ -420,17 +503,21 @@ def _ask_claude_batch(
         "  }\n}"
     )
 
+    now = datetime.now(ET)
+    market_ctx = _build_market_context_block(
+        _get_current_regime_info(), fred_cache, research_meta, now
+    )
     system_blocks = [
         {
             "type": "text",
             "text": (
                 "You are an expert intraday day trader making final buy/sell decisions.\n"
-                "You receive technical indicators, news sentiment, and a strategy memory.\n"
+                "You receive technical indicators, news sentiment, and market context.\n"
                 "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
                 "Prioritise capital preservation. Never hold overnight.\n"
-                f"Current indicator weights: {json.dumps(weights)}"
+                f"Current indicator weights: {json.dumps(weights)}\n\n"
+                f"{market_ctx}"
             ),
-            # No cache_control here — this block is too short to meet the 1024-token minimum
         }
     ]
     if strategy_memory:
@@ -863,6 +950,11 @@ def run_trading_cycle():
     regime      = regime_info.get("regime", "NORMAL")
     params      = load_trading_params()
 
+    try:
+        fred_cache = json.loads(config.FRED_CACHE_FILE.read_text()) if config.FRED_CACHE_FILE.exists() else {}
+    except Exception:
+        fred_cache = {}
+
     # Flash crash lockout check
     flash_crash_active = regime_info.get("flash_crash_active", False)
     flash_crash_until  = regime_info.get("flash_crash_until")
@@ -910,6 +1002,7 @@ def run_trading_cycle():
         return
 
     research = load_research()
+    research_meta = research.get("__meta__", {})
     open_positions = load_open_positions()
     daily_closed = load_daily_closed()
     weights = load_weights()
@@ -923,17 +1016,25 @@ def run_trading_cycle():
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
     # ── Phase 1: Fetch data and compute indicators for all watch-list stocks ──
+    def _fetch_symbol_data(symbol: str) -> tuple[str, IndicatorValues, dict | None] | None:
+        bars = alpaca.get_intraday_bars(symbol)
+        daily_bars = alpaca.get_daily_bars(symbol, days=8)
+        iv = compute_indicators(symbol, bars, daily_df=daily_bars)
+        if iv is None:
+            return None
+        return (symbol, iv, open_positions.get(symbol))
+
     stock_data: list[tuple[str, IndicatorValues, dict | None]] = []
-    for symbol in watch_list:
-        try:
-            bars = alpaca.get_intraday_bars(symbol)
-            daily_bars = alpaca.get_daily_bars(symbol, days=8)
-            iv = compute_indicators(symbol, bars, daily_df=daily_bars)
-            if iv is None:
-                continue
-            stock_data.append((symbol, iv, open_positions.get(symbol)))
-        except Exception as exc:
-            logger.error(f"Error fetching data for {symbol}: {exc}", exc_info=True)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(_fetch_symbol_data, sym): sym for sym in watch_list}
+        for future in as_completed(futures):
+            sym = futures[future]
+            try:
+                result = future.result()
+                if result is not None:
+                    stock_data.append(result)
+            except Exception as exc:
+                logger.error(f"Error fetching data for {sym}: {exc}", exc_info=True)
 
     if not stock_data:
         logger.warning("No valid indicator data — skipping cycle.")
@@ -998,7 +1099,7 @@ def run_trading_cycle():
     decisions: dict[str, dict] = dict(auto_buy_decisions)  # seed with pre-approved entries
     for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
         batch = needs_claude[i : i + config.CLAUDE_BATCH_SIZE]
-        batch_decisions = _ask_claude_batch(batch, research, strategy_memory, weights, ai)
+        batch_decisions = _ask_claude_batch(batch, research, strategy_memory, weights, ai, fred_cache, research_meta)
         decisions.update(batch_decisions)
 
     # ── Phase 4: Act on decisions ─────────────────────────────────────────────

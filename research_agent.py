@@ -21,6 +21,8 @@ REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; TradingBot/1.0; +rese
 
 def _fetch_with_retry(fn, *args, attempts: int = 3, base_delay: float = 1.0, **kwargs):
     """Call fn(*args, **kwargs) up to `attempts` times with exponential backoff."""
+    if attempts < 1:
+        raise ValueError(f"attempts must be >= 1, got {attempts}")
     for i in range(attempts):
         try:
             return fn(*args, **kwargs)
@@ -163,7 +165,7 @@ def _fetch_reddit(symbol: str) -> dict:
         ]
 
     posts: list[dict] = []
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=len(REDDIT_SUBREDDITS)) as executor:
         futures = {executor.submit(_fetch_sub, sub): sub for sub in REDDIT_SUBREDDITS}
         for future in as_completed(futures):
             sub = futures[future]
