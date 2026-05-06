@@ -41,7 +41,7 @@ WATCH_LIST_MAX = 15
 # Claude API cost controls
 CLAUDE_BATCH_SIZE = 5            # Stocks per batched Claude call in trading cycle
 COMPOSITE_SCORE_THRESHOLD = 15   # Skip Claude if no open position and score <= this
-STRATEGY_MEMORY_MAX_CHARS = 4000 # Truncate strategy_memory before sending to Claude
+STRATEGY_MEMORY_MAX_CHARS = 3500 # tighter — still above 1024-token cache minimum
 
 # Risk parameters
 MAX_POSITION_PCT = 0.05        # Max 5% of portfolio per position
@@ -172,5 +172,5 @@ FLASH_CRASH_VIX_RECOVERY     = 35     # auto-clear lockout if VIX drops below th
 FLASH_CRASH_SPY_RECOVERY_PCT = -5.0   # auto-clear lockout if SPY 5d return above this
 
 # ── State file hygiene ────────────────────────────────────────────────────────
-TRADE_JOURNAL_MAX_DAYS  = 90   # entries older than this are archived (never deleted)
-CORRUPT_BACKUP_MAX_DAYS = 7    # .corrupt.json backups older than this are deleted on startup
+TRADE_JOURNAL_MAX_DAYS  = 30   # faster journal reads; archive keeps full history
+CORRUPT_BACKUP_MAX_DAYS = 3    # .corrupt.json backups useless after 3 days

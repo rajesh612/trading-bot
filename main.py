@@ -25,7 +25,7 @@ _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
 # Rotate at 10 MB, keep 5 backups (trading_bot.log.1 … .5); oldest auto-deleted
 _file_handler = logging.handlers.RotatingFileHandler(
     config.BASE_DIR / "trading_bot.log",
-    maxBytes=10 * 1024 * 1024,
+    maxBytes=5 * 1024 * 1024,
     backupCount=5,
     encoding="utf-8",
 )
