@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 import anthropic
+import telegram_notify
 
 import api_budget
 import config
@@ -32,15 +33,28 @@ _POSITIONS_LOCK = threading.Lock()
 
 def _load_json(path, default):
     if path.exists():
-        with open(path) as f:
-            return json.load(f)
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            backup = path.with_suffix(".corrupt.json")
+            try:
+                path.rename(backup)
+            except Exception:
+                pass
+            _save_json(path, default)
+            logger.error(f"Corrupt JSON reset: {path.name} → {backup.name}")
+            telegram_notify.notify_file_corruption(path.name)
+            return default
     return default
 
 
 def _save_json(path, data):
     tmp = path.with_suffix(".tmp")
+    serialized = json.dumps(data, indent=2)
+    json.loads(serialized)  # validate before touching disk — raises immediately on bad data
     with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
+        f.write(serialized)
     tmp.replace(path)  # atomic on POSIX; prevents partial-write corruption
 
 
@@ -86,6 +100,36 @@ def append_trade(entry: dict):
     journal = _load_json(config.TRADE_JOURNAL_FILE, [])
     journal.append(entry)
     _save_json(config.TRADE_JOURNAL_FILE, journal)
+
+
+def archive_old_journal_entries() -> None:
+    """
+    Move entries older than TRADE_JOURNAL_MAX_DAYS from trade_journal.json to
+    trade_journal_archive.json. Keeps the active file small for fast reads.
+    """
+    from datetime import date, timezone
+    cutoff = datetime.now(ET) - timedelta(days=config.TRADE_JOURNAL_MAX_DAYS)
+    journal = _load_json(config.TRADE_JOURNAL_FILE, [])
+    recent = [e for e in journal if _entry_timestamp(e) >= cutoff]
+    old    = [e for e in journal if _entry_timestamp(e) < cutoff]
+    if not old:
+        return
+    archive_path = config.BASE_DIR / "trade_journal_archive.json"
+    archived = _load_json(archive_path, [])
+    _save_json(archive_path, archived + old)
+    _save_json(config.TRADE_JOURNAL_FILE, recent)
+    logger.info(f"Journal hygiene: archived {len(old)} entries → trade_journal_archive.json")
+
+
+def _entry_timestamp(entry: dict) -> datetime:
+    try:
+        ts = entry.get("timestamp", "")
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ET)
+        return dt
+    except (ValueError, TypeError):
+        return datetime.min.replace(tzinfo=ET)
 
 
 # ── Mode routing ─────────────────────────────────────────────────────────────
@@ -151,15 +195,20 @@ def _top_indicators_aligned(iv: IndicatorValues) -> bool:
     )
 
 
-def _prefilter_decision(iv: IndicatorValues) -> str:
+def _prefilter_decision(iv: IndicatorValues, sentiment_score: int = 0) -> str:
     """
     Returns AUTO_SKIP | AUTO_BUY | ASK_CLAUDE.
-    AUTO_BUY when composite exceeds the high-confidence threshold and all top
-    indicators are aligned — entry gates still apply in Phase 2 before buy.
+    AUTO_BUY when composite exceeds the high-confidence threshold, all top
+    indicators are aligned, and sentiment is not bearish.
+    Entry gates still apply in Phase 2 before buy.
     """
     if iv.composite_score <= config.COMPOSITE_SCORE_THRESHOLD:
         return "AUTO_SKIP"
-    if iv.composite_score > config.AUTO_BUY_COMPOSITE_THRESHOLD and _top_indicators_aligned(iv):
+    if (
+        iv.composite_score > config.AUTO_BUY_COMPOSITE_THRESHOLD
+        and _top_indicators_aligned(iv)
+        and sentiment_score >= config.AUTO_BUY_MIN_SENTIMENT
+    ):
         return "AUTO_BUY"
     return "ASK_CLAUDE"
 
@@ -382,17 +431,18 @@ def _ask_claude_batch(
                 "Prioritise capital preservation. Never hold overnight.\n"
                 f"Current indicator weights: {json.dumps(weights)}"
             ),
-            "cache_control": {"type": "ephemeral"},
+            # No cache_control here — this block is too short to meet the 1024-token minimum
         }
     ]
     if strategy_memory:
-        system_blocks.append(
-            {
-                "type": "text",
-                "text": f"Today's strategy memory:\n{strategy_memory}",
-                "cache_control": {"type": "ephemeral"},
-            }
-        )
+        block: dict = {
+            "type": "text",
+            "text": f"Today's strategy memory:\n{strategy_memory}",
+        }
+        # Only request caching when the block is large enough (~1024+ tokens ≈ 4000 chars)
+        if len(strategy_memory) >= 3000:
+            block["cache_control"] = {"type": "ephemeral"}
+        system_blocks.append(block)
 
     try:
         response = ai.messages.create(
@@ -402,16 +452,17 @@ def _ask_claude_batch(
             messages=[{"role": "user", "content": user_msg}],
         )
     except anthropic.APIStatusError as exc:
-        if exc.status_code in (400, 402, 429):
+        if exc.status_code in (402, 429):
+            # Payment required or rate limit — disable Claude for the session
             _claude_disabled = True
             _claude_disabled_reason = f"HTTP {exc.status_code} — {exc.message[:120]}"
             logger.error(
                 f"CLAUDE API ERROR — circuit breaker tripped: {_claude_disabled_reason}\n"
                 f"  Resolve at https://console.anthropic.com — all Claude calls suspended until restart."
             )
-            import telegram_notify
             telegram_notify.notify_claude_disabled(_claude_disabled_reason)
         else:
+            # HTTP 400 and other errors are transient (bad request, format issue) — log only
             logger.error(f"Claude API error HTTP {exc.status_code}: {exc.message[:200]}")
         return {sym: _default_hold(sym) for sym in symbols}
     except Exception as exc:
@@ -496,7 +547,6 @@ def _close_position(
 
     record_daily_closed(symbol)
     logger.info(f"CLOSE {symbol}: P&L={pnl_pct:+.2f}% (${pnl_dollar:+.2f}) | {reason} | no re-entry today")
-    import telegram_notify
     telegram_notify.notify_close(
         symbol=symbol, qty=qty,
         entry=entry_price, exit_price=current_price,
@@ -593,7 +643,6 @@ def run_position_monitor():
                 f"BRACKET FILL detected: {symbol} closed via {close_reason} | "
                 f"P&L={pnl_pct:+.2f}% (${pnl_dollar:+.2f}) | no re-entry today"
             )
-            import telegram_notify
             telegram_notify.notify_close(
                 symbol=symbol, qty=pos["qty"],
                 entry=entry_price, exit_price=exit_price,
@@ -912,7 +961,8 @@ def run_trading_cycle():
                 f"composite={iv.composite_score:+.1f} — Alpaca bracket active, skipping Claude"
             )
         else:
-            path = _prefilter_decision(iv)
+            sentiment_score = research.get(symbol, {}).get("sentiment_score", 0)
+            path = _prefilter_decision(iv, sentiment_score)
             if path == "AUTO_BUY":
                 mode = get_active_mode(regime, symbol)
                 gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv)
@@ -933,8 +983,8 @@ def run_trading_cycle():
                         },
                     }
                     logger.info(
-                        f"AUTO-BUY {symbol}: composite={iv.composite_score:+.1f} — "
-                        f"all top indicators aligned, skipping Claude"
+                        f"AUTO-BUY {symbol}: composite={iv.composite_score:+.1f} "
+                        f"sentiment={sentiment_score:+d} — all top indicators aligned, skipping Claude"
                     )
                 else:
                     logger.info(f"AUTO-BUY blocked {symbol}: {gate_reason}")
@@ -990,6 +1040,14 @@ def run_trading_cycle():
                     if _count >= _limit:
                         logger.info(f"SKIP {symbol} — {mode} at position limit ({_count}/{_limit})")
                         continue
+
+                # Bearish sentiment hard veto — blocks even Claude-approved BUYs on bad news
+                symbol_sentiment = research.get(symbol, {}).get("sentiment_score", 0)
+                if symbol_sentiment < config.AUTO_BUY_MIN_SENTIMENT:
+                    logger.info(
+                        f"SKIP {symbol} — bearish sentiment ({symbol_sentiment:+d}) blocks BUY"
+                    )
+                    continue
 
                 # Entry gates: earnings, event risk, stop-hunt, bot herding
                 # (For AUTO_BUY these already ran in Phase 2; re-check here is cheap + safe)
@@ -1103,7 +1161,6 @@ def run_trading_cycle():
                     f"SL=${order['stop_loss_price']} TP=${order['take_profit_price']} | "
                     f"{decision.get('reasoning', '')}"
                 )
-                import telegram_notify
                 telegram_notify.notify_buy(
                     symbol=symbol, qty=qty, price=iv.current_price,
                     sl=order["stop_loss_price"], tp=order["take_profit_price"],
@@ -1157,6 +1214,12 @@ def force_close_all():
         pnl_pct = (price - pos["entry_price"]) / pos["entry_price"] * 100
         pnl_dollar = (price - pos["entry_price"]) * pos["qty"]
 
+        # Close in Alpaca first — journal write must not block the actual close
+        try:
+            alpaca.close_position(symbol)
+        except Exception as exc:
+            logger.warning(f"EOD: could not close {symbol} in Alpaca: {exc}")
+
         append_trade({
             "type": "CLOSE",
             "symbol": symbol,
@@ -1179,13 +1242,14 @@ def force_close_all():
         })
         logger.info(f"EOD close {symbol}: P&L={pnl_pct:+.2f}% (${pnl_dollar:+.2f})")
 
-    # Close only non-swing Alpaca positions (preserves promoted swings)
+    # Also sweep any Alpaca positions not in open_positions.json (reconciliation gap)
     try:
         alpaca_positions = alpaca.get_positions()
         for sym in list(alpaca_positions.keys()):
-            if sym not in swing_symbols:
+            if sym not in swing_symbols and sym not in open_positions:
                 try:
                     alpaca.close_position(sym)
+                    logger.warning(f"EOD: closed untracked Alpaca position {sym}")
                 except Exception as exc:
                     logger.warning(f"EOD: could not close {sym} in Alpaca: {exc}")
     except Exception as exc:

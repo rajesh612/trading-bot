@@ -1,11 +1,11 @@
 {
-  "date": "2026-05-04",
-  "calls_made": 0,
-  "input_tokens": 0,
-  "output_tokens": 0,
+  "date": "2026-05-05",
+  "calls_made": 41,
+  "input_tokens": 109623,
+  "output_tokens": 25552,
   "cache_write_tokens": 0,
   "cache_read_tokens": 0,
-  "estimated_cost_usd": 0.0,
+  "estimated_cost_usd": 0.712149,
   "ceiling_usd": 1.0,
   "ceiling_mode": "normal",
   "budget_exhausted": false

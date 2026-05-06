@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import certifi
 
 import config
+import telegram_notify
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -182,7 +183,6 @@ def send_daily_report() -> None:
 
     # Compact Telegram EOD summary — sent regardless of email outcome
     try:
-        import telegram_notify
         closes = [t for t in todays_trades if t.get("type") == "CLOSE"]
         pv  = account.get("portfolio_value", 0.0)
         le  = account.get("last_equity", 0.0)

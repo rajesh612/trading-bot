@@ -40,6 +40,7 @@ Fill in your keys:
 | `POLYGON_API_KEY` | [polygon.io/dashboard/keys](https://polygon.io/dashboard/keys) (free tier) | Free (optional) |
 | Reddit keys | [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) → script type | Free (optional) |
 | `X_BEARER_TOKEN` | X Basic API | $100/mo (optional, skip unless needed) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | @BotFather → /newbot; see Telegram setup below | Free (optional) |
 
 ### Market data provider — `MARKET_DATA_PROVIDER`
 
@@ -70,6 +71,8 @@ Fill in your keys:
 pgrep -f "python3 main.py" && echo "Running" || echo "Stopped"
 tail -f trading_bot.log
 ```
+
+**Log files** — `trading_bot.log` rotates automatically at 10 MB (up to 5 backups: `.log.1` … `.log.5`). No manual cleanup needed. Corrupt state file backups (`.corrupt.json`) older than 7 days and leftover `.tmp` files are deleted at every startup. Trade journal entries older than 90 days are moved to `trade_journal_archive.json`.
 
 ---
 
@@ -134,7 +137,7 @@ The bot is designed to run continuously (overnight, weekends) and recover gracef
 - **Swing position safety** — reconciliation skips swing positions (intentional holds); force-close at 3:55 PM also skips them.
 - **Daily closed list** — `daily_closed.json` prevents re-entering a symbol on the same day, even across crash/restart cycles.
 
-**macOS crash recovery:** The LaunchAgent uses `KeepAlive={SuccessfulExit: false}` — launchd restarts the bot automatically on crash but not on a clean `stop.sh` shutdown. A `ThrottleInterval` of 15 seconds ensures a minimum gap between restarts.
+**macOS crash recovery:** The LaunchAgent has `KeepAlive` disabled (`<false/>`) to prevent log-flooding if TCC blocks bash from reading scripts in `~/Documents`. The bot's internal watchdog thread and crash-loop gate in `main.py` handle intra-session recovery; the `StartCalendarInterval` handles the next-day restart.
 
 **Linux crash recovery:** Use a systemd unit instead of cron for intra-day crash recovery:
 ```ini
@@ -165,16 +168,21 @@ Edit `config.py`. Key parameters:
 | `TAKE_PROFIT_PCT` | `5.0` | Fallback take profit % (overridden by mode/regime table) |
 | `MAX_DAILY_LOSS_PCT` | `0.03` | Circuit breaker — halts new entries if down 3% |
 | `AUTO_BUY_COMPOSITE_THRESHOLD` | `35` | composite > this + aligned indicators → skip Claude, auto-BUY |
+| `AUTO_BUY_MIN_SENTIMENT` | `-10` | Sentiment score floor for any BUY — blocks entries on bad-news drops regardless of technicals |
 | `API_BUDGET_NORMAL_CEILING` | `$1.00` | Daily Claude spend cap (normal conditions) |
 | `API_BUDGET_ELEVATED_CEILING` | `$1.50` | Daily Claude spend cap (CRISIS / high-gain day) |
+| `TRADE_JOURNAL_MAX_DAYS` | `90` | Journal entries older than this are archived to `trade_journal_archive.json` at startup |
+| `CORRUPT_BACKUP_MAX_DAYS` | `7` | `.corrupt.json` backup files older than this are deleted at startup |
 
 Restart after any `config.py` change: `./stop.sh && ./start.sh`
 
 ---
 
-## Setting Up the Daily Email Report
+## Setting Up Notifications
 
-At 4:20 PM ET each trading day the bot emails a P&L summary.
+At 4:20 PM ET each trading day the bot sends a P&L summary. You can enable email, Telegram, both, or neither.
+
+### Email (Gmail)
 
 **Create a Gmail App Password:**
 1. [myaccount.google.com](https://myaccount.google.com) → Security → 2-Step Verification → App Passwords → Create
@@ -185,11 +193,11 @@ At 4:20 PM ET each trading day the bot emails a P&L summary.
    EMAIL_RECIPIENT=your@email.com
    ```
 
-Leave `EMAIL_SENDER` blank to disable.
+Leave `EMAIL_SENDER` blank to disable email.
 
 ---
 
-## Setting Up the Telegram notifications
+### Telegram
 
 To activate Telegram (3 steps):
                                       
@@ -264,7 +272,8 @@ If your laptop is asleep at the scheduled time, launchd fires when you open the 
 |---|---|
 | `open_positions.json` | Active day-trade positions (entry price, SL, TP, mode) |
 | `swing_positions.json` | Active overnight swing positions (tiered TP state) |
-| `trade_journal.json` | Full trade history with P&L, Claude reasoning, regime at entry |
+| `trade_journal.json` | Recent trade history — entries older than 90 days archived at startup |
+| `trade_journal_archive.json` | Long-term trade archive (auto-populated from `trade_journal.json`) |
 | `indicator_weights.json` | Per-indicator weights (updated nightly by learning agent) |
 | `trading_params.json` | Learned entry thresholds (updated nightly, hard-bounded) |
 | `macro_regime.json` | Today's 9-state regime + macro health score + flash-crash lockout |
@@ -346,3 +355,9 @@ Double-check `.env` uses the **Paper** Alpaca keys (not Live) and has no trailin
 
 **Bot missed Monday pre-market**
 Not a problem — `./start.sh` on Monday will catch up all missed agents automatically.
+
+**Bot skipping BUYs with "bearish sentiment blocks BUY"**
+The research agent scored that symbol below −10 (bearish news). This is intentional — the bot won't buy into bad-news drops even when technicals look strong. Adjust `AUTO_BUY_MIN_SENTIMENT` in `config.py` if you want a looser gate (e.g., −20).
+
+**`trade_journal.json` was reset / corrupt file backup appeared**
+A `.corrupt.json` backup was created automatically. The journal is reset to an empty list and trading continues. Backups older than 7 days are deleted at next startup. The learning agent will work correctly from the reset file.

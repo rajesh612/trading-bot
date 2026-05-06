@@ -474,7 +474,7 @@ class TestTier1Config:
 
     def test_unknown_symbol_is_not_tier1(self):
         from tier1_config import is_tier1
-        assert is_tier1("AAPL") is False
+        assert is_tier1("APP") is False
 
     def test_get_sector_known(self):
         from tier1_config import get_sector
@@ -484,7 +484,7 @@ class TestTier1Config:
 
     def test_get_sector_unknown_returns_other(self):
         from tier1_config import get_sector
-        assert get_sector("AAPL") == "OTHER"
+        assert get_sector("APP") == "OTHER"
 
     def test_qualifies_for_swing_all_pass(self):
         from tier1_config import qualifies_for_swing
@@ -499,7 +499,7 @@ class TestTier1Config:
     def test_qualifies_for_swing_rejects_non_tier1(self):
         from tier1_config import qualifies_for_swing
         ok, reason = qualifies_for_swing(
-            symbol="AAPL", composite_score=40.0, rsi=60.0,
+            symbol="APP", composite_score=40.0, rsi=60.0,
             volume_ratio=2.0, sentiment_score=50, regime="BULL_TREND",
             parabolic=False, momentum_exhaustion=False,
         )
@@ -1042,7 +1042,7 @@ class TestSwingManager:
     def test_qualifies_for_eod_hold_not_tier1(self):
         from swing_manager import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="AAPL", is_tier1=False, regime="BULL_TREND",
+            symbol="APP", is_tier1=False, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=False,
             current_pnl_pct=2.0, existing_swing_count=0,
             sector_sentiment_score=25.0,
@@ -1663,10 +1663,10 @@ class TestOrphanOrderDrain:
         return o
 
     def test_get_open_buy_orders_returns_list(self, monkeypatch):
-        order = self._make_order("id-1", "AAPL")
+        order = self._make_order("id-1", "APP")
         client = self._make_client(monkeypatch, [order])
         result = client.get_open_buy_orders()
-        assert result == [{"id": "id-1", "symbol": "AAPL"}]
+        assert result == [{"id": "id-1", "symbol": "APP"}]
 
     def test_get_open_buy_orders_empty_when_none(self, monkeypatch):
         client = self._make_client(monkeypatch, [])
@@ -2270,7 +2270,7 @@ class TestComputeIndicators:
     def test_returns_none_for_short_df(self):
         from indicator_engine import compute_indicators
         df = _make_intraday_df(n=10)
-        assert compute_indicators("AAPL", df) is None
+        assert compute_indicators("APP", df) is None
 
     def test_returns_indicator_values_for_valid_df(self, tmp_path, monkeypatch):
         import config
@@ -2285,10 +2285,10 @@ class TestComputeIndicators:
 
         from indicator_engine import compute_indicators, IndicatorValues
         df = _make_intraday_df(n=100)
-        result = compute_indicators("AAPL", df)
+        result = compute_indicators("APP", df)
         assert result is not None
         assert isinstance(result, IndicatorValues)
-        assert result.symbol == "AAPL"
+        assert result.symbol == "APP"
         assert -100 <= result.composite_score <= 100
 
     def test_works_with_daily_df(self, tmp_path):
@@ -2332,7 +2332,7 @@ class TestBuildReportBody:
             trades=[self._close()],
             account=self._account(),
             regime="BULL_TREND",
-            watch_list="NVDA, AAPL",
+            watch_list="NVDA, APP",
             weights={"RSI": 10.0},
         )
         assert "P&L" in subject
@@ -2358,20 +2358,20 @@ class TestBuildReportBody:
     def test_body_lists_individual_trades(self):
         from daily_report import build_report_body
         _, body = build_report_body(
-            trades=[self._close("NVDA", pnl=200.0), self._close("AAPL", pnl=-50.0)],
+            trades=[self._close("NVDA", pnl=200.0), self._close("APP", pnl=-50.0)],
             account=self._account(),
             regime="NORMAL", watch_list="", weights={},
         )
         assert "NVDA" in body
-        assert "AAPL" in body
+        assert "APP" in body
 
     def test_body_includes_watch_list(self):
         from daily_report import build_report_body
         _, body = build_report_body(
             trades=[], account=self._account(), regime="NORMAL",
-            watch_list="NVDA, AMD, AAPL", weights={},
+            watch_list="NVDA, AMD, APP", weights={},
         )
-        assert "NVDA, AMD, AAPL" in body
+        assert "NVDA, AMD, APP" in body
 
     def test_body_includes_weights(self):
         from daily_report import build_report_body

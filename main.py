@@ -1,6 +1,7 @@
 import fcntl
 import json
 import logging
+import logging.handlers
 import os
 import signal
 import sys
@@ -13,17 +14,25 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import config
+import telegram_notify
 
 PID_FILE  = config.BASE_DIR / "trading_bot.pid"
 LOCK_FILE = config.BASE_DIR / "trading_bot.lock"
 _lock_fh  = None  # held open for the lifetime of this process to keep the lock
 
-# Unbuffered handlers so every log line hits disk immediately
-_file_handler = logging.FileHandler(config.BASE_DIR / "trading_bot.log")
-_file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s — %(message)s"))
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
+
+# Rotate at 10 MB, keep 5 backups (trading_bot.log.1 … .5); oldest auto-deleted
+_file_handler = logging.handlers.RotatingFileHandler(
+    config.BASE_DIR / "trading_bot.log",
+    maxBytes=10 * 1024 * 1024,
+    backupCount=5,
+    encoding="utf-8",
+)
+_file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
 _stream_handler = logging.StreamHandler(sys.stdout)
-_stream_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s — %(message)s"))
+_stream_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
 logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
 # Force flush after every log record
@@ -118,14 +127,12 @@ def _job_guard(name: str, fn) -> None:
     try:
         fn()
     except Exception as exc:
-        import telegram_notify
         telegram_notify.notify_job_failure(name, f"{type(exc).__name__}: {exc}")
         raise
 
 
 def _validate_state_files() -> None:
     """Check JSON state files on startup; reset corrupt ones and alert via Telegram."""
-    import telegram_notify
     candidates = [
         (config.TRADE_JOURNAL_FILE,      []),
         (config.OPEN_POSITIONS_FILE,     {}),
@@ -143,6 +150,37 @@ def _validate_state_files() -> None:
             path.write_text(json.dumps(default))
             logger.error(f"CORRUPT state file reset: {path.name} → backup {backup.name}")
             telegram_notify.notify_file_corruption(path.name)
+
+
+def _cleanup_stale_files() -> None:
+    """
+    Housekeeping on startup:
+    - Delete .corrupt.json backups older than CORRUPT_BACKUP_MAX_DAYS
+    - Archive trade_journal.json entries older than TRADE_JOURNAL_MAX_DAYS
+    - Delete leftover .tmp files from crashed writes
+    """
+    cutoff = datetime.now(ET) - timedelta(days=config.CORRUPT_BACKUP_MAX_DAYS)
+    for f in config.BASE_DIR.glob("*.corrupt.json"):
+        try:
+            mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=ET)
+            if mtime < cutoff:
+                f.unlink()
+                logger.info(f"Deleted stale backup: {f.name}")
+        except Exception as exc:
+            logger.warning(f"Could not delete {f.name}: {exc}")
+
+    for f in config.BASE_DIR.glob("*.tmp"):
+        try:
+            f.unlink()
+            logger.info(f"Deleted leftover tmp file: {f.name}")
+        except Exception as exc:
+            logger.warning(f"Could not delete {f.name}: {exc}")
+
+    try:
+        from trading_agent import archive_old_journal_entries
+        archive_old_journal_entries()
+    except Exception as exc:
+        logger.warning(f"Journal archival failed: {exc}")
 
 
 def job_earnings_calendar():
@@ -299,8 +337,8 @@ def setup_scheduler():
     scheduler.add_job(job_macro_regime,        CronTrigger(hour=8,  minute=55, **kw), id="macro_regime",        replace_existing=True)
     scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list")
     scheduler.add_job(job_swing_gap_check,     CronTrigger(hour=9,  minute=30, **kw), id="swing_gap_check",     replace_existing=True)
-    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True)
-    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True)
+    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True, max_instances=1)
+    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True, max_instances=1)
     scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",          replace_existing=True)
     scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",            replace_existing=True)
     scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=20, **kw), id="daily_report",        replace_existing=True)
@@ -314,6 +352,7 @@ def setup_scheduler():
         CronTrigger(minute="*/10", hour="9-15", **kw),
         id="trading",
         replace_existing=True,
+        max_instances=1,
     )
     # Position monitor every 60 seconds — catches SL/TP hits between trading cycles
     scheduler.add_job(
@@ -321,6 +360,7 @@ def setup_scheduler():
         CronTrigger(second="0", minute="*", hour="9-15", **kw),
         id="position_monitor",
         replace_existing=True,
+        max_instances=1,
     )
     # Flash-crash market monitor every 5 min — one SPY call, no Claude
     scheduler.add_job(
@@ -636,7 +676,6 @@ def _handle_shutdown(signum, frame):
     _clear_pid()
     scheduler.shutdown(wait=False)
     _reset_bot_health()
-    import telegram_notify
     telegram_notify.notify_shutdown()
     sys.exit(0)
 
@@ -663,6 +702,7 @@ def main():
     signal.signal(signal.SIGINT,  _handle_shutdown)
 
     _validate_state_files()
+    _cleanup_stale_files()
     _reconcile_positions()
     _catchup_missed_agents()
     _catchup_daily_report()
@@ -677,7 +717,6 @@ def main():
     logger.info("Watchdog thread started.")
     logger.info("Bot is live. Press Ctrl+C to stop.")
 
-    import telegram_notify
     from macro_regime import load_macro_regime
     from trading_agent import load_open_positions
     try:

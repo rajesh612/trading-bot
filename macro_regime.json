@@ -1,24 +1,24 @@
 {
   "regime": "NORMAL",
-  "macro_health_score": 35,
+  "macro_health_score": 55,
   "sector_scores": {
-    "AI_SEMI": 77.62244205623917,
-    "BROAD_TECH": 80.34370743261073,
-    "CYBERSECURITY": 64.27496594608859
+    "AI_SEMI": 73.01106522704237,
+    "BROAD_TECH": 86.81756488375848,
+    "CYBERSECURITY": 69.45405190700679
   },
   "consecutive_green_days": 0,
   "consecutive_red_days": 1,
   "spy_5day_sign_changes": 2,
-  "vix_current": 18.73,
-  "vix_90d_avg": 21.42,
+  "vix_current": 17.59,
+  "vix_90d_avg": 21.11,
   "vix_trend": "rising",
-  "spy_5day_return": 0.31,
+  "spy_5day_return": 0.4,
   "flash_crash_active": false,
   "flash_crash_until": null,
   "flash_crash_candidate": null,
   "event_risk_today": false,
   "event_risk_details": "",
   "capitulation_candidates": [],
-  "timestamp": "2026-05-04T13:17:10.627122-04:00",
-  "reason": "0g/1r consecutive days, macro_health=+35, VIX=18.7 (rising)"
+  "timestamp": "2026-05-05T08:55:00.110564-04:00",
+  "reason": "0g/1r consecutive days, macro_health=+55, VIX=17.6 (rising)"
 }

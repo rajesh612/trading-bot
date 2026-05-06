@@ -58,7 +58,7 @@ APScheduler drives all jobs on ET timezone, weekdays only:
 | 8:30 AM | `economic_calendar.refresh_economic_calendar()` — load NFP/FOMC/CPI event-risk windows |
 | 8:45 AM | `volatility_screener.py` — filter top 50 most volatile tickers into `daily_tradeable.txt` |
 | 8:55 AM | `macro_regime.fetch_macro_regime()` — 9-state regime classification (replaces vix_regime) |
-| 9:00 AM | `watch_list_agent.py` — Claude selects 20–30 stocks |
+| 9:00 AM | `watch_list_agent.py` — Claude selects 10–15 stocks |
 | 9:15 AM | `research_agent.run_research_agent()` — sentiment from RSS, Reddit, StockTwits; writes `__meta__` (macro shock, sector sentiment) |
 | Every 10 min (9:30–3:50 PM) | `trading_agent.run_trading_cycle()` — compute technicals + Claude decision for new entry candidates only |
 | Every 60 sec (9:30–3:50 PM) | `trading_agent.run_position_monitor()` — enforce SL/TP via two-layer protection |
@@ -66,7 +66,7 @@ APScheduler drives all jobs on ET timezone, weekdays only:
 | 3:55 PM | `trading_agent.force_close_all()` — cancel orders, close all non-swing open positions |
 | 4:00 PM | `macro_regime.refresh_fred_cache()` — update Fed/CPI/unemployment modifiers |
 | 4:15 PM | `learning_agent.py` — Claude reviews closed trades, updates `indicator_weights.json` and `trading_params.json` |
-| 4:30 PM | `daily_report.send_daily_report()` — email P&L summary |
+| 4:20 PM | `daily_report.send_daily_report()` — email + Telegram P&L summary |
 | Every 30 min | Heartbeat — logs open position count |
 | 9:30 AM (next day) | `swing_manager.run_gap_check()` — evaluate pre-market gaps on held swing positions |
 
@@ -92,7 +92,7 @@ APScheduler drives all jobs on ET timezone, weekdays only:
 
 **`earnings_calendar.py`** — Daily 8:00 AM refresh of next-earnings dates and PEAD setup detection (4-of-5 conditions: EPS beat, revenue beat, guidance not lowered, strong earnings-day reaction, 2× volume).
 
-**`tier1_config.py`** — Static registry of 21 tier-1 symbols (AI_SEMI, HYPERSCALER, AI_OPTICS, DATA_CENTER, GEO_HEDGE) and swing qualification gates.
+**`tier1_config.py`** — Static registry of 32 tier-1 symbols (AI_SEMI, HYPERSCALER, AI_OPTICS, DATA_CENTER, GEO_HEDGE) and swing qualification gates. Tier-1 status enables PEAD detection, wider SL/TP, and overnight swing holds.
 
 **`learning_agent.py`** — Post-market: Claude analyzes `trade_journal.json`, adjusts indicator weights (max ±5/indicator/day, sum = 100, min = 0) and trading params. Persisted to JSON files.
 
@@ -108,7 +108,8 @@ Risk-based: `shares = portfolio × 0.5% / ATR_per_share`, capped at `portfolio �
 |---|---|
 | `open_positions.json` | Active day-trade positions with entry price, SL, TP |
 | `swing_positions.json` | Active overnight swing positions with tiered TP state |
-| `trade_journal.json` | Full transaction history (BUY + CLOSE) |
+| `trade_journal.json` | Recent trade history (BUY + CLOSE) — entries > 90 days archived at startup |
+| `trade_journal_archive.json` | Long-term archive auto-populated from `trade_journal.json` |
 | `indicator_weights.json` | Learned per-indicator weights (updated daily by learning agent) |
 | `trading_params.json` | Learned entry hours, RSI/VWAP thresholds |
 | `macro_regime.json` | Today's 9-state regime + health score (replaces vix_regime.json) |
@@ -119,12 +120,12 @@ Risk-based: `shares = portfolio × 0.5% / ATR_per_share`, capped at `portfolio �
 | `macro_regime.json` / `fred_cache.json` | FRED modifier (Fed rate direction, CPI trend, unemployment) |
 | `research_report.json` | Sentiment scores, catalysts, `__meta__` (macro shock, sector sentiment) |
 | `daily_closed.json` | Symbols closed today (prevents same-day re-entry) |
-| `watch_list.txt` | Today's 20–30 selected tickers |
+| `watch_list.txt` | Today's 10–15 selected tickers |
 | `strategy_memory.md` | Freeform notes fed to Claude as context |
 
 ### Claude Integration
 
-Model: `claude-sonnet-4-6` (set in `config.py`). All four agents (watch list, trading, research, learning) call Claude with prompt caching (`cache_control: ephemeral`) to reduce API costs. Trading agent expects structured JSON output: `{ action, confidence, stop_loss_pct, take_profit_pct, reasoning }`.
+Model: `claude-sonnet-4-6` (set in `config.py`). All four agents call Claude; the trading agent applies `cache_control: ephemeral` to the strategy memory block only when it exceeds 3000 chars (≈ 1024 tokens minimum for caching). HTTP 400/429 errors are handled gracefully — 400 (format errors) fall back to HOLD without disabling Claude; only 402/429 trip the session circuit breaker. Trading agent expects structured JSON output: `{ action, confidence, stop_loss_pct, take_profit_pct, reasoning }`.
 
 ### Key Config (`config.py`)
 
@@ -132,6 +133,10 @@ Model: `claude-sonnet-4-6` (set in `config.py`). All four agents (watch list, tr
 - `RISK_PER_TRADE_PCT = 0.005` (0.5% ATR-based sizing)
 - `STOP_LOSS_PCT = 4.0`, `TAKE_PROFIT_PCT = 5.0` (defaults, overridable by Claude)
 - `MAX_DAILY_LOSS_PCT = 0.03` (3% circuit breaker)
+- `AUTO_BUY_COMPOSITE_THRESHOLD = 35` (auto-BUY without Claude when composite > this + indicators aligned)
+- `AUTO_BUY_MIN_SENTIMENT = -10` (sentiment floor — any BUY blocked if score below this)
+- `TRADE_JOURNAL_MAX_DAYS = 90` (entries older than this archived at startup)
+- `CORRUPT_BACKUP_MAX_DAYS = 7` (`.corrupt.json` backups deleted at startup after this many days)
 - `ENTRY_START_HOUR = 10`, `ENTRY_END_HOUR = 15` (ET)
 - `BAR_TIMEFRAME_MINUTES = 5`, `BARS_LOOKBACK = 100`
 

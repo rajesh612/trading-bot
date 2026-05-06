@@ -107,3 +107,42 @@
 - **KGC**: Near-flat (-0.38%) on gold miner with overbought Stochastic (92.8) at entry — the overbought warning materialized as predicted; reinforces Stochastic >90 as a hard veto filter.
 
 ---
+
+## 2026-05-05
+
+**Regime:** NORMAL | VIX=16.8 (90d avg=19.8) | SPY=+0.99%
+**Trades:** 4 total | W:2 L:2 | Win rate: 50.0% | P&L: $81.39
+**Market conditions:** trending | Regime impact: VIX at 16.82 (below 90-day avg of 19.77) and non-rising with SPY up ~1% signals a calm, bullish trending day. The single fully-instrumented NORMAL-regime trade (DRAM) was profitable, and the strong USAR win aligns with a trending low-vol environment favoring momentum entries. The two losses (RBLX, RIVN) originated from prior sessions with no entry data and cannot be attributed to today's regime.
+
+### Indicator Performance
+
+- **VWAP**: accuracy=100% | weight 19.44% → 20.8% (+2%) | Correct on both USAR and DRAM, reinforcing its reliability as the primary trend-alignment filter in today's uptrending session.
+- **RSI**: accuracy=50% | weight 16.67% → 16.18% (0%) | Correct on USAR but neutral on DRAM (RSI 71.9 near upper boundary), providing limited directional conviction in the one fully-scored trade; no net adjustment warranted.
+- **MACD**: accuracy=50% | weight 6.48% → 4.35% (-2%) | Incorrect on DRAM despite the trade being profitable, suggesting MACD lagged or gave a false negative signal in today's momentum-driven tape.
+- **EMA 9/21 Crossover**: accuracy=100% | weight 12.96% → 14.52% (+2%) | Correct on both USAR and DRAM, consistently confirming bullish momentum alignment in today's trending conditions.
+- **Bollinger Bands**: accuracy=75% | weight 8.33% → 9.05% (+1%) | Neutral on USAR but correct on DRAM, showing modest usefulness as a confirming filter rather than primary signal.
+- **Daily Volume Trend**: accuracy=50% | weight 8.33% → 8.08% (0%) | Neutral on both scored trades; insufficient evidence to adjust weight today.
+- **VWAP StdDev Bands**: accuracy=50% | weight 7.41% → 7.19% (0%) | Not explicitly signaled in today's trades; no evidence to adjust.
+- **ATR**: accuracy=50% | weight 3.7% → 3.59% (0%) | Not signaled in today's trade data; no adjustment warranted.
+- **Stochastic Oscillator**: accuracy=50% | weight 5.56% → 5.39% (0%) | Referenced only in DRAM reasoning (54.8, well clear of veto) but not listed as a signal; neutral evidence today.
+- **OBV**: accuracy=50% | weight 3.7% → 3.59% (0%) | Not present in today's indicator signals; no evidence to adjust.
+- **RSI Slope**: accuracy=50% | weight 6.48% → 6.29% (0%) | Not explicitly flagged in today's entries; insufficient data to adjust.
+- **Volume Ratio**: accuracy=75% | weight 0.93% → 0.97% (-3%) | Neutral on USAR and correct on DRAM; already the lowest-weighted indicator and not contributing differentiating signal—slight reduction to keep sum balanced after VWAP/EMA increases and MACD reduction.
+
+### Strategy Learnings
+
+- RBLX and RIVN losses are unattributable due to missing entry data from startup restoration; future resilience improvement should ensure entry metadata persists across restarts to avoid blind-spot analysis.
+- USAR demonstrated that high composite scores (81+) with VWAP, RSI, MACD, and EMA all aligned produce clean full take-profit exits—prioritize trades meeting this multi-indicator consensus.
+- DRAM was profitable despite MACD being incorrect at entry, suggesting MACD alone should not veto entries when VWAP, EMA, BB, and Volume all confirm; composite scoring correctly absorbed this disagreement.
+- In low-VIX, uptrending sessions, EMA 9/21 crossover and VWAP are the most consistently reliable confirming indicators and merit elevated weight.
+- The 5% take-profit target proved achievable intraday on a low-VIX trending day (USAR), validating current take_profit_pct; no change needed.
+- Entries at or near end-of-day (DRAM at 15:55) closed for only a marginal gain due to EOD force-close—composite scores in the 55 range late in the session may not have enough time to reach full take-profit targets.
+
+### Per-Stock Notes
+
+- **RBLX**: Loss of -$148.98 (-3.06%) via bracket_filled_unknown_leg with no entry data available; restored at startup so root cause (signal failure vs. market event) cannot be determined—flag for manual review.
+- **RIVN**: Small loss of -$19.98 (-0.41%) also from bracket_filled_unknown_leg with no entry data; relatively contained loss suggests stop was hit early, but no indicators available to evaluate signal quality.
+- **USAR**: Strong +5.0% / +$243.46 full take-profit hit; entry composite 81.3 with VWAP, RSI, MACD, EMA all correct is the archetype of a high-conviction setup—use as benchmark for minimum signal alignment.
+- **DRAM**: Marginal +0.14% / +$6.89 EOD force-close; composite 55.4 with MACD incorrect suggests borderline conviction; late entry timing (near EOD) prevented the trade from reaching its target—consider tightening composite score floor for entries after 15:00.
+
+---
