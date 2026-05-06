@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,18 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; TradingBot/1.0; +research)"}
+
+
+def _fetch_with_retry(fn, *args, attempts: int = 3, base_delay: float = 1.0, **kwargs):
+    """Call fn(*args, **kwargs) up to `attempts` times with exponential backoff."""
+    for i in range(attempts):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            if i == attempts - 1:
+                raise
+            time.sleep(base_delay * (2 ** i))
+
 
 MARKET_RSS_FEEDS = [
     "https://feeds.marketwatch.com/marketwatch/topstories/",
@@ -39,7 +52,7 @@ REDDIT_SUBREDDITS = [
 
 def _fetch_rss(url: str, max_items: int = 6) -> list[dict]:
     try:
-        resp = requests.get(url, headers=REQUEST_HEADERS, timeout=8)
+        resp = _fetch_with_retry(requests.get, url, headers=REQUEST_HEADERS, timeout=8)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
         return [
@@ -79,7 +92,7 @@ def _fetch_stocktwits(symbol: str) -> dict:
     """
     try:
         url = f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
-        resp = requests.get(url, headers=REQUEST_HEADERS, timeout=10)
+        resp = _fetch_with_retry(requests.get, url, headers=REQUEST_HEADERS, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 
@@ -121,44 +134,46 @@ def _fetch_stocktwits(symbol: str) -> dict:
 
 def _fetch_reddit(symbol: str) -> dict:
     """
-    Fetches Reddit posts using the public JSON API — no credentials or OAuth needed.
-    Reddit serves .json on every search URL for public subreddits.
-    Searches each subreddit separately so we can tag which community each post is from.
+    Fetches Reddit posts using the public JSON API.
+    Six subreddit searches run in parallel via ThreadPoolExecutor.
     """
-    # Reddit blocks the default requests User-Agent; a custom one is required.
     headers = {"User-Agent": "TradingBot/1.0 (sentiment research; read-only)"}
-    posts = []
 
-    for sub in REDDIT_SUBREDDITS:
-        try:
-            url = (
-                f"https://www.reddit.com/r/{sub}/search.json"
-                f"?q={symbol}+OR+%24{symbol}"
-                f"&sort=new&t=day&restrict_sr=true&limit=5"
-            )
-            resp = requests.get(url, headers=headers, timeout=10)
-            resp.raise_for_status()
-            children = resp.json().get("data", {}).get("children", [])
-            for child in children:
-                p = child.get("data", {})
-                posts.append({
-                    "subreddit": sub,
-                    "title": p.get("title", ""),
-                    "text": (p.get("selftext", "") or "")[:300],
-                    "score": p.get("score", 0),
-                    "upvote_ratio": p.get("upvote_ratio", 0),
-                    "num_comments": p.get("num_comments", 0),
-                    "url": p.get("url", ""),
-                })
-        except Exception as exc:
-            logger.debug(f"Reddit r/{sub} fetch failed for {symbol}: {exc}")
+    def _fetch_sub(sub: str) -> list[dict]:
+        url = (
+            f"https://www.reddit.com/r/{sub}/search.json"
+            f"?q={symbol}+OR+%24{symbol}"
+            f"&sort=new&t=day&restrict_sr=true&limit=5"
+        )
+        resp = _fetch_with_retry(requests.get, url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        children = resp.json().get("data", {}).get("children", [])
+        return [
+            {
+                "subreddit": sub,
+                "title": p.get("title", ""),
+                "text": (p.get("selftext", "") or "")[:300],
+                "score": p.get("score", 0),
+                "upvote_ratio": p.get("upvote_ratio", 0),
+                "num_comments": p.get("num_comments", 0),
+                "url": p.get("url", ""),
+            }
+            for child in children
+            for p in [child.get("data", {})]
+        ]
+
+    posts: list[dict] = []
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(_fetch_sub, sub): sub for sub in REDDIT_SUBREDDITS}
+        for future in as_completed(futures):
+            sub = futures[future]
+            try:
+                posts.extend(future.result())
+            except Exception as exc:
+                logger.debug(f"Reddit r/{sub} fetch failed for {symbol}: {exc}")
 
     posts.sort(key=lambda p: p["score"], reverse=True)
-    return {
-        "available": True,
-        "post_count": len(posts),
-        "posts": posts[:5],
-    }
+    return {"available": True, "post_count": len(posts), "posts": posts[:5]}
 
 
 # ── X / Twitter (tweepy — requires Basic API $100/mo) ────────────────────────
@@ -177,10 +192,13 @@ def _fetch_x_posts(symbol: str) -> dict:
         client = tweepy.Client(bearer_token=config.X_BEARER_TOKEN, wait_on_rate_limit=False)
 
         query = f"${symbol} lang:en -is:retweet -is:reply"
-        response = client.search_recent_tweets(
+        response = _fetch_with_retry(
+            client.search_recent_tweets,
             query=query,
             max_results=20,
             tweet_fields=["created_at", "public_metrics", "text", "author_id"],
+            attempts=2,
+            base_delay=0.5,
         )
 
         if not response.data:
@@ -458,7 +476,6 @@ def run_research_agent(watch_list: list[str]) -> dict:
     report: dict = {}
 
     for symbol in watch_list:
-        logger.info(f"  Researching {symbol}…")
         try:
             stock_news  = _fetch_stock_news(symbol)
             stocktwits  = _fetch_stocktwits(symbol)
@@ -527,8 +544,7 @@ def run_research_agent(watch_list: list[str]) -> dict:
         time.sleep(0.3)
 
     # ── Write __meta__ block ────────────────────────────────────────────────
-    market_news_for_shock = _fetch_market_news()
-    macro_shock_score  = _compute_macro_shock_score(market_news_for_shock)
+    macro_shock_score  = _compute_macro_shock_score(market_news)
     sector_sentiment   = _compute_sector_sentiment(report)
 
     # _detect_capitulation_candidate requires drawdown_from_20d_high and obv_trend,

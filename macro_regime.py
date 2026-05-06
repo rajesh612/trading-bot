@@ -634,6 +634,28 @@ def load_macro_regime() -> dict:
     }
 
 
+def load_trading_params() -> dict:
+    """Return learning-agent-adjusted trading params, falling back to config defaults."""
+    defaults = {
+        "entry_start_hour":       config.ENTRY_START_HOUR,
+        "entry_end_hour":         config.ENTRY_END_HOUR,
+        "rsi_buy_max":            config.RSI_BUY_MAX,
+        "rsi_buy_max_high_vol":   config.RSI_BUY_MAX_HIGH_VOL,
+        "vwap_slope_min":         config.VWAP_SLOPE_MIN,
+        "high_vol_position_mult": config.HIGH_VOL_POSITION_MULT,
+        "stop_loss_pct":          config.STOP_LOSS_PCT,
+        "take_profit_pct":        config.TAKE_PROFIT_PCT,
+    }
+    if config.TRADING_PARAMS_FILE.exists():
+        try:
+            with open(config.TRADING_PARAMS_FILE) as f:
+                saved = json.load(f)
+            defaults.update(saved)
+        except Exception as exc:
+            logger.warning("load_trading_params: failed to read %s — using defaults (%s)", config.TRADING_PARAMS_FILE, exc)
+    return defaults
+
+
 if __name__ == "__main__":
     import logging as _l
     _l.basicConfig(level=_l.INFO)

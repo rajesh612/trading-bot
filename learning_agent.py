@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import anthropic
 
 import config
-from vix_regime import load_vix_regime, load_trading_params
+from macro_regime import load_macro_regime, load_trading_params
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -162,7 +162,7 @@ def run_learning_agent():
 
     current_weights = _load_weights()
     current_params  = load_trading_params()
-    regime_info     = load_vix_regime()
+    regime_info     = load_macro_regime()
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
     # Pre-compute regime/mode aggregation and loss classification (free — no Claude tokens)

@@ -474,7 +474,7 @@ class TestTier1Config:
 
     def test_unknown_symbol_is_not_tier1(self):
         from tier1_config import is_tier1
-        assert is_tier1("APP") is False
+        assert is_tier1("FAKE") is False
 
     def test_get_sector_known(self):
         from tier1_config import get_sector
@@ -484,7 +484,7 @@ class TestTier1Config:
 
     def test_get_sector_unknown_returns_other(self):
         from tier1_config import get_sector
-        assert get_sector("APP") == "OTHER"
+        assert get_sector("FAKE") == "OTHER"
 
     def test_qualifies_for_swing_all_pass(self):
         from tier1_config import qualifies_for_swing
@@ -499,7 +499,7 @@ class TestTier1Config:
     def test_qualifies_for_swing_rejects_non_tier1(self):
         from tier1_config import qualifies_for_swing
         ok, reason = qualifies_for_swing(
-            symbol="APP", composite_score=40.0, rsi=60.0,
+            symbol="FAKE", composite_score=40.0, rsi=60.0,
             volume_ratio=2.0, sentiment_score=50, regime="BULL_TREND",
             parabolic=False, momentum_exhaustion=False,
         )
@@ -2418,39 +2418,37 @@ class TestDailyReportSentFlag:
         assert daily_report._already_sent_today() is True
 
 
-# ── vix_regime: persistence helpers ──────────────────────────────────────────
+# ── macro_regime: trading params helpers (migrated from vix_regime) ───────────
 
 @pytest.mark.unit
 class TestVixRegimeHelpers:
-    def test_load_vix_regime_missing_file_returns_normal(self, tmp_path):
-        import config
-        config.VIX_REGIME_FILE = tmp_path / "vix_regime.json"
-        from vix_regime import load_vix_regime
-        result = load_vix_regime()
+    def test_load_macro_regime_missing_file_returns_normal(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
         assert result["regime"] == "NORMAL"
 
-    def test_load_vix_regime_reads_written_file(self, tmp_path):
-        import config, json
-        config.VIX_REGIME_FILE = tmp_path / "vix_regime.json"
-        payload = {"regime": "HIGH_VOL", "vix_current": 25.0, "vix_avg_90d": 20.0}
-        config.VIX_REGIME_FILE.write_text(json.dumps(payload))
-        from vix_regime import load_vix_regime
-        result = load_vix_regime()
-        assert result["regime"] == "HIGH_VOL"
+    def test_load_macro_regime_reads_written_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        payload = {"regime": "CRISIS", "macro_health_score": -50}
+        (tmp_path / "macro_regime.json").write_text(json.dumps(payload))
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
+        assert result["regime"] == "CRISIS"
 
-    def test_load_trading_params_returns_config_defaults(self, tmp_path):
-        import config
-        config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
-        from vix_regime import load_trading_params
+    def test_load_trading_params_returns_config_defaults(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.TRADING_PARAMS_FILE", tmp_path / "trading_params.json")
+        from macro_regime import load_trading_params
         params = load_trading_params()
+        import config
         assert "entry_start_hour" in params
         assert params["stop_loss_pct"] == config.STOP_LOSS_PCT
 
-    def test_load_trading_params_overrides_from_file(self, tmp_path):
-        import config, json
-        config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
-        config.TRADING_PARAMS_FILE.write_text(json.dumps({"stop_loss_pct": 3.5}))
-        from vix_regime import load_trading_params
+    def test_load_trading_params_overrides_from_file(self, tmp_path, monkeypatch):
+        params_file = tmp_path / "trading_params.json"
+        params_file.write_text(json.dumps({"stop_loss_pct": 3.5}))
+        monkeypatch.setattr("config.TRADING_PARAMS_FILE", params_file)
+        from macro_regime import load_trading_params
         params = load_trading_params()
         assert params["stop_loss_pct"] == 3.5
 
@@ -2559,14 +2557,17 @@ class TestLoadSwingPositions:
 class TestEarningsCalendarCacheHelpers:
     def _write_cache(self, tmp_path, symbol="NVDA", days_until=3, reported_block=None):
         import config, json
-        from datetime import date, timedelta
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        ET = ZoneInfo("America/New_York")
         config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
-        next_date = (date.today() + timedelta(days=days_until)).isoformat()
+        today_et = datetime.now(ET).date()
+        next_date = (today_et + timedelta(days=days_until)).isoformat()
         entry = {"next_earnings_date": next_date}
         if reported_block:
             entry["recently_reported"] = reported_block
         payload = {
-            "date": date.today().isoformat(),
+            "date": today_et.isoformat(),
             "symbols": {symbol: entry},
         }
         config.EARNINGS_CALENDAR_FILE.write_text(json.dumps(payload))
@@ -2918,3 +2919,61 @@ class TestTelegramNotify:
             text = mock_post.call_args[1]["json"]["text"]
             assert "CRISIS" in text
             assert "🚨" in text
+
+
+@pytest.mark.unit
+class TestLoadTradingParamsInMacroRegime:
+    def test_returns_config_defaults_when_file_absent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.TRADING_PARAMS_FILE", tmp_path / "trading_params.json")
+        from macro_regime import load_trading_params
+        params = load_trading_params()
+        import config as cfg
+        assert params["entry_start_hour"] == cfg.ENTRY_START_HOUR
+        assert params["rsi_buy_max"] == cfg.RSI_BUY_MAX
+        assert params["stop_loss_pct"] == cfg.STOP_LOSS_PCT
+
+    def test_file_values_override_defaults(self, tmp_path, monkeypatch):
+        params_file = tmp_path / "trading_params.json"
+        params_file.write_text('{"rsi_buy_max": 60, "entry_start_hour": 11}')
+        monkeypatch.setattr("config.TRADING_PARAMS_FILE", params_file)
+        from macro_regime import load_trading_params
+        params = load_trading_params()
+        assert params["rsi_buy_max"] == 60
+        assert params["entry_start_hour"] == 11
+
+    def test_load_macro_regime_returns_regime_key(self, tmp_path, monkeypatch):
+        from macro_regime import load_macro_regime
+        result = load_macro_regime()
+        assert "regime" in result
+
+
+@pytest.mark.unit
+class TestFetchWithRetry:
+    def test_succeeds_on_first_attempt(self):
+        from research_agent import _fetch_with_retry
+        calls = []
+        def fn():
+            calls.append(1)
+            return "ok"
+        result = _fetch_with_retry(fn)
+        assert result == "ok"
+        assert len(calls) == 1
+
+    def test_retries_on_failure_then_succeeds(self):
+        from research_agent import _fetch_with_retry
+        calls = []
+        def fn():
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("transient")
+            return "recovered"
+        result = _fetch_with_retry(fn, attempts=3, base_delay=0)
+        assert result == "recovered"
+        assert len(calls) == 3
+
+    def test_raises_after_all_attempts_exhausted(self):
+        from research_agent import _fetch_with_retry
+        def fn():
+            raise ConnectionError("down")
+        with pytest.raises(ConnectionError):
+            _fetch_with_retry(fn, attempts=3, base_delay=0)

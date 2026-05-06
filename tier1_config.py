@@ -20,7 +20,6 @@ TIER1_NAMES: dict[str, dict] = {
     "STX":  {"sector": "AI_SEMI",      "theme": "MEMORY"},
     "TSM":  {"sector": "AI_SEMI",      "theme": "SEMICONDUCTOR_FOUNDRY"},
     "INTC": {"sector": "AI_SEMI",      "theme": "SEMICONDUCTOR_FOUNDRY"},
-    "ANET": {"sector": "AI_SEMI",      "theme": "NETWORKING"},
     # Hyperscalers
     "MSFT": {"sector": "HYPERSCALER",  "theme": "CLOUD_AI"},
     "GOOGL":{"sector": "HYPERSCALER",  "theme": "CLOUD_AI"},
@@ -32,21 +31,28 @@ TIER1_NAMES: dict[str, dict] = {
     "LITE": {"sector": "AI_OPTICS",    "theme": "OPTICAL_INTERCONNECT"},
     "COHR": {"sector": "AI_OPTICS",    "theme": "OPTICAL_INTERCONNECT"},
     # Data Center Infrastructure
-    "VST":  {"sector": "DATA_CENTER",  "theme": "POWER_GENERATION"},
-    "CEG":  {"sector": "DATA_CENTER",  "theme": "NUCLEAR_POWER"},
     "EQIX": {"sector": "DATA_CENTER",  "theme": "COLOCATION"},
     "VRT":  {"sector": "DATA_CENTER",  "theme": "COOLING_POWER"},
     "ANET": {"sector": "DATA_CENTER",  "theme": "NETWORKING"},
-    # Software & Technology
-    "AAPL": {"sector": "TECHNOLOGY",  "theme": "CONSUMER_ELECTRONICS"},
-    "TSLA": {"sector": "TECHNOLOGY",  "theme": "AUTOMOTIVE_EV"},
-    "IBM":   {"sector": "TECHNOLOGY",  "theme": "ENTERPRISE_SOFTWARE"},
-    "NFLX":  {"sector": "TECHNOLOGY",  "theme": "TECHNOLOGY_ENTERTAINMENT"},
+    # Software & Technology (large cap ≥ ~$100B or strategic quality)
+    "AAPL": {"sector": "TECHNOLOGY",   "theme": "CONSUMER_ELECTRONICS"},
+    "TSLA": {"sector": "TECHNOLOGY",   "theme": "EV_ROBOTICS_AI"},
+    "IBM":  {"sector": "TECHNOLOGY",   "theme": "ENTERPRISE_AI"},
+    "NFLX": {"sector": "TECHNOLOGY",   "theme": "AI_CONTENT_STREAMING"},
+    "CRM":  {"sector": "TECHNOLOGY",   "theme": "AI_AGENTS_CRM"},
     # Financials
     "JPM":  {"sector": "FINANCIALS",   "theme": "BANKING"},
-    "BRK.A":  {"sector": "FINANCIALS",   "theme": "INVESTMENT_HOLDING"},
-    "V":   {"sector": "FINANCIALS",   "theme": "PAYMENTS"},
-    "MA":  {"sector": "FINANCIALS",   "theme": "PAYMENTS"},
+    "GS":   {"sector": "FINANCIALS",   "theme": "INVESTMENT_BANKING"},
+    "MS":   {"sector": "FINANCIALS",   "theme": "WEALTH_MANAGEMENT"},
+    "BRK.B":{"sector": "FINANCIALS",   "theme": "INVESTMENT_HOLDING"},
+    "V":    {"sector": "FINANCIALS",   "theme": "DIGITAL_PAYMENTS"},
+    "MA":   {"sector": "FINANCIALS",   "theme": "DIGITAL_PAYMENTS"},
+    "AXP":  {"sector": "FINANCIALS",   "theme": "PREMIUM_PAYMENTS"},
+    # Industrial & Infrastructure AI
+    "CAT":  {"sector": "INDUSTRIAL",   "theme": "AUTONOMOUS_EQUIPMENT"},
+    "HON":  {"sector": "INDUSTRIAL",   "theme": "INDUSTRIAL_AI"},
+    "GE":   {"sector": "INDUSTRIAL",   "theme": "AEROSPACE_POWER"},
+    "GEV":  {"sector": "INDUSTRIAL",   "theme": "GRID_ELECTRIFICATION"},
     # Pharmaceuticals & Healthcare
     "LLY":  {"sector": "PHARMA_HEALTH", "theme": "PHARMACEUTICALS"},
     "UNH":  {"sector": "PHARMA_HEALTH", "theme": "HEALTH_INSURANCE"},
@@ -58,12 +64,12 @@ TIER1_NAMES: dict[str, dict] = {
     "PG":   {"sector": "CONSUMER_STAPLES", "theme": "CONSUMER_GOODS"},
     "COST": {"sector": "CONSUMER_STAPLES", "theme": "RETAIL"},
     "KO":   {"sector": "CONSUMER_STAPLES", "theme": "BEVERAGES"},
-    # Oil & Energy
-    "XOM":  {"sector": "OIL_ENERGY",   "theme": "INTEGRATED_OIL"},
-    "CVX":  {"sector": "OIL_ENERGY",   "theme": "INTEGRATED_OIL"},
-    "GE":   {"sector": "OIL_ENERGY",   "theme": "ENERGY_EQUIPMENT"},
-    "GEV":  {"sector": "OIL_ENERGY",   "theme": "ENERGY_EQUIPMENT"},
-    "NEE":  {"sector": "OIL_ENERGY",   "theme": "RENEWABLE_ENERGY"},
+    # Energy
+    "XOM":  {"sector": "ENERGY",       "theme": "INTEGRATED_OIL"},
+    "CVX":  {"sector": "ENERGY",       "theme": "INTEGRATED_OIL"},
+    "NEE":  {"sector": "ENERGY",       "theme": "RENEWABLE_ENERGY"},
+    "VST":  {"sector": "ENERGY",       "theme": "POWER_GENERATION"},
+    "CEG":  {"sector": "ENERGY",       "theme": "NUCLEAR_POWER"},
     # Geopolitical / Macro Hedges
     "GLD":  {"sector": "GEO_HEDGE",    "theme": "GOLD_ETF"},
     "NEM":  {"sector": "GEO_HEDGE",    "theme": "GOLD_MINER"},

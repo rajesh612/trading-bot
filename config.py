@@ -62,7 +62,6 @@ VWAP_SLOPE_MIN = -0.3          # % VWAP drift over 10 bars; below this = downtre
 HIGH_VOL_POSITION_MULT = 0.5   # Halve position size in HIGH_VOL / CRISIS regimes
 
 # Paths
-VIX_REGIME_FILE    = BASE_DIR / "vix_regime.json"
 TRADING_PARAMS_FILE = BASE_DIR / "trading_params.json"
 
 # Indicator engine

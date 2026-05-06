@@ -163,8 +163,8 @@ def send_daily_report() -> None:
 
     regime = "UNKNOWN"
     try:
-        regime = json.loads(config.VIX_REGIME_FILE.read_text()).get("regime", "UNKNOWN")
-    except (FileNotFoundError, json.JSONDecodeError):
+        regime = json.loads(config.MACRO_REGIME_FILE.read_text()).get("regime", "UNKNOWN")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
 
     watch_list = ""

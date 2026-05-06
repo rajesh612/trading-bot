@@ -16,10 +16,9 @@ from alpaca_client import AlpacaClient
 from earnings_calendar import detect_pead_setup, is_earnings_imminent
 from economic_calendar import is_event_risk_window
 from indicator_engine import IndicatorValues, compute_indicators
-from macro_regime import load_macro_regime
+from macro_regime import load_macro_regime, load_trading_params
 from market_data import get_daily_bars, get_intraday_bars, get_latest_price
 from tier1_config import is_tier1
-from vix_regime import load_trading_params
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -791,7 +790,7 @@ def _set_crisis_lockout(hours: int = 48) -> None:
                 data = json.load(f)
         else:
             data = {}
-        until = (datetime.now(ET) + __import__("datetime").timedelta(hours=hours)).isoformat()
+        until = (datetime.now(ET) + timedelta(hours=hours)).isoformat()
         data["flash_crash_active"] = True
         data["flash_crash_until"]  = until
         data["regime"] = "CRISIS"
