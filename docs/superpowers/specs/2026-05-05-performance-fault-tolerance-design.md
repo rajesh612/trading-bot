@@ -17,6 +17,8 @@ All new functions are **atomic** (single responsibility, no side effects), **pur
 4. Add retry logic to all external fetches
 5. Clean stale data aggressively to keep file reads fast
 6. Reduce logging noise while keeping signal
+7. Notify degraded integrations via Telegram at startup
+8. Consolidate legacy `vix_regime.py` into `macro_regime.py` — single source of truth for both agents
 
 ---
 
@@ -96,7 +98,7 @@ Current: logs 3 lines per symbol (`Researching…`, then the full scores line, t
 
 ### C. `main.py`
 
-#### C1. `_log_capability_summary()` — startup integration status
+#### C1. `_log_capability_summary()` — startup integration status + Telegram alert
 Called once in `main()` after the hard key checks. Logs one INFO line per integration:
 
 ```
@@ -109,7 +111,17 @@ Called once in `main()` after the hard key checks. Logs one INFO line per integr
 [~] MARKET_DATA  — provider=yahoo (paper trading)
 ```
 
-Reads current FRED cache to show current fed_direction in the FRED line. No new API calls.
+Reads current FRED cache to show fed_direction in the FRED line. No new API calls.
+
+**Telegram degradation alert:** If any *trade-quality* integration is missing (FRED, Polygon, Email), sends one consolidated Telegram message immediately after the log summary — but only if Telegram itself is configured (no point alerting via a disabled channel). X/Twitter is excluded (intentionally optional at $100/mo). Message format:
+
+```
+⚠️ Bot started with degraded integrations:
+  • FRED key missing — macro regime modifier = 0 (neutral)
+  • Email not configured — daily report will not be sent
+```
+
+Sent at most once per startup. Does not block bot startup.
 
 ---
 
@@ -129,11 +141,29 @@ Extend existing function to also prune `research_report.json` at startup if its 
 
 ---
 
-### E. Unchanged (intentionally out of scope)
+### E. `macro_regime.py` + `vix_regime.py` — consolidation
 
-- `swing_manager.py`, `learning_agent.py`, `earnings_calendar.py` — no changes; correct behavior, not on the critical path for this refactor
+#### E1. Move `load_trading_params()` into `macro_regime.py`
+`load_trading_params()` currently lives in `vix_regime.py` but has no dependency on VIX logic — it reads `trading_params.json` and merges with config defaults. Moving it to `macro_regime.py` makes that module the single source of truth for all regime and trading-parameter state.
+
+#### E2. Replace `load_vix_regime()` in `learning_agent.py` with `load_macro_regime()`
+`learning_agent.py` calls `load_vix_regime()` to get `regime_info` (line 165). This reads the stale `vix_regime.json` (not updated since macro_regime.py took over). Replace with `load_macro_regime()` from `macro_regime.py` — same dict shape (`regime`, `vix_current`, `macro_health_score`). The learning agent gets current regime data instead of a perpetually stale file.
+
+#### E3. Update import lines in `trading_agent.py` and `learning_agent.py`
+- `trading_agent.py`: `from vix_regime import load_trading_params` → `from macro_regime import load_trading_params`
+- `learning_agent.py`: `from vix_regime import load_vix_regime, load_trading_params` → `from macro_regime import load_macro_regime, load_trading_params`
+
+#### E4. Delete `vix_regime.py` and remove `VIX_REGIME_FILE` from `config.py`
+After E1–E3, `vix_regime.py` has no callers. Delete it. Remove `VIX_REGIME_FILE = BASE_DIR / "vix_regime.json"` from `config.py`. The `vix_regime.json` file on disk can remain (harmless stale data).
+
+`backtest.py` has its own inline `_fetch_vix_regime_for_day()` that does not import `vix_regime.py` — unaffected.
+
+---
+
+### F. Unchanged (intentionally out of scope)
+
+- `swing_manager.py`, `earnings_calendar.py` — correct behavior, not on the critical path
 - `alpaca_client.py` — paper trading only; no parallelization needed (Alpaca rate limits apply)
-- `vix_regime.py` — legacy; kept for `learning_agent` compatibility; not touched
 
 ---
 
@@ -155,9 +185,11 @@ Extend existing function to also prune `research_report.json` at startup if its 
 
 ## Testing
 
-All new pure functions (`_build_market_context_block`, `_fetch_with_retry`, `_log_capability_summary`) will have `@pytest.mark.unit` tests in `tests/test_foundation.py`:
-- `_build_market_context_block` with mock regime/FRED/economic/research data — assert all 6 fields present
-- `_fetch_with_retry` — mock a function that fails twice then succeeds; assert result returned on 3rd attempt
-- `_log_capability_summary` — mock config vars; assert log output contains expected `[✓]`/`[✗]` markers
+All new pure functions will have `@pytest.mark.unit` tests in `tests/test_foundation.py`:
+- `_build_market_context_block` — mock regime/FRED/economic/research data; assert all 6 fields present and shock score omitted when 0
+- `_fetch_with_retry` — mock a function that fails twice then succeeds; assert result returned on 3rd attempt; assert raises on 3 consecutive failures
+- `_log_capability_summary` — mock config vars with FRED missing and Email missing; assert Telegram degradation alert contains both items
+- `load_trading_params` in `macro_regime` — assert returns config defaults when `trading_params.json` absent
+- `learning_agent` regime source — mock `load_macro_regime` returning `{"regime": "BULL_TREND"}`; assert learning agent uses it (not vix_regime)
 
-Parallel fetch changes are integration-path only (network calls); no new unit tests for those, but existing tests must still pass.
+Parallel fetch changes are integration-path only (network calls); no new unit tests for those, but existing `pytest -m unit` suite must still pass after the `vix_regime` deletion.
