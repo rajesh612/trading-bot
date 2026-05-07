@@ -243,19 +243,67 @@ What you'll receive on Telegram:
 ---
 ## Auto-Start/Stop
 
-| Event | ET |
-|---|---|
-| Auto-start | 8:30 AM |
-| Auto-stop | 4:30 PM |
+| Event | PT (local) | ET |
+|---|---|---|
+| Auto-start | 5:30 AM | 8:30 AM |
+| Auto-stop | 1:30 PM | 4:30 PM |
+
+Once installed, the bot starts and stops **automatically every weekday — no daily manual action needed.** If your laptop is asleep at the scheduled time, launchd fires as soon as you open the lid.
 
 ### macOS — LaunchAgent
 
+**Step 1 — Install (one-time):**
 ```bash
-./setup_launchagent.sh            # Install
-./setup_launchagent.sh uninstall  # Remove
+./setup_launchagent.sh
 ```
 
-If your laptop is asleep at the scheduled time, launchd fires when you open the lid.
+**Step 2 — Grant Full Disk Access to bash (one-time, required if project is in ~/Documents):**
+
+System Settings → Privacy & Security → Full Disk Access → click `+` → press `Cmd+Shift+G` → type `/bin` → select `bash` → click Open
+
+Without this, launchd silently fails with a permissions error and produces no log output.
+
+**Step 3 — Verify installation:**
+```bash
+launchctl list | grep trading_bot
+# Expected output (two lines, exit code 0 means loaded):
+# -    0    trading_bot_stop
+# -    0    trading_bot_start
+```
+
+**After this, do nothing.** The bot will auto-start at 5:30 AM PT weekdays and auto-stop at 1:30 PM PT. You only need `./stop.sh` or `./start.sh` for manual overrides.
+
+**Uninstall:**
+```bash
+./setup_launchagent.sh uninstall
+```
+
+---
+
+### Testing the LaunchAgent outside market hours
+
+If you want to confirm it works right now (without waiting until tomorrow morning), trigger it manually:
+
+```bash
+launchctl start trading_bot_start
+sleep 5
+tail -f launchd_trading_bot.log
+```
+
+You should see startup log lines within 5 seconds and a Telegram "🟢 Bot started" message if Telegram is configured. Press `Ctrl+C` to stop tailing. Run `./stop.sh` when done testing.
+
+> **This is for testing only — you do NOT need to run `launchctl start` each day.**
+
+**Two log files — know the difference:**
+
+| File | Written by | When |
+|---|---|---|
+| `launchd_trading_bot.log` | LaunchAgent (auto-start) | When launchd fires the bot |
+| `trading_bot.log` | Manual `./start.sh` | When you start the bot yourself |
+
+If you started via LaunchAgent but see nothing in `launchd_trading_bot.log`, Full Disk Access is likely the issue (Step 2 above).
+
+---
 
 ### Linux — cron
 
@@ -349,6 +397,18 @@ If you need to clear it immediately:
 ./stop.sh && ./start.sh
 ```
 The startup `fetch_macro_regime()` will evaluate conditions and clear automatically.
+
+**No Telegram notification after bot starts**
+
+Check in this order:
+1. Confirm `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set in `.env` (not blank).
+2. Confirm `ANTHROPIC_API_KEY` is set — if it is missing the bot exits before sending any Telegram alert (known limitation, fixed in next release).
+3. Check the correct log file: `launchd_trading_bot.log` if started via LaunchAgent, `trading_bot.log` if started manually via `./start.sh`.
+4. If the log file is empty after a LaunchAgent start, Full Disk Access for `/bin/bash` is likely missing — see the macOS LaunchAgent setup steps above.
+5. Send a test message to confirm Telegram credentials work:
+   ```bash
+   curl -s "https://api.telegram.org/bot<YOUR_TOKEN>/sendMessage?chat_id=<YOUR_CHAT_ID>&text=test"
+   ```
 
 **API key errors**
 Double-check `.env` uses the **Paper** Alpaca keys (not Live) and has no trailing spaces.
