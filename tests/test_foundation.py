@@ -4625,3 +4625,222 @@ class TestLearningAgentOrchestration:
         result = _compute_regime_winrate(trades)
         assert result["BULL_TREND"] == pytest.approx(0.5)
         assert result["CHOPPY"] == pytest.approx(1.0)
+
+
+# ── earnings_calendar: PEAD detection ────────────────────────────────────────
+
+@pytest.mark.unit
+class TestPeadDetection:
+    """Tests for detect_pead_setup — pure logic, no network calls."""
+
+    def _perfect_block(self) -> dict:
+        """Return a recently_reported block that satisfies all 5 PEAD conditions."""
+        # Use today's date so the block passes the recency gate in recently_reported()
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        return {
+            "report_date":                today,
+            "eps_surprise_pct":           10.0,   # > PEAD_EPS_SURPRISE_MIN (5%)
+            "revenue_beat":               True,
+            "guidance_change":            "raised",
+            "earnings_day_return_pct":    5.0,    # > PEAD_DAY_RETURN_MIN (3%)
+            "earnings_day_close_position": 0.85,  # > PEAD_CLOSE_POSITION_MIN (0.7)
+            "earnings_day_volume_ratio":  3.0,    # > PEAD_VOLUME_RATIO_MIN (2.0)
+        }
+
+    def _write_cache(self, tmp_path, symbol: str, block: dict) -> None:
+        import config
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        payload = {
+            "date": today,
+            "symbols": {symbol: {"next_earnings_date": None, "recently_reported": block}},
+        }
+        cache_file = tmp_path / "earnings_calendar.json"
+        cache_file.write_text(json.dumps(payload))
+        # Patch config to point at tmp file
+        config.EARNINGS_CALENDAR_FILE = cache_file
+
+    def test_all_conditions_met_qualifies(self, tmp_path):
+        import config
+        original = config.EARNINGS_CALENDAR_FILE
+        try:
+            self._write_cache(tmp_path, "AAPL", self._perfect_block())
+            from earnings_calendar import detect_pead_setup
+            qualifies, score = detect_pead_setup("AAPL")
+            assert qualifies is True
+            assert score == 100
+        finally:
+            config.EARNINGS_CALENDAR_FILE = original
+
+    def test_eps_miss_reduces_score(self, tmp_path):
+        import config
+        original = config.EARNINGS_CALENDAR_FILE
+        try:
+            block = self._perfect_block()
+            block["eps_surprise_pct"] = 1.0  # below PEAD_EPS_SURPRISE_MIN
+            self._write_cache(tmp_path, "MSFT", block)
+            from earnings_calendar import detect_pead_setup
+            qualifies, score = detect_pead_setup("MSFT")
+            assert score == 80   # 4 of 5 conditions — still qualifies
+            assert qualifies is True
+        finally:
+            config.EARNINGS_CALENDAR_FILE = original
+
+    def test_two_conditions_missing_does_not_qualify(self, tmp_path):
+        import config
+        original = config.EARNINGS_CALENDAR_FILE
+        try:
+            block = self._perfect_block()
+            block["eps_surprise_pct"] = 1.0         # miss cond 1
+            block["revenue_beat"] = False            # miss cond 2
+            self._write_cache(tmp_path, "NVDA", block)
+            from earnings_calendar import detect_pead_setup
+            qualifies, score = detect_pead_setup("NVDA")
+            assert qualifies is False
+            assert score == 60
+        finally:
+            config.EARNINGS_CALENDAR_FILE = original
+
+    def test_guidance_lowered_disqualifies_condition(self, tmp_path):
+        import config
+        original = config.EARNINGS_CALENDAR_FILE
+        try:
+            block = self._perfect_block()
+            block["guidance_change"] = "lowered"     # miss cond 3
+            block["revenue_beat"] = False            # miss cond 2  => only 3 of 5
+            self._write_cache(tmp_path, "TSLA", block)
+            from earnings_calendar import detect_pead_setup
+            qualifies, score = detect_pead_setup("TSLA")
+            assert qualifies is False
+            assert score == 60
+        finally:
+            config.EARNINGS_CALENDAR_FILE = original
+
+    def test_no_recently_reported_returns_false_zero(self, tmp_path):
+        import config
+        original = config.EARNINGS_CALENDAR_FILE
+        try:
+            today = datetime.now(ET).strftime("%Y-%m-%d")
+            payload = {"date": today, "symbols": {"AMZN": {"next_earnings_date": None}}}
+            cache_file = tmp_path / "earnings_calendar.json"
+            cache_file.write_text(json.dumps(payload))
+            config.EARNINGS_CALENDAR_FILE = cache_file
+            from earnings_calendar import detect_pead_setup
+            qualifies, score = detect_pead_setup("AMZN")
+            assert qualifies is False
+            assert score == 0
+        finally:
+            config.EARNINGS_CALENDAR_FILE = original
+
+
+# ── economic_calendar: hardcoded events + risk window ────────────────────────
+
+@pytest.mark.unit
+class TestEconomicCalendarLogic:
+    """Tests for pure functions in economic_calendar — no network, no file I/O."""
+
+    def test_first_friday_returns_correct_day(self):
+        from economic_calendar import _first_friday
+        # May 2026: first Friday is the 1st
+        assert _first_friday(2026, 5) == 1
+
+    def test_hardcoded_events_includes_nfp_and_cpi(self):
+        from economic_calendar import _hardcoded_events
+        events = _hardcoded_events(2026, 5)
+        names = [e["name"] for e in events]
+        assert "Non-Farm Payrolls" in names
+        assert "CPI Release" in names
+
+    def test_is_event_risk_window_detects_nearby_event(self, tmp_path):
+        import config
+        original = config.ECONOMIC_CALENDAR_FILE
+        try:
+            today = datetime.now(ET).strftime("%Y-%m-%d")
+            # Create a fake event at 08:30 today
+            payload = {
+                "date": today,
+                "events": [{"date": today, "time": "08:30", "name": "CPI Release", "impact": "high"}],
+            }
+            cache_file = tmp_path / "economic_calendar.json"
+            cache_file.write_text(json.dumps(payload))
+            config.ECONOMIC_CALENDAR_FILE = cache_file
+
+            from economic_calendar import is_event_risk_window
+            # Construct a datetime exactly at 08:30 ET today — within window
+            now_et = datetime.now(ET).replace(hour=8, minute=30, second=0, microsecond=0)
+            in_window, name = is_event_risk_window(now_et)
+            assert in_window is True
+            assert name == "CPI Release"
+        finally:
+            config.ECONOMIC_CALENDAR_FILE = original
+
+    def test_is_event_risk_window_outside_returns_false(self, tmp_path):
+        import config
+        original = config.ECONOMIC_CALENDAR_FILE
+        try:
+            today = datetime.now(ET).strftime("%Y-%m-%d")
+            payload = {
+                "date": today,
+                "events": [{"date": today, "time": "08:30", "name": "NFP", "impact": "high"}],
+            }
+            cache_file = tmp_path / "economic_calendar.json"
+            cache_file.write_text(json.dumps(payload))
+            config.ECONOMIC_CALENDAR_FILE = cache_file
+
+            from economic_calendar import is_event_risk_window
+            # 2 hours after the event — well outside 45-minute window
+            now_et = datetime.now(ET).replace(hour=10, minute=30, second=0, microsecond=0)
+            in_window, name = is_event_risk_window(now_et)
+            assert in_window is False
+            assert name == ""
+        finally:
+            config.ECONOMIC_CALENDAR_FILE = original
+
+
+# ── daily_report: build_report_body ──────────────────────────────────────────
+
+@pytest.mark.unit
+class TestDailyReportBody:
+    """Tests for build_report_body — pure formatting function, no I/O."""
+
+    def _account(self, portfolio: float = 100_000.0, last_equity: float = 99_000.0) -> dict:
+        return {"portfolio_value": portfolio, "last_equity": last_equity}
+
+    def test_subject_contains_pnl_when_trades_exist(self):
+        from daily_report import build_report_body
+        trades = [
+            {"type": "CLOSE", "symbol": "AAPL", "qty": 10,
+             "entry_price": 100.0, "exit_price": 105.0,
+             "pnl_dollar": 50.0, "pnl_pct": 5.0, "close_reason": "tp_hit"},
+        ]
+        subject, body = build_report_body(trades, self._account(), "BULL_TREND", "AAPL, MSFT", {})
+        assert "P&L:" in subject
+        assert "1 trades" in subject
+
+    def test_subject_no_trades_shows_portfolio(self):
+        from daily_report import build_report_body
+        subject, body = build_report_body([], self._account(100_000.0, 100_000.0), "CHOPPY", "", {})
+        assert "No trades today" in subject
+        assert "Portfolio:" in subject
+
+    def test_body_contains_regime(self):
+        from daily_report import build_report_body
+        _, body = build_report_body([], self._account(), "CRISIS", "", {})
+        assert "CRISIS" in body
+
+    def test_win_rate_computed_correctly(self):
+        from daily_report import build_report_body
+        trades = [
+            {"type": "CLOSE", "symbol": "A", "qty": 1, "entry_price": 10.0,
+             "exit_price": 11.0, "pnl_dollar": 10.0, "pnl_pct": 10.0, "close_reason": "tp"},
+            {"type": "CLOSE", "symbol": "B", "qty": 1, "entry_price": 10.0,
+             "exit_price": 9.0, "pnl_dollar": -10.0, "pnl_pct": -10.0, "close_reason": "sl"},
+        ]
+        _, body = build_report_body(trades, self._account(), "NORMAL", "", {})
+        assert "Win rate: 50.0%" in body
+
+    def test_indicator_weights_rendered_in_body(self):
+        from daily_report import build_report_body
+        weights = {"rsi": 30.0, "macd": 25.0}
+        _, body = build_report_body([], self._account(), "NORMAL", "", weights)
+        assert "rsi: 30.00%" in body
+        assert "macd: 25.00%" in body
