@@ -3518,3 +3518,51 @@ class TestMarketMonitor:
         from utils.io_utils import load_json
         data = load_json(tmp_path / "macro_regime.json", {})
         assert data.get("regime") == "CRISIS"
+
+
+# ── Startup exit alerts ───────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestStartupExitAlerts:
+    def test_exit_with_alert_calls_telegram_then_exit(self):
+        """_exit_with_alert sends Telegram before sys.exit"""
+        from unittest.mock import patch
+        import main
+        call_order = []
+        def mock_exit(code):
+            call_order.append("exit")
+            raise SystemExit(code)
+        with patch("main.telegram_notify._send", side_effect=lambda m: call_order.append("telegram")):
+            with patch("sys.exit", side_effect=mock_exit):
+                with pytest.raises(SystemExit):
+                    main._exit_with_alert("test message")
+        assert call_order == ["telegram", "exit"]
+
+    def test_exit_with_alert_message_contains_text(self):
+        """Telegram message contains the error text"""
+        from unittest.mock import patch
+        import main
+        sent = []
+        with patch("main.telegram_notify._send", side_effect=lambda m: sent.append(m)):
+            with patch("sys.exit"):
+                main._exit_with_alert("ALPACA_API_KEY missing")
+        assert len(sent) == 1
+        assert "ALPACA_API_KEY missing" in sent[0]
+
+    def test_exit_with_alert_tolerates_telegram_failure(self):
+        """If Telegram raises, sys.exit still fires"""
+        from unittest.mock import patch
+        import main
+        with patch("main.telegram_notify._send", side_effect=Exception("Telegram down")):
+            with patch("sys.exit") as mock_exit:
+                main._exit_with_alert("some error")
+        mock_exit.assert_called_once_with(1)
+
+    def test_exit_with_alert_custom_code(self):
+        """Custom exit code is passed to sys.exit"""
+        from unittest.mock import patch
+        import main
+        with patch("main.telegram_notify._send"):
+            with patch("sys.exit") as mock_exit:
+                main._exit_with_alert("msg", code=2)
+        mock_exit.assert_called_once_with(2)

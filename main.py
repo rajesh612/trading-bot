@@ -688,6 +688,16 @@ def _catchup_daily_report():
     send_daily_report()
 
 
+def _exit_with_alert(msg: str, code: int = 1) -> None:
+    """Exit with a Telegram alert. Logs error, sends Telegram, then exits."""
+    logger.error(msg)
+    try:
+        telegram_notify._send(f"🚨 Bot failed to start: {msg}")
+    except Exception:
+        pass
+    sys.exit(code)
+
+
 def _log_capability_summary() -> list[str]:
     """
     Log one line per integration at startup. Returns degraded item descriptions
@@ -761,11 +771,9 @@ def main():
     logger.info("Trading Bot initialising…")
 
     if not config.ALPACA_API_KEY or not config.ALPACA_SECRET_KEY:
-        logger.error("Missing ALPACA_API_KEY / ALPACA_SECRET_KEY in .env")
-        sys.exit(1)
+        _exit_with_alert("Missing ALPACA_API_KEY / ALPACA_SECRET_KEY in .env")
     if not config.ANTHROPIC_API_KEY:
-        logger.error("Missing ANTHROPIC_API_KEY in .env")
-        sys.exit(1)
+        _exit_with_alert("Missing ANTHROPIC_API_KEY in .env")
 
     degraded_integrations = _log_capability_summary()
     if degraded_integrations:
