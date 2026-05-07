@@ -3680,3 +3680,42 @@ class TestTimeGate:
         result = is_entry_allowed(naive)
         assert isinstance(result, bool)
         assert result is True
+
+
+# ── signals.relative_strength ─────────────────────────────────────────────────
+
+from signals.relative_strength import rs_rank, passes_rs_filter
+
+
+@pytest.mark.unit
+class TestRelativeStrength:
+    """Tests for relative strength (RS) filter."""
+
+    def test_rs_rank_outperforming(self):
+        """Symbol up 4% while SPY up 2% → RS ratio = 2.0 (outperforming)."""
+        ratio = rs_rank("NVDA", spy_ret5d=2.0, symbol_ret5d=4.0)
+        assert ratio == pytest.approx(2.0)
+
+    def test_rs_rank_underperforming(self):
+        """Symbol up 1% while SPY up 2% → RS ratio = 0.5 (underperforming)."""
+        ratio = rs_rank("XYZ", spy_ret5d=2.0, symbol_ret5d=1.0)
+        assert ratio == pytest.approx(0.5)
+
+    def test_rs_rank_equal_performance(self):
+        """Symbol and SPY both up 2% → RS ratio = 1.0 (neutral)."""
+        ratio = rs_rank("AAPL", spy_ret5d=2.0, symbol_ret5d=2.0)
+        assert ratio == pytest.approx(1.0)
+
+    def test_rs_rank_zero_spy_return(self):
+        """SPY flat (0% return) → return 1.0 (neutral) regardless of symbol return."""
+        ratio = rs_rank("AAPL", spy_ret5d=0.0, symbol_ret5d=3.0)
+        assert ratio == pytest.approx(1.0)
+
+    def test_passes_rs_filter_default_threshold(self):
+        """RS ratio of 0.5 should pass with config.RS_MIN_RATIO default (0.0)."""
+        # Default config.RS_MIN_RATIO = 0.0, so any ratio >= 0.0 passes
+        assert passes_rs_filter(0.5) is True
+
+    def test_passes_rs_filter_fails_below_threshold(self):
+        """RS ratio of -0.5 with threshold 0.0 → fails filter."""
+        assert passes_rs_filter(-0.5, threshold=0.0) is False

@@ -8,6 +8,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import requests
 import anthropic
 import telegram_notify
@@ -24,6 +25,7 @@ from market_data import get_daily_bars, get_intraday_bars, get_latest_price
 from tier1_config import is_tier1
 from utils.io_utils import load_json, save_json
 from signals.time_gate import is_entry_allowed
+from signals.relative_strength import rs_rank, passes_rs_filter
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -225,15 +227,18 @@ def _check_entry_gates(
     regime: str,
     mode: str,
     iv: IndicatorValues,
+    spy_ret5d: float = 0.0,
+    symbol_ret5d: float = 0.0,
 ) -> tuple[bool, str]:
     """
     Priority gates (first match wins — False = block entry):
     1. Time gate (first ENTRY_GATE_OPEN_MINUTES after open and last ENTRY_GATE_CLOSE_MINUTES before close)
     2. Earnings imminent (earnings-safe modes exempt)
     3. Event risk window (FOMC/NFP)
-    4. Stop-hunt zone
-    5. Bot herding score HIGH (blocks unless squeeze overrides)
-    6. Momentum exhaustion (blocks unless squeeze overrides)
+    4. Relative Strength filter (symbol underperforming SPY)
+    5. Stop-hunt zone
+    6. Bot herding score HIGH (blocks unless squeeze overrides)
+    7. Momentum exhaustion (blocks unless squeeze overrides)
     """
     now = datetime.now(ET)
 
@@ -251,16 +256,24 @@ def _check_entry_gates(
     if event_risk:
         return False, f"event risk window: {event_name}"
 
-    # 4. Stop-hunt zone
+    # 4. Relative Strength filter
+    if symbol_ret5d != 0.0:  # only filter if we have data
+        ratio = rs_rank(symbol, spy_ret5d, symbol_ret5d)
+        if not passes_rs_filter(ratio):
+            logger.debug("RS filter blocked %s (ratio=%.2f, spy_ret5d=%.2f, symbol_ret5d=%.2f)",
+                        symbol, ratio, spy_ret5d, symbol_ret5d)
+            return False, f"relative strength below threshold (ratio={ratio:.2f})"
+
+    # 5. Stop-hunt zone
     if iv.stop_hunt_zone:
         return False, "stop-hunt zone (round number or 5d hi/lo proximity)"
 
-    # 5. Bot herding — blocks high-herding entries unless squeeze
+    # 6. Bot herding — blocks high-herding entries unless squeeze
     if not iv.squeeze_setup:
         if iv.bot_herding_score >= config.BOT_HERD_HIGH_SCORE:
             return False, f"bot herding too high ({iv.bot_herding_score})"
 
-        # 6. Momentum exhaustion — skip when herding present
+        # 7. Momentum exhaustion — skip when herding present
         if iv.momentum_exhaustion and iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
             return False, f"momentum exhaustion + herding ({iv.bot_herding_score})"
 
@@ -332,6 +345,21 @@ def compute_position_size_for_mode(
 
     return int(qty)
 
+
+def _compute_symbol_5day_return(daily_df: "pd.DataFrame | None") -> float:
+    """
+    Compute 5-day daily return from daily OHLCV bars.
+    Returns (latest_close - close_6_days_ago) / close_6_days_ago * 100.
+    Returns 0.0 if insufficient data.
+    """
+    if daily_df is None or len(daily_df) < 6:
+        return 0.0
+    try:
+        closes = daily_df["close"].values
+        ret5d = (closes[-1] - closes[-6]) / closes[-6] * 100
+        return float(ret5d)
+    except Exception:
+        return 0.0
 
 
 # ── Claude decision (batched) ────────────────────────────────────────────────
@@ -869,15 +897,16 @@ def run_trading_cycle():
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
     # ── Phase 1: Fetch data and compute indicators for all watch-list stocks ──
-    def _fetch_symbol_data(symbol: str) -> tuple[str, IndicatorValues, dict | None] | None:
+    def _fetch_symbol_data(symbol: str) -> tuple[str, IndicatorValues, dict | None, float] | None:
         bars = alpaca.get_intraday_bars(symbol)
         daily_bars = alpaca.get_daily_bars(symbol, days=8)
         iv = compute_indicators(symbol, bars, daily_df=daily_bars)
         if iv is None:
             return None
-        return (symbol, iv, open_positions.get(symbol))
+        symbol_ret5d = _compute_symbol_5day_return(daily_bars)
+        return (symbol, iv, open_positions.get(symbol), symbol_ret5d)
 
-    stock_data: list[tuple[str, IndicatorValues, dict | None]] = []
+    stock_data: list[tuple[str, IndicatorValues, dict | None, float]] = []
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(_fetch_symbol_data, sym): sym for sym in watch_list}
         for future in as_completed(futures):
@@ -906,7 +935,9 @@ def run_trading_cycle():
     needs_claude:      list[tuple[str, IndicatorValues, dict | None]] = []
     auto_buy_decisions: dict[str, dict] = {}
 
-    for symbol, iv, existing_pos in stock_data:
+    spy_ret5d = regime_info.get("spy_5day_return", 0.0)
+
+    for symbol, iv, existing_pos, symbol_ret5d in stock_data:
         if existing_pos:
             pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
             logger.info(
@@ -918,7 +949,7 @@ def run_trading_cycle():
             path = _prefilter_decision(iv, sentiment_score)
             if path == "AUTO_BUY":
                 mode = get_active_mode(regime, symbol)
-                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv)
+                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv, spy_ret5d, symbol_ret5d)
                 if gate_ok:
                     sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
                     auto_buy_decisions[symbol] = {
@@ -956,7 +987,7 @@ def run_trading_cycle():
         decisions.update(batch_decisions)
 
     # ── Phase 4: Act on decisions ─────────────────────────────────────────────
-    for symbol, iv, existing_pos in stock_data:
+    for symbol, iv, existing_pos, symbol_ret5d in stock_data:
         try:
             decision = decisions.get(symbol)
             if decision is None:
@@ -1002,9 +1033,9 @@ def run_trading_cycle():
                     )
                     continue
 
-                # Entry gates: earnings, event risk, stop-hunt, bot herding
+                # Entry gates: earnings, event risk, stop-hunt, bot herding, RS filter
                 # (For AUTO_BUY these already ran in Phase 2; re-check here is cheap + safe)
-                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv)
+                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv, spy_ret5d, symbol_ret5d)
                 if not gate_ok:
                     logger.info(f"SKIP {symbol} — entry gate: {gate_reason}")
                     continue
