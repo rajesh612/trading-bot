@@ -3822,3 +3822,47 @@ class TestSentimentSizer:
     def test_score_extreme_negative_returns_floor(self):
         """Extreme negative score should return floor (0.50) multiplier."""
         assert sentiment_size_multiplier(-100) == pytest.approx(0.50)
+
+
+# ── mtf_confirm: multi-timeframe filter ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestMtfConfirm:
+    def _make_bars(self, closes: list[float]) -> pd.DataFrame:
+        """Return a minimal OHLCV DataFrame with close series."""
+        return pd.DataFrame({"close": closes})
+
+    def test_ema9_above_ema21_passes(self):
+        """Uptrend: rising prices → EMA9 > EMA21 → pass."""
+        from signals.mtf_confirm import passes_mtf_filter
+        closes = [100.0 + i * 0.5 for i in range(40)]
+        assert passes_mtf_filter(self._make_bars(closes)) is True
+
+    def test_ema9_below_ema21_blocked(self):
+        """Downtrend: falling prices → EMA9 < EMA21 → blocked."""
+        from signals.mtf_confirm import passes_mtf_filter
+        closes = [140.0 - i * 0.5 for i in range(40)]
+        assert passes_mtf_filter(self._make_bars(closes)) is False
+
+    def test_insufficient_data_passes(self):
+        """Less than 21 bars → fail-safe pass."""
+        from signals.mtf_confirm import passes_mtf_filter
+        closes = [100.0] * 10
+        assert passes_mtf_filter(self._make_bars(closes)) is True
+
+    def test_none_input_passes(self):
+        """None DataFrame → fail-safe pass."""
+        from signals.mtf_confirm import passes_mtf_filter
+        assert passes_mtf_filter(None) is True
+
+    def test_empty_dataframe_passes(self):
+        """Empty DataFrame → fail-safe pass."""
+        from signals.mtf_confirm import passes_mtf_filter
+        assert passes_mtf_filter(pd.DataFrame()) is True
+
+    def test_flat_prices_ema_equal_blocked(self):
+        """Flat prices → EMA9 ≈ EMA21 (both equal to price) → not strictly > → blocked."""
+        from signals.mtf_confirm import passes_mtf_filter
+        closes = [100.0] * 40
+        # Both EMAs converge to 100.0 after sufficient bars; 100.0 > 100.0 is False
+        assert passes_mtf_filter(self._make_bars(closes)) is False

@@ -28,6 +28,7 @@ from signals.time_gate import is_entry_allowed
 from signals.relative_strength import rs_rank, passes_rs_filter
 from signals.correlation_guard import passes_correlation_guard
 from signals.sentiment_sizer import sentiment_size_multiplier
+from signals.mtf_confirm import passes_mtf_filter
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -1086,6 +1087,15 @@ def run_trading_cycle():
                     tp_pct = float(decision["take_profit_pct"])
                 if iv.squeeze_setup and decision.get("confidence", 0) >= config.SQUEEZE_CONFIDENCE_GATE:
                     sl_pct, tp_pct = 6.0, 5.0  # fast trailing exit for squeeze plays
+
+                # Multi-timeframe confirmation: 15-min EMA(9) > EMA(21)
+                try:
+                    bars_15min = get_intraday_bars(symbol, lookback=config.MTF_BARS_LOOKBACK, timeframe_min=config.MTF_TIMEFRAME_MINUTES)
+                    if not passes_mtf_filter(bars_15min):
+                        logger.info(f"SKIP {symbol} — MTF filter blocked (15-min EMA9 < EMA21)")
+                        continue
+                except Exception as exc:
+                    logger.warning(f"MTF fetch failed for {symbol}: {exc} — allowing entry anyway")
 
                 # Guard against concurrent cycles (same process multiple threads, or multiple
                 # processes from bot restarts) both seeing an empty slot and both buying.
