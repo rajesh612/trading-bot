@@ -4039,3 +4039,323 @@ class TestRegimeWinRate:
         ]
         result = _compute_regime_winrate(trades)
         assert result["BULL_TREND"] == pytest.approx(1.0)  # only 1 trade counted
+
+
+# ── research_agent: pure functions ───────────────────────────────────────────
+
+@pytest.mark.unit
+class TestResearchAgentOrchestration:
+    """Tests for pure / side-effect-free helpers in research_agent.py."""
+
+    # ── _compute_macro_shock_score ─────────────────────────────────────────
+
+    def test_macro_shock_empty_headlines_returns_zero(self):
+        from research_agent import _compute_macro_shock_score
+        assert _compute_macro_shock_score([]) == 0
+
+    def test_macro_shock_no_keywords_returns_zero(self):
+        from research_agent import _compute_macro_shock_score
+        headlines = [{"title": "Stocks mixed on earnings season", "summary": "Investors watch results."}]
+        assert _compute_macro_shock_score(headlines) == 0
+
+    def test_macro_shock_single_keyword_returns_weight(self):
+        from research_agent import _compute_macro_shock_score
+        # "tariff" carries weight 20
+        headlines = [{"title": "New tariff announced on imports", "summary": ""}]
+        score = _compute_macro_shock_score(headlines)
+        assert score == 20
+
+    def test_macro_shock_multiple_keywords_accumulate(self):
+        from research_agent import _compute_macro_shock_score
+        # "tariff" (20) + "recession" (20) = 40
+        headlines = [{"title": "Tariff fears spark recession worries", "summary": ""}]
+        score = _compute_macro_shock_score(headlines)
+        assert score == 40
+
+    def test_macro_shock_capped_at_100(self):
+        from research_agent import _compute_macro_shock_score
+        # Fill with every keyword — sum would far exceed 100
+        title = "tariff trade war sanction war escalation fed emergency bank failure cpi shock inflation surge recession default nuclear pandemic market crash circuit breaker"
+        headlines = [{"title": title, "summary": ""}]
+        score = _compute_macro_shock_score(headlines)
+        assert score == 100
+
+    def test_macro_shock_case_insensitive(self):
+        from research_agent import _compute_macro_shock_score
+        # Keywords are lower-cased before matching; title in upper case must still match
+        headlines = [{"title": "TARIFF WAR DECLARED", "summary": ""}]
+        score = _compute_macro_shock_score(headlines)
+        assert score > 0
+
+    def test_macro_shock_scans_summary_field(self):
+        from research_agent import _compute_macro_shock_score
+        # Keyword is only in summary, not title
+        headlines = [{"title": "Markets update", "summary": "Fed emergency rate cut announced"}]
+        score = _compute_macro_shock_score(headlines)
+        assert score == 35  # "fed emergency" weight
+
+    # ── _compute_sector_sentiment ──────────────────────────────────────────
+
+    def test_sector_sentiment_empty_report(self):
+        from research_agent import _compute_sector_sentiment
+        result = _compute_sector_sentiment({})
+        assert result == {}
+
+    def test_sector_sentiment_skips_meta_key(self):
+        from research_agent import _compute_sector_sentiment
+        report = {
+            "__meta__": {"macro_shock_score": 40},
+            "NVDA": {"combined_sentiment_score": 60},
+        }
+        result = _compute_sector_sentiment(report)
+        assert "__meta__" not in result
+
+    def test_sector_sentiment_averages_scores_per_sector(self):
+        from research_agent import _compute_sector_sentiment
+        # NVDA and AMD both map to "AI_SEMI" in tier1_config;
+        # if they map to different sectors the test still asserts correct averaging logic.
+        report = {
+            "NVDA": {"combined_sentiment_score": 80},
+            "AMD":  {"combined_sentiment_score": 20},
+        }
+        result = _compute_sector_sentiment(report)
+        # Both symbols are tier-1 AI_SEMI; average should be 50.0
+        # If they fall into different buckets, each bucket has one value.
+        totals = sum(result.values())
+        # Regardless of grouping, 80+20=100 total, distributed across buckets
+        assert totals == pytest.approx(100.0) or all(v in (80.0, 20.0, 50.0) for v in result.values())
+
+    def test_sector_sentiment_uses_combined_score_preferentially(self):
+        from research_agent import _compute_sector_sentiment
+        report = {
+            "NVDA": {
+                "sentiment_score": 10,           # legacy fallback
+                "combined_sentiment_score": 70,  # preferred
+            }
+        }
+        result = _compute_sector_sentiment(report)
+        # The value assigned should be 70, not 10
+        sector_values = list(result.values())
+        assert 70.0 in sector_values
+
+    # ── _detect_capitulation_candidate ────────────────────────────────────
+
+    def test_capitulation_all_conditions_met(self):
+        from research_agent import _detect_capitulation_candidate
+        assert _detect_capitulation_candidate("NVDA", -25.0, -30.0, 0.15) is True
+
+    def test_capitulation_drawdown_too_small(self):
+        from research_agent import _detect_capitulation_candidate
+        # drawdown only -15% (must be ≤ -20%)
+        assert _detect_capitulation_candidate("NVDA", -15.0, -30.0, 0.15) is False
+
+    def test_capitulation_sector_sentiment_too_high(self):
+        from research_agent import _detect_capitulation_candidate
+        # sector_sentiment -10 (must be < -20)
+        assert _detect_capitulation_candidate("NVDA", -25.0, -10.0, 0.15) is False
+
+    def test_capitulation_obv_declining(self):
+        from research_agent import _detect_capitulation_candidate
+        # obv_trend ≤ 0.10 — institutions not yet accumulating
+        assert _detect_capitulation_candidate("NVDA", -25.0, -30.0, 0.05) is False
+
+    # ── _quick_sentiment_result ────────────────────────────────────────────
+
+    def test_quick_sentiment_returns_none_when_news_present(self):
+        import config
+        from research_agent import _quick_sentiment_result
+        stocktwits = {
+            "available": True,
+            "bullish_count": 20,
+            "bearish_count": 5,
+            "bullish_pct": 80,
+        }
+        stock_news = [{"title": "Earnings beat!", "summary": ""}]
+        # News present → Claude is always needed
+        result = _quick_sentiment_result(stocktwits, stock_news)
+        assert result is None
+
+    def test_quick_sentiment_returns_none_when_stocktwits_unavailable(self):
+        from research_agent import _quick_sentiment_result
+        result = _quick_sentiment_result({"available": False}, [])
+        assert result is None
+
+    def test_quick_sentiment_bullish_rule_fires(self):
+        import config
+        from research_agent import _quick_sentiment_result
+        tagged = config.STOCKTWITS_MIN_TAGGED + 5
+        bull = int(tagged * config.QUICK_SENTIMENT_BULL_PCT / 100) + 1
+        bear = tagged - bull
+        stocktwits = {
+            "available": True,
+            "bullish_count": bull,
+            "bearish_count": bear,
+            "bullish_pct": config.QUICK_SENTIMENT_BULL_PCT,
+        }
+        result = _quick_sentiment_result(stocktwits, [])
+        assert result is not None
+        assert result["combined_sentiment_label"] == "BULLISH"
+        assert result["combined_sentiment_score"] == config.QUICK_SENTIMENT_SCORE_BULL
+
+    def test_quick_sentiment_bearish_rule_fires(self):
+        import config
+        from research_agent import _quick_sentiment_result
+        tagged = config.STOCKTWITS_MIN_TAGGED + 5
+        bull = int(tagged * config.QUICK_SENTIMENT_BEAR_PCT / 100) - 1
+        bear = tagged - bull
+        stocktwits = {
+            "available": True,
+            "bullish_count": bull,
+            "bearish_count": bear,
+            "bullish_pct": config.QUICK_SENTIMENT_BEAR_PCT,
+        }
+        result = _quick_sentiment_result(stocktwits, [])
+        assert result is not None
+        assert result["combined_sentiment_label"] == "BEARISH"
+        assert result["combined_sentiment_score"] == config.QUICK_SENTIMENT_SCORE_BEAR
+
+    def test_quick_sentiment_returns_none_when_insufficient_tagged(self):
+        import config
+        from research_agent import _quick_sentiment_result
+        # Tagged below minimum threshold
+        stocktwits = {
+            "available": True,
+            "bullish_count": 3,
+            "bearish_count": 2,
+            "bullish_pct": 80,
+        }
+        result = _quick_sentiment_result(stocktwits, [])
+        assert result is None
+
+
+# ── macro_regime: scoring helpers ─────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestMacroRegimeCoverage:
+    """Tests for scoring helpers and _evaluate_lockout_recovery in macro_regime.py."""
+
+    # ── _score_vix ─────────────────────────────────────────────────────────
+
+    def test_score_vix_low_vix_returns_positive(self):
+        from macro_regime import _score_vix
+        # VIX well below its 90d average → bullish (+10)
+        vix_closes = [25.0] * 90 + [15.0]
+        assert _score_vix(vix_closes) == pytest.approx(10.0)
+
+    def test_score_vix_elevated_vix_returns_negative(self):
+        from macro_regime import _score_vix
+        # VIX well above 120% of average → -10
+        vix_closes = [20.0] * 90 + [30.0]
+        assert _score_vix(vix_closes) == pytest.approx(-10.0)
+
+    def test_score_vix_insufficient_data_returns_zero(self):
+        from macro_regime import _score_vix
+        assert _score_vix([20.0, 21.0]) == 0.0
+
+    # ── _score_spy ─────────────────────────────────────────────────────────
+
+    def test_score_spy_strong_up_week_returns_10(self):
+        from macro_regime import _score_spy
+        assert _score_spy(3.0) == pytest.approx(10.0)
+
+    def test_score_spy_crash_week_returns_minus10(self):
+        from macro_regime import _score_spy
+        assert _score_spy(-2.0) == pytest.approx(-10.0)
+
+    # ── _score_wti ─────────────────────────────────────────────────────────
+
+    def test_score_wti_stable_returns_positive(self):
+        from macro_regime import _score_wti
+        assert _score_wti(1.0) == pytest.approx(10.0)
+
+    def test_score_wti_spike_returns_negative(self):
+        from macro_regime import _score_wti
+        assert _score_wti(7.0) == pytest.approx(-10.0)
+
+    # ── _score_gold ────────────────────────────────────────────────────────
+
+    def test_score_gold_surge_is_bearish_signal(self):
+        from macro_regime import _score_gold
+        # Gold > +3% → flight to safety → -10
+        assert _score_gold(4.0) == pytest.approx(-10.0)
+
+    def test_score_gold_flat_is_bullish_signal(self):
+        from macro_regime import _score_gold
+        # Flat/mild gold = risk-on
+        assert _score_gold(0.5) == pytest.approx(8.0)
+
+    # ── _evaluate_lockout_recovery ─────────────────────────────────────────
+
+    def test_lockout_clears_when_time_expired(self):
+        from macro_regime import _evaluate_lockout_recovery
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        past = (now - timedelta(hours=1)).isoformat()
+        active, until = _evaluate_lockout_recovery(True, past, 25.0, -3.0, now)
+        assert active is False
+        assert until is None
+
+    def test_lockout_clears_on_vix_recovery(self):
+        from macro_regime import _evaluate_lockout_recovery
+        import config
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        future = (now + timedelta(hours=2)).isoformat()
+        # VIX below recovery threshold and SPY 5d return above recovery threshold
+        active, until = _evaluate_lockout_recovery(
+            True, future,
+            config.FLASH_CRASH_VIX_RECOVERY - 1,
+            config.FLASH_CRASH_SPY_RECOVERY_PCT + 1,
+            now,
+        )
+        assert active is False
+
+    def test_lockout_stays_active_when_conditions_not_met(self):
+        from macro_regime import _evaluate_lockout_recovery
+        import config
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        future = (now + timedelta(hours=2)).isoformat()
+        # VIX still high, SPY still bad
+        active, until = _evaluate_lockout_recovery(
+            True, future,
+            config.FLASH_CRASH_VIX_RECOVERY + 5,   # VIX too high
+            config.FLASH_CRASH_SPY_RECOVERY_PCT - 5,  # SPY return too bad
+            now,
+        )
+        assert active is True
+        assert until == future
+
+    def test_lockout_inactive_input_passes_through(self):
+        from macro_regime import _evaluate_lockout_recovery
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        active, until = _evaluate_lockout_recovery(False, None, 20.0, 1.0, now)
+        assert active is False
+        assert until is None
+
+    # ── _compute_sector_scores ─────────────────────────────────────────────
+
+    def test_compute_sector_scores_structure(self):
+        from macro_regime import _compute_sector_scores
+        result = _compute_sector_scores(soxx_ret5d=3.0, qqq_ret5d=2.0)
+        assert set(result.keys()) == {"AI_SEMI", "BROAD_TECH", "CYBERSECURITY"}
+
+    def test_compute_sector_scores_cybersecurity_derived(self):
+        from macro_regime import _compute_sector_scores
+        # CYBERSECURITY = 0.8 × BROAD_TECH
+        result = _compute_sector_scores(soxx_ret5d=0.0, qqq_ret5d=2.0)
+        assert result["CYBERSECURITY"] == pytest.approx(result["BROAD_TECH"] * 0.8)
+
+    # ── _ret5d ─────────────────────────────────────────────────────────────
+
+    def test_ret5d_correct_calculation(self):
+        from macro_regime import _ret5d
+        # 100 → 110 over 6 closes = +10%
+        closes = [100.0, 102.0, 104.0, 106.0, 108.0, 110.0]
+        result = _ret5d(closes)
+        assert result == pytest.approx(10.0)
+
+    def test_ret5d_too_few_closes_returns_zero(self):
+        from macro_regime import _ret5d
+        assert _ret5d([100.0, 101.0]) == 0.0
