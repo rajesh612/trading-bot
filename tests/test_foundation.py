@@ -3866,3 +3866,64 @@ class TestMtfConfirm:
         closes = [100.0] * 40
         # Both EMAs converge to 100.0 after sufficient bars; 100.0 > 100.0 is False
         assert passes_mtf_filter(self._make_bars(closes)) is False
+
+
+# ── trading_agent: profit-lock trailing stop ───────────────────────────────────
+
+@pytest.mark.unit
+class TestProfitLock:
+    def _pos(self, entry: float, stop_price: float) -> dict:
+        """Factory for a test position dict."""
+        return {
+            "entry_price": entry,
+            "stop_loss_price": stop_price,
+            "take_profit_price": entry * 1.05,
+            "shares": 10,
+            "symbol": "AAPL",
+        }
+
+    def test_no_change_below_trigger(self):
+        """PnL below trigger threshold — stop should not change."""
+        from trading_agent import _apply_profit_lock
+        pos = self._pos(100.0, 95.0)
+        result = _apply_profit_lock(pos, 101.0)  # only 1% gain, below 2% trigger
+        assert result["stop_loss_price"] == pytest.approx(95.0)
+
+    def test_stop_moves_to_entry_at_trigger(self):
+        """PnL at trigger threshold — stop should move to entry price."""
+        from trading_agent import _apply_profit_lock
+        import config
+        pos = self._pos(100.0, 95.0)
+        current_price = 100.0 * (1 + config.PROFIT_LOCK_TRIGGER_PCT / 100)  # exactly at trigger
+        result = _apply_profit_lock(pos, current_price)
+        assert result["stop_loss_price"] == pytest.approx(100.0)
+
+    def test_stop_not_moved_below_entry(self):
+        """Stop already at or above entry — should not be lowered."""
+        from trading_agent import _apply_profit_lock
+        pos = self._pos(100.0, 101.0)  # stop already above entry
+        result = _apply_profit_lock(pos, 102.1)  # 2.1% gain
+        assert result["stop_loss_price"] == pytest.approx(101.0)  # stays put
+
+    def test_no_change_when_entry_price_zero(self):
+        """Zero entry price — should exit early without modifying stop."""
+        from trading_agent import _apply_profit_lock
+        pos = {"entry_price": 0.0, "stop_loss_price": 95.0, "symbol": "AAPL"}
+        result = _apply_profit_lock(pos, 102.0)
+        assert result["stop_loss_price"] == pytest.approx(95.0)
+
+    def test_exact_trigger_pct_moves_stop(self):
+        """Exactly at PROFIT_LOCK_TRIGGER_PCT should trigger the move."""
+        from trading_agent import _apply_profit_lock
+        import config
+        pos = self._pos(100.0, 95.0)
+        trigger_price = 100.0 * (1 + config.PROFIT_LOCK_TRIGGER_PCT / 100)
+        result = _apply_profit_lock(pos, trigger_price)
+        assert result["stop_loss_price"] == pytest.approx(100.0)
+
+    def test_returns_same_dict_object(self):
+        """Function should modify in place and return the same dict object."""
+        from trading_agent import _apply_profit_lock
+        pos = self._pos(100.0, 95.0)
+        result = _apply_profit_lock(pos, 103.0)
+        assert result is pos  # modifies in place

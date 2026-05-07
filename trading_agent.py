@@ -670,6 +670,31 @@ def _close_position(
     )
 
 
+# ── Profit-lock trailing stop ───────────────────────────────────────────────────
+
+def _apply_profit_lock(pos: dict, current_price: float) -> dict:
+    """
+    If unrealised PnL >= PROFIT_LOCK_TRIGGER_PCT, move stop_loss_price to at least entry_price.
+    Returns the updated position dict (modifies in place and returns).
+    """
+    entry_price = pos.get("entry_price", 0.0)
+    if entry_price <= 0:
+        return pos
+
+    pnl_pct = (current_price - entry_price) / entry_price * 100
+    if pnl_pct >= config.PROFIT_LOCK_TRIGGER_PCT:
+        current_stop_price = pos.get("stop_loss_price", 0.0)
+        # Move stop to entry price (breakeven)
+        new_stop_price = max(current_stop_price, entry_price)
+        if new_stop_price > current_stop_price:
+            pos["stop_loss_price"] = new_stop_price
+            logger.info(
+                "Profit lock: %s stop moved to %.2f (entry=%.2f, pnl=%.2f%%)",
+                pos.get("symbol", "?"), new_stop_price, entry_price, pnl_pct
+            )
+    return pos
+
+
 # ── Position monitor (runs every 60 s) ───────────────────────────────────────
 
 def run_position_monitor():
@@ -773,6 +798,10 @@ def run_position_monitor():
         except Exception as exc:
             logger.warning(f"Position monitor: could not get price for {symbol}: {exc}")
             continue
+
+        # Apply profit-lock: tighten stop if position is profitable
+        pos = _apply_profit_lock(pos, current_price)
+        open_positions[symbol] = pos  # update the dict with the modified position
 
         entry_price = pos["entry_price"]
         pnl_pct = (current_price - entry_price) / entry_price * 100
