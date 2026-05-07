@@ -3772,3 +3772,53 @@ class TestCorrelationGuard:
         """Unknown sector ('OTHER') should always pass regardless of open positions."""
         # Even with many positions, unknown symbols pass
         assert passes_correlation_guard("ZZZ_UNKNOWN", {"NVDA": {}, "AMD": {}, "INTC": {}}) is True
+
+
+# ── sentiment_sizer: position size multiplier ─────────────────────────────────
+
+from signals.sentiment_sizer import sentiment_size_multiplier
+
+
+@pytest.mark.unit
+class TestSentimentSizer:
+    """Tests for sentiment-based position sizing multiplier."""
+
+    def test_score_above_20_returns_1_25(self):
+        """Score >= 20 should return 1.25 multiplier."""
+        assert sentiment_size_multiplier(25) == pytest.approx(1.25)
+
+    def test_score_exactly_20_returns_1_25(self):
+        """Score == 20 should return 1.25 multiplier (boundary)."""
+        assert sentiment_size_multiplier(20) == pytest.approx(1.25)
+
+    def test_score_between_10_and_19_returns_1_10(self):
+        """Score between 10 and 19 should return 1.10 multiplier."""
+        assert sentiment_size_multiplier(15) == pytest.approx(1.10)
+
+    def test_score_exactly_10_returns_1_10(self):
+        """Score == 10 should return 1.10 multiplier (boundary)."""
+        assert sentiment_size_multiplier(10) == pytest.approx(1.10)
+
+    def test_score_between_neg10_and_9_returns_1_00(self):
+        """Score between -10 and 9 should return 1.00 multiplier."""
+        assert sentiment_size_multiplier(0) == pytest.approx(1.00)
+
+    def test_score_exactly_neg10_returns_1_00(self):
+        """Score == -10 should return 1.00 multiplier (boundary)."""
+        assert sentiment_size_multiplier(-10) == pytest.approx(1.00)
+
+    def test_score_between_neg20_and_neg11_returns_0_75(self):
+        """Score between -20 and -11 should return 0.75 multiplier."""
+        assert sentiment_size_multiplier(-15) == pytest.approx(0.75)
+
+    def test_score_exactly_neg20_returns_0_75(self):
+        """Score == -20 should return 0.75 multiplier (boundary)."""
+        assert sentiment_size_multiplier(-20) == pytest.approx(0.75)
+
+    def test_score_below_neg20_returns_floor(self):
+        """Score < -20 should return floor (0.50) multiplier."""
+        assert sentiment_size_multiplier(-25) == pytest.approx(0.50)
+
+    def test_score_extreme_negative_returns_floor(self):
+        """Extreme negative score should return floor (0.50) multiplier."""
+        assert sentiment_size_multiplier(-100) == pytest.approx(0.50)

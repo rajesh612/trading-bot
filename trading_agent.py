@@ -27,6 +27,7 @@ from utils.io_utils import load_json, save_json
 from signals.time_gate import is_entry_allowed
 from signals.relative_strength import rs_rank, passes_rs_filter
 from signals.correlation_guard import passes_correlation_guard
+from signals.sentiment_sizer import sentiment_size_multiplier
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -1064,12 +1065,18 @@ def run_trading_cycle():
                     )
                     continue
 
-                # Position sizing: mode-aware max %, herding reduction, regime multiplier
+                # Position sizing: mode-aware max %, herding reduction, regime multiplier, sentiment adjustment
                 qty = compute_position_size_for_mode(
                     portfolio_value, iv.current_price, iv.atr, mode,
                     iv.bot_herding_score, iv.squeeze_setup,
                 )
                 qty = max(1, int(round(qty * pos_mult)))
+
+                # Apply sentiment-based sizing multiplier
+                symbol_sentiment = research.get(symbol, {}).get("sentiment_score", 0)
+                if isinstance(symbol_sentiment, (int, float)):
+                    sentiment_mult = sentiment_size_multiplier(int(symbol_sentiment))
+                    qty = max(1, int(round(qty * sentiment_mult)))
 
                 # SL/TP: mode/regime defaults, Claude override if provided, squeeze fast-exit
                 sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
