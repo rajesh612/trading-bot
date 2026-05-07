@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import config
 from earnings_calendar import is_earnings_imminent
 from economic_calendar import is_event_risk_window
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -23,18 +24,11 @@ _SWING_ELIGIBLE_REGIMES = {"BULL_TREND", "OPPORTUNITY", "CAPITULATION", "CRASH_R
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 def load_swing_positions() -> dict:
-    try:
-        if config.SWING_POSITIONS_FILE.exists():
-            with open(config.SWING_POSITIONS_FILE) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
+    return load_json(config.SWING_POSITIONS_FILE, {})
 
 
 def _save_swing_positions(positions: dict) -> None:
-    with open(config.SWING_POSITIONS_FILE, "w") as f:
-        json.dump(positions, f, indent=2)
+    save_json(config.SWING_POSITIONS_FILE, positions)
 
 
 # ── Tiered quantity split ─────────────────────────────────────────────────────
@@ -161,10 +155,8 @@ def evaluate_eod_holds() -> list[str]:
     # Load sector sentiment from research report
     sector_sentiment: dict = {}
     try:
-        if config.RESEARCH_REPORT_FILE.exists():
-            with open(config.RESEARCH_REPORT_FILE) as f:
-                rr = json.load(f)
-            sector_sentiment = rr.get("__meta__", {}).get("sector_sentiment", {})
+        rr = load_json(config.RESEARCH_REPORT_FILE, {})
+        sector_sentiment = rr.get("__meta__", {}).get("sector_sentiment", {})
     except Exception:
         pass
 

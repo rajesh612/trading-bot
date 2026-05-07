@@ -21,6 +21,7 @@ from indicator_engine import IndicatorValues, compute_indicators
 from macro_regime import load_macro_regime, load_trading_params
 from market_data import get_daily_bars, get_intraday_bars, get_latest_price
 from tier1_config import is_tier1
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -32,33 +33,6 @@ _POSITIONS_LOCK = threading.Lock()
 
 # ── Persistence helpers ──────────────────────────────────────────────────────
 
-def _load_json(path, default):
-    if path.exists():
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            backup = path.with_suffix(".corrupt.json")
-            try:
-                path.rename(backup)
-            except Exception:
-                pass
-            _save_json(path, default)
-            logger.error(f"Corrupt JSON reset: {path.name} → {backup.name}")
-            telegram_notify.notify_file_corruption(path.name)
-            return default
-    return default
-
-
-def _save_json(path, data):
-    tmp = path.with_suffix(".tmp")
-    serialized = json.dumps(data, indent=2)
-    json.loads(serialized)  # validate before touching disk — raises immediately on bad data
-    with open(tmp, "w") as f:
-        f.write(serialized)
-    tmp.replace(path)  # atomic on POSIX; prevents partial-write corruption
-
-
 def load_watch_list() -> list[str]:
     if config.WATCH_LIST_FILE.exists():
         return [t.strip().upper() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
@@ -66,7 +40,7 @@ def load_watch_list() -> list[str]:
 
 
 def load_research() -> dict:
-    data = _load_json(config.RESEARCH_REPORT_FILE, {})
+    data = load_json(config.RESEARCH_REPORT_FILE, {})
     symbols = [k for k in data if k != "__meta__"]
     if not symbols:
         logger.warning("Research report is empty — Claude will have no sentiment context this cycle")
@@ -90,37 +64,37 @@ def load_research() -> dict:
 
 
 def load_open_positions() -> dict:
-    return _load_json(config.OPEN_POSITIONS_FILE, {})
+    return load_json(config.OPEN_POSITIONS_FILE, {})
 
 
 def save_open_positions(positions: dict):
-    _save_json(config.OPEN_POSITIONS_FILE, positions)
+    save_json(config.OPEN_POSITIONS_FILE, positions)
 
 
 def load_weights() -> dict:
-    return _load_json(config.INDICATOR_WEIGHTS_FILE, {})
+    return load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
 
 def load_daily_closed() -> set[str]:
-    data = _load_json(config.DAILY_CLOSED_FILE, [])
+    data = load_json(config.DAILY_CLOSED_FILE, [])
     return set(data)
 
 
 def record_daily_closed(symbol: str) -> None:
     closed = load_daily_closed()
     closed.add(symbol)
-    _save_json(config.DAILY_CLOSED_FILE, list(closed))
+    save_json(config.DAILY_CLOSED_FILE, list(closed))
 
 
 def reset_daily_closed() -> None:
-    _save_json(config.DAILY_CLOSED_FILE, [])
+    save_json(config.DAILY_CLOSED_FILE, [])
     logger.info("Daily closed list reset for new trading day.")
 
 
 def append_trade(entry: dict):
-    journal = _load_json(config.TRADE_JOURNAL_FILE, [])
+    journal = load_json(config.TRADE_JOURNAL_FILE, [])
     journal.append(entry)
-    _save_json(config.TRADE_JOURNAL_FILE, journal)
+    save_json(config.TRADE_JOURNAL_FILE, journal)
 
 
 def archive_old_journal_entries() -> None:
@@ -130,15 +104,15 @@ def archive_old_journal_entries() -> None:
     """
     from datetime import date, timezone
     cutoff = datetime.now(ET) - timedelta(days=config.TRADE_JOURNAL_MAX_DAYS)
-    journal = _load_json(config.TRADE_JOURNAL_FILE, [])
+    journal = load_json(config.TRADE_JOURNAL_FILE, [])
     recent = [e for e in journal if _entry_timestamp(e) >= cutoff]
     old    = [e for e in journal if _entry_timestamp(e) < cutoff]
     if not old:
         return
     archive_path = config.BASE_DIR / "trade_journal_archive.json"
-    archived = _load_json(archive_path, [])
-    _save_json(archive_path, archived + old)
-    _save_json(config.TRADE_JOURNAL_FILE, recent)
+    archived = load_json(archive_path, [])
+    save_json(archive_path, archived + old)
+    save_json(config.TRADE_JOURNAL_FILE, recent)
     logger.info(f"Journal hygiene: archived {len(old)} entries → trade_journal_archive.json")
 
 
@@ -593,14 +567,14 @@ def _close_position(
     # Re-reading from disk inside the lock is the key: if another thread already
     # removed this symbol, we see that immediately and abort instead of double-closing.
     with _POSITIONS_LOCK:
-        disk_positions = _load_json(config.OPEN_POSITIONS_FILE, {})
+        disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
         if symbol not in disk_positions:
             open_positions.pop(symbol, None)  # sync caller's in-memory dict
             logger.debug(f"_close_position: {symbol} already closed by concurrent thread — skip.")
             return
         pos = disk_positions.pop(symbol)
         open_positions.pop(symbol, None)  # sync caller's in-memory dict
-        _save_json(config.OPEN_POSITIONS_FILE, disk_positions)
+        save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
     # API call and journaling are outside the lock to avoid blocking other threads.
     alpaca.close_position(symbol)
@@ -675,13 +649,13 @@ def run_position_monitor():
             # Use the same lock + disk-re-read pattern to prevent duplicate journaling
             # when trading_cycle fires simultaneously and also tries to close this symbol.
             with _POSITIONS_LOCK:
-                disk_positions = _load_json(config.OPEN_POSITIONS_FILE, {})
+                disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
                 if symbol not in disk_positions:
                     open_positions.pop(symbol, None)
                     continue  # Already handled by a concurrent thread
                 pos = disk_positions.pop(symbol)
                 open_positions.pop(symbol, None)
-                _save_json(config.OPEN_POSITIONS_FILE, disk_positions)
+                save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
             entry_price = pos["entry_price"]
             sl_price = entry_price * (1 - pos.get("stop_loss_pct", config.STOP_LOSS_PCT) / 100)
@@ -809,10 +783,9 @@ def _verify_spy_with_polygon(spy_pct: float) -> bool | None:
 def _write_flash_crash_candidate(spy_pct: float, now: datetime) -> None:
     """Write Stage 1 candidate to macro_regime.json."""
     try:
-        data = json.loads(config.MACRO_REGIME_FILE.read_text()) if config.MACRO_REGIME_FILE.exists() else {}
+        data = load_json(config.MACRO_REGIME_FILE, {})
         data["flash_crash_candidate"] = {"spy_pct": round(spy_pct, 2), "detected_at": now.isoformat()}
-        with open(config.MACRO_REGIME_FILE, "w") as f:
-            json.dump(data, f, indent=2)
+        save_json(config.MACRO_REGIME_FILE, data)
     except Exception as exc:
         logger.warning(f"Could not write flash_crash_candidate: {exc}")
 
@@ -822,11 +795,10 @@ def _clear_flash_crash_candidate() -> None:
     try:
         if not config.MACRO_REGIME_FILE.exists():
             return
-        data = json.loads(config.MACRO_REGIME_FILE.read_text())
+        data = load_json(config.MACRO_REGIME_FILE, {})
         if data.get("flash_crash_candidate") is not None:
             data["flash_crash_candidate"] = None
-            with open(config.MACRO_REGIME_FILE, "w") as f:
-                json.dump(data, f, indent=2)
+            save_json(config.MACRO_REGIME_FILE, data)
     except Exception as exc:
         logger.warning(f"Could not clear flash_crash_candidate: {exc}")
 
@@ -850,7 +822,7 @@ def _handle_flash_crash_stage2(spy_pct: float) -> None:
     try:
         candidate = None
         if config.MACRO_REGIME_FILE.exists():
-            data = json.loads(config.MACRO_REGIME_FILE.read_text())
+            data = load_json(config.MACRO_REGIME_FILE, {})
             candidate = data.get("flash_crash_candidate")
 
         if candidate is None:
@@ -872,18 +844,13 @@ def _handle_flash_crash_stage2(spy_pct: float) -> None:
 def _set_crisis_lockout(hours: int = 48) -> None:
     """Write flash_crash_active=True with flash_crash_until timestamp to macro_regime.json."""
     try:
-        if config.MACRO_REGIME_FILE.exists():
-            with open(config.MACRO_REGIME_FILE) as f:
-                data = json.load(f)
-        else:
-            data = {}
+        data = load_json(config.MACRO_REGIME_FILE, {})
         until = (datetime.now(ET) + timedelta(hours=hours)).isoformat()
         data["flash_crash_active"] = True
         data["flash_crash_until"]  = until
         data["regime"] = "CRISIS"
         data["flash_crash_candidate"] = None
-        with open(config.MACRO_REGIME_FILE, "w") as f:
-            json.dump(data, f, indent=2)
+        save_json(config.MACRO_REGIME_FILE, data)
         logger.critical(f"FLASH CRASH LOCKOUT set — CRISIS regime active until {until}")
     except Exception as exc:
         logger.error(f"Could not write flash crash lockout: {exc}")
@@ -951,7 +918,7 @@ def run_trading_cycle():
     params      = load_trading_params()
 
     try:
-        fred_cache = json.loads(config.FRED_CACHE_FILE.read_text()) if config.FRED_CACHE_FILE.exists() else {}
+        fred_cache = load_json(config.FRED_CACHE_FILE, {})
     except Exception:
         fred_cache = {}
 
@@ -1192,7 +1159,7 @@ def run_trading_cycle():
                 # processes from bot restarts) both seeing an empty slot and both buying.
                 # Re-read from disk inside the lock — same pattern as _close_position.
                 with _POSITIONS_LOCK:
-                    disk_positions = _load_json(config.OPEN_POSITIONS_FILE, {})
+                    disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
                     if symbol in disk_positions:
                         logger.info(f"SKIP {symbol} — already in open positions (concurrent cycle guard).")
                         open_positions[symbol] = disk_positions[symbol]
@@ -1229,9 +1196,9 @@ def run_trading_cycle():
                 # Merge-write: read current disk state, add new position, write back.
                 # Avoids overwriting concurrent closes made by position_monitor.
                 with _POSITIONS_LOCK:
-                    disk_positions = _load_json(config.OPEN_POSITIONS_FILE, {})
+                    disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
                     disk_positions[symbol] = position_data
-                    _save_json(config.OPEN_POSITIONS_FILE, disk_positions)
+                    save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
                 append_trade({
                     "type": "BUY",

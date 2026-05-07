@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 import config
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -331,16 +332,13 @@ def refresh_fred_cache() -> None:
         "fred_modifier":      fred_modifier,
         "updated_at":         datetime.now(ET).isoformat(),
     }
-    with open(config.FRED_CACHE_FILE, "w") as f:
-        json.dump(cache, f, indent=2)
+    save_json(config.FRED_CACHE_FILE, cache)
     logger.info(f"FRED cache updated: fed={fed_direction}, cpi={cpi_trend}, unemp_rising={unemployment_rising}, modifier={fred_modifier:+d}")
 
 
 def _load_fred_modifier() -> int:
     try:
-        if config.FRED_CACHE_FILE.exists():
-            with open(config.FRED_CACHE_FILE) as f:
-                return int(json.load(f).get("fred_modifier", 0))
+        return int(load_json(config.FRED_CACHE_FILE, {}).get("fred_modifier", 0))
     except Exception:
         pass
     return 0
@@ -360,8 +358,7 @@ def _load_bot_net_pnl() -> float:
     try:
         if not config.TRADE_JOURNAL_FILE.exists():
             return 0.0
-        with open(config.TRADE_JOURNAL_FILE) as f:
-            journal = json.load(f)
+        journal = load_json(config.TRADE_JOURNAL_FILE, [])
         # Last 3 days of P&L
         cutoff = datetime.now(ET) - timedelta(days=3)
         recent = [
@@ -506,14 +503,12 @@ def fetch_macro_regime() -> dict:
         # Check capitulation candidates from research report
         capitulation_candidates: list[str] = []
         try:
-            if config.RESEARCH_REPORT_FILE.exists():
-                with open(config.RESEARCH_REPORT_FILE) as f:
-                    rr = json.load(f)
-                meta = rr.get("__meta__", {})
-                capitulation_candidates = meta.get("capitulation_candidates", [])
-                # Override regime if capitulation detected
-                if capitulation_candidates and regime in ("DEFENSIVE", "NORMAL", "CHOPPY"):
-                    regime = "CAPITULATION"
+            rr = load_json(config.RESEARCH_REPORT_FILE, {})
+            meta = rr.get("__meta__", {})
+            capitulation_candidates = meta.get("capitulation_candidates", [])
+            # Override regime if capitulation detected
+            if capitulation_candidates and regime in ("DEFENSIVE", "NORMAL", "CHOPPY"):
+                regime = "CAPITULATION"
         except Exception:
             pass
 
@@ -521,9 +516,8 @@ def fetch_macro_regime() -> dict:
         flash_crash_active = False
         flash_crash_until  = None
         try:
-            if config.MACRO_REGIME_FILE.exists():
-                with open(config.MACRO_REGIME_FILE) as f:
-                    prev = json.load(f)
+            prev = load_json(config.MACRO_REGIME_FILE, {})
+            if prev:
                 flash_crash_active = prev.get("flash_crash_active", False)
                 flash_crash_until  = prev.get("flash_crash_until")
                 flash_crash_active, flash_crash_until = _evaluate_lockout_recovery(
@@ -596,8 +590,7 @@ def fetch_macro_regime() -> dict:
             "reason":                  "fetch_failed",
         }
 
-    with open(config.MACRO_REGIME_FILE, "w") as f:
-        json.dump(result, f, indent=2)
+    save_json(config.MACRO_REGIME_FILE, result)
 
     logger.info(
         f"Macro regime: {result['regime']} | "
@@ -612,11 +605,9 @@ def fetch_macro_regime() -> dict:
 def load_macro_regime() -> dict:
     """Return today's cached regime. Defaults to NORMAL if missing or unreadable."""
     try:
-        if config.MACRO_REGIME_FILE.exists():
-            with open(config.MACRO_REGIME_FILE) as f:
-                data = json.load(f)
-            if data.get("regime") in _VALID_REGIMES:
-                return data
+        data = load_json(config.MACRO_REGIME_FILE, {})
+        if data.get("regime") in _VALID_REGIMES:
+            return data
     except Exception:
         pass
     return {
@@ -646,12 +637,11 @@ def load_trading_params() -> dict:
         "stop_loss_pct":          config.STOP_LOSS_PCT,
         "take_profit_pct":        config.TAKE_PROFIT_PCT,
     }
-    if config.TRADING_PARAMS_FILE.exists():
-        try:
-            with open(config.TRADING_PARAMS_FILE) as f:
-                saved = json.load(f)
+    try:
+        saved = load_json(config.TRADING_PARAMS_FILE, {})
+        if saved:
             defaults.update(saved)
-        except Exception as exc:
+    except Exception as exc:
             logger.warning("load_trading_params: failed to read %s — using defaults (%s)", config.TRADING_PARAMS_FILE, exc)
     return defaults
 

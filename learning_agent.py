@@ -8,6 +8,7 @@ import anthropic
 
 import config
 from macro_regime import load_macro_regime, load_trading_params
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -125,8 +126,7 @@ def _classify_loss_source(trade: dict) -> str:
 def _load_todays_closed_trades() -> list[dict]:
     if not config.TRADE_JOURNAL_FILE.exists():
         return []
-    with open(config.TRADE_JOURNAL_FILE) as f:
-        journal = json.load(f)
+    journal = load_json(config.TRADE_JOURNAL_FILE, [])
     today = date.today().isoformat()
     # Strip full indicator snapshots — learning agent only needs summary fields
     return [
@@ -137,19 +137,16 @@ def _load_todays_closed_trades() -> list[dict]:
 
 
 def _load_weights() -> dict:
-    with open(config.INDICATOR_WEIGHTS_FILE) as f:
-        return json.load(f)
+    return load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
 
 def _save_weights(weights: dict):
-    with open(config.INDICATOR_WEIGHTS_FILE, "w") as f:
-        json.dump(weights, f, indent=2)
+    save_json(config.INDICATOR_WEIGHTS_FILE, weights)
 
 
 def _save_trading_params(params: dict):
     params["last_updated"] = date.today().isoformat()
-    with open(config.TRADING_PARAMS_FILE, "w") as f:
-        json.dump(params, f, indent=2)
+    save_json(config.TRADING_PARAMS_FILE, params)
 
 
 def run_learning_agent():
