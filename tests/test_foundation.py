@@ -4359,3 +4359,269 @@ class TestMacroRegimeCoverage:
     def test_ret5d_too_few_closes_returns_zero(self):
         from macro_regime import _ret5d
         assert _ret5d([100.0, 101.0]) == 0.0
+
+
+# ── swing_manager: extended coverage ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestSwingManagerOrchestration:
+    """Extended coverage for swing_manager pure helpers."""
+
+    @staticmethod
+    def _pos(**overrides):
+        base = {
+            "entry_price": 100.0,
+            "qty": 10,
+            "stop_loss_pct": 7.0,
+            "tp1_pct": 5.0,
+            "tp2_pct": 10.0,
+            "tp1_qty": 4,
+            "tp2_qty": 3,
+            "trailing_qty": 3,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "trailing_stop_active": False,
+            "trailing_high_water": 100.0,
+        }
+        base.update(overrides)
+        return base
+
+    # ── _remaining_qty ─────────────────────────────────────────────────────
+
+    def test_remaining_qty_no_hits(self):
+        from swing_manager import _remaining_qty
+        pos = self._pos(qty=10, tp1_hit=False, tp2_hit=False, tp1_qty=4, tp2_qty=3)
+        assert _remaining_qty(pos) == 10
+
+    def test_remaining_qty_tp1_hit(self):
+        from swing_manager import _remaining_qty
+        pos = self._pos(qty=10, tp1_hit=True, tp2_hit=False, tp1_qty=4, tp2_qty=3)
+        assert _remaining_qty(pos) == 6
+
+    def test_remaining_qty_both_hits(self):
+        from swing_manager import _remaining_qty
+        pos = self._pos(qty=10, tp1_hit=True, tp2_hit=True, tp1_qty=4, tp2_qty=3)
+        assert _remaining_qty(pos) == 3
+
+    def test_remaining_qty_never_negative(self):
+        """Oversold scenario — remaining_qty must floor at 0."""
+        from swing_manager import _remaining_qty
+        pos = self._pos(qty=1, tp1_hit=True, tp2_hit=True, tp1_qty=4, tp2_qty=3)
+        assert _remaining_qty(pos) == 0
+
+    # ── evaluate_tiered_tp_action edge cases ──────────────────────────────
+
+    def test_hard_stop_after_tp1_hit_uses_remaining_qty(self):
+        """Hard stop after TP1 fill: only tp2_qty + trailing_qty remain."""
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._pos(tp1_hit=True)
+        result = evaluate_tiered_tp_action(pos, current_price=90.0)  # -10% > -7% stop
+        assert result["action"] == "CLOSE_HARD_STOP"
+        # remaining = trailing(3) + tp2_qty(3) = 6
+        assert result["qty"] == 6
+
+    def test_tp2_requires_tp1_hit(self):
+        """TP2 must NOT trigger if tp1 has not been hit yet, even if price exceeds tp2."""
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._pos(tp1_hit=False)
+        # Price at +12%, above tp2=10%, but tp1 not hit yet
+        result = evaluate_tiered_tp_action(pos, current_price=112.0)
+        # Should trigger TP1, not TP2
+        assert result["action"] == "CLOSE_TP1"
+
+    def test_trailing_does_not_fire_without_trailing_stop_active(self):
+        """Trailing stop must not trigger if trailing_stop_active is False."""
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._pos(tp1_hit=True, tp2_hit=True, trailing_stop_active=False,
+                        trailing_high_water=120.0)
+        result = evaluate_tiered_tp_action(pos, current_price=115.0)
+        assert result["action"] == "NONE"
+
+    def test_trailing_does_not_fire_when_price_above_drawdown_threshold(self):
+        """Trailing stop must not fire when price is within 3% of high water."""
+        from swing_manager import evaluate_tiered_tp_action
+        pos = self._pos(tp1_hit=True, tp2_hit=True, trailing_stop_active=True,
+                        trailing_high_water=120.0)
+        # 120 * 0.97 = 116.4 — price at 117 is above threshold, no close
+        result = evaluate_tiered_tp_action(pos, current_price=117.0)
+        assert result["action"] == "NONE"
+
+    # ── _compute_tier_quantities edge cases ───────────────────────────────
+
+    def test_tier_quantities_three_shares_all_positive(self):
+        from swing_manager import _compute_tier_quantities
+        tp1, tp2, trailing = _compute_tier_quantities(3)
+        assert tp1 + tp2 + trailing == 3
+        assert trailing >= 1
+
+    def test_tier_quantities_five_shares_sum_correct(self):
+        from swing_manager import _compute_tier_quantities
+        tp1, tp2, trailing = _compute_tier_quantities(5)
+        assert tp1 + tp2 + trailing == 5
+        assert tp1 >= 1 and tp2 >= 1 and trailing >= 1
+
+    # ── qualifies_for_eod_hold ────────────────────────────────────────────
+
+    def test_earnings_allowed_in_capitulation_regime(self):
+        """Earnings-within-2-days must NOT block holds when regime is CAPITULATION."""
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="CAPITULATION",
+            event_risk_tomorrow=False, earnings_in_2_days=True,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is True
+        assert reason == ""
+
+    def test_sector_sentiment_at_boundary_passes(self):
+        """Sentiment exactly at threshold (>=10) must pass."""
+        from swing_manager import qualifies_for_eod_hold
+        ok, _ = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=2.0, existing_swing_count=0,
+            sector_sentiment_score=10.0,
+        )
+        assert ok is True
+
+    def test_pnl_exactly_minus_two_blocks(self):
+        """P&L of exactly -2% must block the hold (PTJ rule uses <=)."""
+        from swing_manager import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=-2.0, existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "PTJ" in reason
+
+
+# ── learning_agent: extended coverage ────────────────────────────────────────
+
+@pytest.mark.unit
+class TestLearningAgentOrchestration:
+    """Extended coverage for learning_agent pure helpers."""
+
+    @staticmethod
+    def _trade(symbol="AAPL", pnl_pct=1.0, pnl_dollar=50.0,
+               regime="NORMAL", mode="DAY_TRADE",
+               close_reason="tp", entry_sentiment_score=0,
+               entry_indicators=None):
+        return {
+            "symbol": symbol,
+            "pnl_pct": pnl_pct,
+            "pnl_dollar": pnl_dollar,
+            "regime_at_entry": regime,
+            "mode_at_entry": mode,
+            "close_reason": close_reason,
+            "entry_sentiment_score": entry_sentiment_score,
+            "entry_indicators": entry_indicators or {},
+        }
+
+    # ── _clamp_threshold type contracts ───────────────────────────────────
+
+    def test_clamp_float_key_returns_float(self):
+        from learning_agent import _clamp_threshold
+        result = _clamp_threshold("stop_loss_pct", 4.0)
+        assert isinstance(result, float)
+
+    def test_clamp_at_lower_boundary_returns_lower(self):
+        from learning_agent import _clamp_threshold
+        # stop_loss_pct lower bound is 1.5 — pass exactly 1.5
+        result = _clamp_threshold("stop_loss_pct", 1.5)
+        assert result == pytest.approx(1.5)
+
+    def test_clamp_at_upper_boundary_returns_upper(self):
+        from learning_agent import _clamp_threshold
+        # stop_loss_pct upper bound is 12.0 — pass exactly 12.0
+        result = _clamp_threshold("stop_loss_pct", 12.0)
+        assert result == pytest.approx(12.0)
+
+    def test_clamp_int_key_below_lower_returns_int(self):
+        from learning_agent import _clamp_threshold
+        # swing_max_days bounds: (3, 7) — both int
+        result = _clamp_threshold("swing_max_days", 1)
+        assert result == 3
+        assert isinstance(result, int)
+
+    def test_clamp_invalid_value_returns_unchanged(self):
+        from learning_agent import _clamp_threshold
+        result = _clamp_threshold("stop_loss_pct", "not_a_number")
+        assert result == "not_a_number"
+
+    # ── _aggregate_by_regime pnl totals ───────────────────────────────────
+
+    def test_aggregate_total_pnl_dollar_summed_correctly(self):
+        from learning_agent import _aggregate_by_regime
+        trades = [
+            self._trade("A", pnl_pct=2.0, pnl_dollar=100.0, regime="NORMAL"),
+            self._trade("B", pnl_pct=-1.0, pnl_dollar=-40.0, regime="NORMAL"),
+        ]
+        result = _aggregate_by_regime(trades)
+        normal = result["by_regime"]["NORMAL"]
+        assert normal["total_pnl_dollar"] == pytest.approx(60.0)
+
+    def test_aggregate_empty_trades_returns_empty_dicts(self):
+        from learning_agent import _aggregate_by_regime
+        result = _aggregate_by_regime([])
+        assert result["by_regime"] == {}
+        assert result["by_mode"] == {}
+
+    def test_aggregate_avg_pnl_pct_calculated(self):
+        from learning_agent import _aggregate_by_regime
+        trades = [
+            self._trade("A", pnl_pct=4.0, pnl_dollar=80.0, regime="BULL_TREND"),
+            self._trade("B", pnl_pct=2.0, pnl_dollar=40.0, regime="BULL_TREND"),
+        ]
+        result = _aggregate_by_regime(trades)
+        bt = result["by_regime"]["BULL_TREND"]
+        assert bt["avg_pnl_pct"] == pytest.approx(3.0)
+
+    # ── _classify_loss_source additional branches ─────────────────────────
+
+    def test_classify_fundamental_close_reason(self):
+        from learning_agent import _classify_loss_source
+        trade = self._trade(close_reason="guidance_cut", pnl_pct=-3.0)
+        assert _classify_loss_source(trade) == "fundamental"
+
+    def test_classify_macro_pressure_high_shock_score(self):
+        from learning_agent import _classify_loss_source
+        trade = self._trade(
+            close_reason="monitor_stop_loss",
+            pnl_pct=-2.0,
+            entry_indicators={"entry_macro_shock_score": 65},
+        )
+        assert _classify_loss_source(trade) == "macro_pressure"
+
+    def test_classify_crash_recovery_is_market_structure(self):
+        from learning_agent import _classify_loss_source
+        trade = self._trade(close_reason="sl_hit", pnl_pct=-4.0)
+        trade["regime_at_entry"] = "CRASH_RECOVERY"
+        assert _classify_loss_source(trade) == "market_structure"
+
+    # ── _compute_regime_winrate ────────────────────────────────────────────
+
+    def test_winrate_ignores_trades_without_regime(self):
+        from learning_agent import _compute_regime_winrate
+        trades = [
+            {"action": "CLOSE", "pnl_pct": 2.0},           # no regime_at_entry
+            {"action": "CLOSE", "regime_at_entry": "NORMAL", "pnl_pct": 3.0},  # counted
+        ]
+        result = _compute_regime_winrate(trades)
+        assert "NORMAL" in result
+        assert result["NORMAL"] == pytest.approx(1.0)
+        assert len(result) == 1  # trade without regime not counted
+
+    def test_winrate_multiple_regimes_independent(self):
+        from learning_agent import _compute_regime_winrate
+        trades = [
+            {"action": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": 2.0},
+            {"action": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": -1.0},
+            {"action": "CLOSE", "regime_at_entry": "CHOPPY",     "pnl_pct": 1.0},
+            {"action": "CLOSE", "regime_at_entry": "CHOPPY",     "pnl_pct": 1.0},
+        ]
+        result = _compute_regime_winrate(trades)
+        assert result["BULL_TREND"] == pytest.approx(0.5)
+        assert result["CHOPPY"] == pytest.approx(1.0)
