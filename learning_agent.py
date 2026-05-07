@@ -52,6 +52,30 @@ def _clamp_threshold(key: str, value) -> float | int:
         return value
 
 
+def _compute_regime_winrate(closed_trades: list) -> dict[str, float]:
+    """
+    Returns win-rate (0.0–1.0) per regime for closed trades.
+    Only CLOSE entries with a 'regime_at_entry' field are counted.
+    """
+    regime_totals: dict[str, int] = {}
+    regime_wins: dict[str, int] = {}
+
+    for trade in closed_trades:
+        if trade.get("action") != "CLOSE":
+            continue
+        regime = trade.get("regime_at_entry")
+        if not regime:
+            continue
+        regime_totals[regime] = regime_totals.get(regime, 0) + 1
+        if float(trade.get("pnl_pct", 0)) > 0:
+            regime_wins[regime] = regime_wins.get(regime, 0) + 1
+
+    return {
+        regime: regime_wins.get(regime, 0) / total
+        for regime, total in regime_totals.items()
+    }
+
+
 def _aggregate_by_regime(closed_trades: list[dict]) -> dict:
     """
     Group today's closed trades by regime_at_entry and mode_at_entry.
@@ -164,6 +188,7 @@ def run_learning_agent():
 
     # Pre-compute regime/mode aggregation and loss classification (free — no Claude tokens)
     regime_agg = _aggregate_by_regime(closed_trades)
+    regime_winrate = _compute_regime_winrate(closed_trades)
     loss_sources = {
         t["symbol"]: _classify_loss_source(t)
         for t in closed_trades
@@ -208,6 +233,7 @@ def run_learning_agent():
                     f"Date: {today}\n"
                     f"VIX regime today: {json.dumps(regime_info, indent=2)}\n\n"
                     f"Performance by regime/mode:\n{json.dumps(regime_agg, indent=2)}\n\n"
+                    f"Regime win rates:\n{json.dumps(regime_winrate, indent=2)}\n\n"
                     f"Loss source classification:\n{json.dumps(loss_sources, indent=2)}\n\n"
                     f"Closed trades:\n{json.dumps(closed_trades, indent=2)}\n\n"
                     f"Current indicator weights:\n{json.dumps(current_weights, indent=2)}\n\n"

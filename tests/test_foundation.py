@@ -3987,3 +3987,55 @@ class TestProgressiveLoss:
             self._journal_entry("BUY", -0.5, today=True),     # BUY entry — ignore
         ]
         assert _count_todays_losses(journal) == 1
+
+
+# ── learning_agent: regime win-rate computation ──────────────────────────────────
+
+@pytest.mark.unit
+class TestRegimeWinRate:
+    def _trade(self, regime: str, pnl_pct: float, action: str = "CLOSE") -> dict:
+        """Helper to construct a trade dict with minimal fields."""
+        return {
+            "action": action,
+            "regime_at_entry": regime,
+            "pnl_pct": pnl_pct,
+        }
+
+    def test_empty_trades_returns_empty(self):
+        """Empty trade list should return empty dict."""
+        from learning_agent import _compute_regime_winrate
+        assert _compute_regime_winrate([]) == {}
+
+    def test_single_win(self):
+        """Single winning trade should have 100% win rate."""
+        from learning_agent import _compute_regime_winrate
+        result = _compute_regime_winrate([self._trade("BULL_TREND", 2.0)])
+        assert result == {"BULL_TREND": pytest.approx(1.0)}
+
+    def test_single_loss(self):
+        """Single losing trade should have 0% win rate."""
+        from learning_agent import _compute_regime_winrate
+        result = _compute_regime_winrate([self._trade("CHOPPY", -1.5)])
+        assert result == {"CHOPPY": pytest.approx(0.0)}
+
+    def test_mixed_regime_winrate(self):
+        """Multiple trades across regimes should compute per-regime rates."""
+        from learning_agent import _compute_regime_winrate
+        trades = [
+            self._trade("BULL_TREND", 2.0),      # win
+            self._trade("BULL_TREND", -1.0),     # loss
+            self._trade("CHOPPY", -2.0),         # loss
+        ]
+        result = _compute_regime_winrate(trades)
+        assert result["BULL_TREND"] == pytest.approx(0.5)
+        assert result["CHOPPY"] == pytest.approx(0.0)
+
+    def test_ignores_buy_entries(self):
+        """Only CLOSE entries should be counted; BUY entries ignored."""
+        from learning_agent import _compute_regime_winrate
+        trades = [
+            self._trade("BULL_TREND", 2.0, action="BUY"),   # ignored
+            self._trade("BULL_TREND", 2.0, action="CLOSE"),  # counted (win)
+        ]
+        result = _compute_regime_winrate(trades)
+        assert result["BULL_TREND"] == pytest.approx(1.0)  # only 1 trade counted
