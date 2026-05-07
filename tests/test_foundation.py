@@ -3109,3 +3109,96 @@ class TestBuildMarketContextBlock:
         )
         assert "SMCI" in block
         assert "PLTR" in block
+
+
+@pytest.mark.unit
+class TestIoUtils:
+    """Tests for load_json and save_json utilities."""
+
+    def _write_cache(self, tmp_path, filename: str, content: str) -> Path:
+        """Helper to write content to a temp file."""
+        file_path = tmp_path / filename
+        file_path.write_text(content)
+        return file_path
+
+    def test_load_json_missing_file_returns_default(self, tmp_path):
+        """Missing file returns default value."""
+        from utils.io_utils import load_json
+        missing_path = tmp_path / "missing.json"
+        result = load_json(missing_path, [])
+        assert result == []
+
+    def test_load_json_valid_file_returns_data(self, tmp_path):
+        """Valid JSON file returns parsed data."""
+        from utils.io_utils import load_json
+        file_path = self._write_cache(tmp_path, "test.json", '{"k": 1}')
+        result = load_json(file_path, {})
+        assert result == {"k": 1}
+
+    def test_load_json_corrupt_file_returns_default(self, tmp_path):
+        """Corrupt JSON returns default value."""
+        from utils.io_utils import load_json
+        file_path = self._write_cache(tmp_path, "corrupt.json", "not json{{{")
+        result = load_json(file_path, {})
+        assert result == {}
+
+    def test_load_json_corrupt_creates_backup(self, tmp_path):
+        """Corrupt JSON creates .corrupt.json backup."""
+        from utils.io_utils import load_json
+        file_path = self._write_cache(tmp_path, "corrupt.json", "not json{{{")
+        load_json(file_path, {})
+        backup_path = file_path.with_suffix(".corrupt.json")
+        assert backup_path.exists()
+        assert backup_path.read_text() == "not json{{{"
+
+    def test_load_json_empty_file_returns_default(self, tmp_path):
+        """Empty file returns default value."""
+        from utils.io_utils import load_json
+        file_path = self._write_cache(tmp_path, "empty.json", "")
+        result = load_json(file_path, [])
+        assert result == []
+
+    def test_save_json_writes_valid_data(self, tmp_path):
+        """save_json writes valid JSON and can be read back."""
+        from utils.io_utils import save_json, load_json
+        file_path = tmp_path / "output.json"
+        data = {"x": 1}
+        save_json(file_path, data)
+        result = load_json(file_path, {})
+        assert result == data
+
+    def test_save_json_atomic_no_tmp_on_success(self, tmp_path):
+        """After successful save, .tmp file should not exist."""
+        from utils.io_utils import save_json
+        file_path = tmp_path / "output.json"
+        save_json(file_path, {"x": 1})
+        tmp_path_file = file_path.with_suffix(".tmp")
+        assert not tmp_path_file.exists()
+
+    def test_save_json_raises_on_unserializable(self, tmp_path):
+        """save_json raises TypeError on unserializable data."""
+        from utils.io_utils import save_json
+        file_path = tmp_path / "output.json"
+        with pytest.raises(TypeError):
+            save_json(file_path, {"bad": object()})
+
+    def test_save_json_creates_parent_dir_content(self, tmp_path):
+        """save_json works with nested parent directory."""
+        from utils.io_utils import save_json, load_json
+        nested_path = tmp_path / "nested" / "deep" / "data.json"
+        data = {"nested": True}
+        # Note: save_json does not create parent dirs, so we need to handle that
+        # or verify it works when parent exists. For this test, we'll create parent.
+        nested_path.parent.mkdir(parents=True, exist_ok=True)
+        save_json(nested_path, data)
+        result = load_json(nested_path, {})
+        assert result == data
+
+    def test_load_json_list_data(self, tmp_path):
+        """save_json and load_json handle list data."""
+        from utils.io_utils import save_json, load_json
+        file_path = tmp_path / "list.json"
+        data = [1, 2, 3, {"key": "value"}]
+        save_json(file_path, data)
+        result = load_json(file_path, [])
+        assert result == data
