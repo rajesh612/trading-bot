@@ -3719,3 +3719,56 @@ class TestRelativeStrength:
     def test_passes_rs_filter_fails_below_threshold(self):
         """RS ratio of -0.5 with threshold 0.0 → fails filter."""
         assert passes_rs_filter(-0.5, threshold=0.0) is False
+
+
+# ── signals.correlation_guard ─────────────────────────────────────────────────
+
+from signals.correlation_guard import sector_of, passes_correlation_guard
+
+
+@pytest.mark.unit
+class TestCorrelationGuard:
+    """Tests for correlation guard (sector-based position limit)."""
+
+    def test_sector_of_tier1_symbol(self):
+        """NVDA (tier1, AI_SEMI) should return correct sector string."""
+        result = sector_of("NVDA")
+        assert result == "AI_SEMI"
+
+    def test_sector_of_another_tier1_symbol(self):
+        """MSFT (tier1, HYPERSCALER) should return correct sector string."""
+        result = sector_of("MSFT")
+        assert result == "HYPERSCALER"
+
+    def test_sector_of_extended_symbol(self):
+        """SNOW (extended, CLOUD) should return correct sector string."""
+        result = sector_of("SNOW")
+        assert result == "CLOUD"
+
+    def test_sector_of_unknown_returns_other(self):
+        """Unknown symbol ZZZ_UNKNOWN should return 'OTHER'."""
+        assert sector_of("ZZZ_UNKNOWN") == "OTHER"
+
+    def test_passes_with_zero_positions(self):
+        """Empty open_positions dict should always pass."""
+        assert passes_correlation_guard("NVDA", {}) is True
+
+    def test_passes_with_one_same_sector(self):
+        """With MAX_SAME_SECTOR_POSITIONS=2, one existing same-sector position should pass."""
+        # NVDA and AMD are both AI_SEMI sector
+        assert passes_correlation_guard("AMD", {"NVDA": {}}) is True
+
+    def test_blocked_at_max_same_sector(self):
+        """With MAX_SAME_SECTOR_POSITIONS=2, two existing same-sector positions should block."""
+        # NVDA, AMD, INTC are all AI_SEMI; trying to add third should be blocked
+        assert passes_correlation_guard("INTC", {"NVDA": {}, "AMD": {}}) is False
+
+    def test_passes_different_sectors(self):
+        """Positions in different sectors should not block entry."""
+        # PYPL (FINTECH), AFRM (FINTECH) exist, but entering NVDA (AI_SEMI) should pass
+        assert passes_correlation_guard("NVDA", {"PYPL": {}, "AFRM": {}}) is True
+
+    def test_unknown_sector_never_blocked(self):
+        """Unknown sector ('OTHER') should always pass regardless of open positions."""
+        # Even with many positions, unknown symbols pass
+        assert passes_correlation_guard("ZZZ_UNKNOWN", {"NVDA": {}, "AMD": {}, "INTC": {}}) is True

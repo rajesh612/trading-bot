@@ -26,6 +26,7 @@ from tier1_config import is_tier1
 from utils.io_utils import load_json, save_json
 from signals.time_gate import is_entry_allowed
 from signals.relative_strength import rs_rank, passes_rs_filter
+from signals.correlation_guard import passes_correlation_guard
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -236,9 +237,10 @@ def _check_entry_gates(
     2. Earnings imminent (earnings-safe modes exempt)
     3. Event risk window (FOMC/NFP)
     4. Relative Strength filter (symbol underperforming SPY)
-    5. Stop-hunt zone
-    6. Bot herding score HIGH (blocks unless squeeze overrides)
-    7. Momentum exhaustion (blocks unless squeeze overrides)
+    5. Correlation guard (sector position limit)
+    6. Stop-hunt zone
+    7. Bot herding score HIGH (blocks unless squeeze overrides)
+    8. Momentum exhaustion (blocks unless squeeze overrides)
     """
     now = datetime.now(ET)
 
@@ -264,16 +266,22 @@ def _check_entry_gates(
                         symbol, ratio, spy_ret5d, symbol_ret5d)
             return False, f"relative strength below threshold (ratio={ratio:.2f})"
 
-    # 5. Stop-hunt zone
+    # 5. Correlation guard
+    open_pos = load_json(config.OPEN_POSITIONS_FILE, {})
+    if not passes_correlation_guard(symbol, open_pos):
+        logger.debug("Correlation guard blocked %s", symbol)
+        return False, "sector position limit exceeded"
+
+    # 6. Stop-hunt zone
     if iv.stop_hunt_zone:
         return False, "stop-hunt zone (round number or 5d hi/lo proximity)"
 
-    # 6. Bot herding — blocks high-herding entries unless squeeze
+    # 7. Bot herding — blocks high-herding entries unless squeeze
     if not iv.squeeze_setup:
         if iv.bot_herding_score >= config.BOT_HERD_HIGH_SCORE:
             return False, f"bot herding too high ({iv.bot_herding_score})"
 
-        # 7. Momentum exhaustion — skip when herding present
+        # 8. Momentum exhaustion — skip when herding present
         if iv.momentum_exhaustion and iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
             return False, f"momentum exhaustion + herding ({iv.bot_herding_score})"
 
