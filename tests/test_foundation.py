@@ -3927,3 +3927,63 @@ class TestProfitLock:
         pos = self._pos(100.0, 95.0)
         result = _apply_profit_lock(pos, 103.0)
         assert result is pos  # modifies in place
+
+
+# ── trading_agent: progressive loss reduction ─────────────────────────────────
+
+@pytest.mark.unit
+class TestProgressiveLoss:
+    def _journal_entry(self, action: str, pnl_pct: float, today: bool = True) -> dict:
+        """Create a synthetic journal entry with optional date override."""
+        from datetime import date
+        ts = date.today().isoformat() if today else "2020-01-01"
+        return {"action": action, "pnl_pct": pnl_pct, "timestamp": f"{ts}T10:00:00"}
+
+    def test_zero_losses_returns_full_multiplier(self):
+        """With zero losses, multiplier should be 1.0."""
+        from trading_agent import _progressive_loss_multiplier
+        assert _progressive_loss_multiplier(0) == pytest.approx(1.0)
+
+    def test_one_loss_reduces_size(self):
+        """One loss: 1.0 - 0.2 * 1 = 0.8."""
+        from trading_agent import _progressive_loss_multiplier
+        assert _progressive_loss_multiplier(1) == pytest.approx(0.80)
+
+    def test_two_losses_reduces_further(self):
+        """Two losses: 1.0 - 0.2 * 2 = 0.6."""
+        from trading_agent import _progressive_loss_multiplier
+        assert _progressive_loss_multiplier(2) == pytest.approx(0.60)
+
+    def test_three_losses_hits_floor(self):
+        """Three losses: 1.0 - 0.2 * 3 = 0.4 = PROGRESSIVE_LOSS_FLOOR."""
+        from trading_agent import _progressive_loss_multiplier
+        assert _progressive_loss_multiplier(3) == pytest.approx(0.40)
+
+    def test_four_losses_capped_at_floor(self):
+        """Four losses: 1.0 - 0.2 * 4 = 0.2 < floor 0.4 → capped at 0.4."""
+        from trading_agent import _progressive_loss_multiplier
+        assert _progressive_loss_multiplier(4) == pytest.approx(0.40)
+
+    def test_count_losses_empty_journal(self):
+        """Empty journal should return zero losses."""
+        from trading_agent import _count_todays_losses
+        assert _count_todays_losses([]) == 0
+
+    def test_count_losses_counts_only_today(self):
+        """Count only CLOSE entries from today with negative pnl_pct."""
+        from trading_agent import _count_todays_losses
+        journal = [
+            self._journal_entry("CLOSE", -1.5, today=True),
+            self._journal_entry("CLOSE", -2.0, today=False),  # yesterday
+        ]
+        assert _count_todays_losses(journal) == 1
+
+    def test_count_losses_ignores_wins(self):
+        """Ignore positive pnl_pct and non-CLOSE entries."""
+        from trading_agent import _count_todays_losses
+        journal = [
+            self._journal_entry("CLOSE", 2.0, today=True),   # win — ignore
+            self._journal_entry("CLOSE", -1.5, today=True),   # loss — count
+            self._journal_entry("BUY", -0.5, today=True),     # BUY entry — ignore
+        ]
+        assert _count_todays_losses(journal) == 1

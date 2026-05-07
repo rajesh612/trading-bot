@@ -334,6 +334,24 @@ def _build_market_context_block(
     )
 
 
+def _count_todays_losses(journal: list) -> int:
+    """Count CLOSE entries in today's journal with negative pnl_pct."""
+    from datetime import date
+    today_str = date.today().isoformat()  # "2024-01-15"
+    return sum(
+        1 for entry in journal
+        if entry.get("action") == "CLOSE"
+        and str(entry.get("timestamp", "")).startswith(today_str)
+        and float(entry.get("pnl_pct", 0)) < 0
+    )
+
+
+def _progressive_loss_multiplier(loss_count: int) -> float:
+    """Returns size multiplier: max(PROGRESSIVE_LOSS_FLOOR, 1.0 - PROGRESSIVE_LOSS_STEP * loss_count)."""
+    multiplier = 1.0 - config.PROGRESSIVE_LOSS_STEP * loss_count
+    return max(config.PROGRESSIVE_LOSS_FLOOR, multiplier)
+
+
 def compute_position_size_for_mode(
     portfolio_value: float,
     price: float,
@@ -352,6 +370,14 @@ def compute_position_size_for_mode(
     # Reduce size when bot herding is elevated (but not squeeze)
     if not squeeze_setup and bot_herding_score > config.BOT_HERD_ALERT_SCORE:
         qty = max(1.0, round(qty * 0.70))
+
+    # Progressive loss reduction: scale down after each loss
+    journal = load_json(config.TRADE_JOURNAL_FILE, [])
+    loss_count = _count_todays_losses(journal)
+    loss_mult = _progressive_loss_multiplier(loss_count)
+    if loss_mult < 1.0:
+        logger.debug("Progressive loss reduction: %d losses today, multiplier=%.2f", loss_count, loss_mult)
+    qty = max(1, int(qty * loss_mult))
 
     return int(qty)
 
