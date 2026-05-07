@@ -3629,3 +3629,54 @@ class TestForceCloseAll:
         journal = json.loads((tmp_path / "trade_journal.json").read_text())
         close_entries = [e for e in journal if e.get("type") == "CLOSE" and e.get("symbol") == "AAPL"]
         assert close_entries == []
+
+
+# ── signals.time_gate ─────────────────────────────────────────────────────────
+
+import pytz
+from signals.time_gate import is_entry_allowed
+
+_ET_ZONE = pytz.timezone("America/New_York")
+
+
+class TestTimeGate:
+    """Tests for time-based entry gates."""
+
+    def _et(self, h, m) -> datetime:
+        """Create a tz-aware ET datetime on a weekday."""
+        return _ET_ZONE.localize(datetime(2024, 1, 15, h, m, 0))  # 2024-01-15 is a Monday
+
+    def test_allowed_during_trading_window(self):
+        """Middle of trading day should allow entry."""
+        assert is_entry_allowed(self._et(11, 0)) is True
+
+    def test_blocked_at_market_open(self):
+        """9:30 AM ET (market open) should be blocked."""
+        assert is_entry_allowed(self._et(9, 30)) is False
+
+    def test_blocked_during_first_gate(self):
+        """9:59 AM ET should be blocked (within first 30 minutes)."""
+        assert is_entry_allowed(self._et(9, 59)) is False
+
+    def test_allowed_exactly_at_gate_open_end(self):
+        """10:00 AM ET should be allowed (ENTRY_GATE_OPEN_MINUTES = 30)."""
+        assert is_entry_allowed(self._et(10, 0)) is True
+
+    def test_blocked_at_close_window_start(self):
+        """15:25 ET should be blocked (16:00 - 35 minutes, with ENTRY_GATE_CLOSE_MINUTES = 35)."""
+        assert is_entry_allowed(self._et(15, 25)) is False
+
+    def test_blocked_near_close(self):
+        """15:50 ET should be blocked (close at 16:00)."""
+        assert is_entry_allowed(self._et(15, 50)) is False
+
+    def test_allowed_before_close_window(self):
+        """15:24 ET should be allowed (just before close gate)."""
+        assert is_entry_allowed(self._et(15, 24)) is True
+
+    def test_naive_datetime_handled(self):
+        """Naive datetime (no timezone) should be localized to ET and not raise."""
+        naive = datetime(2024, 1, 15, 11, 0, 0)
+        result = is_entry_allowed(naive)
+        assert isinstance(result, bool)
+        assert result is True

@@ -23,6 +23,7 @@ from macro_regime import load_macro_regime, load_trading_params
 from market_data import get_daily_bars, get_intraday_bars, get_latest_price
 from tier1_config import is_tier1
 from utils.io_utils import load_json, save_json
+from signals.time_gate import is_entry_allowed
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -227,34 +228,39 @@ def _check_entry_gates(
 ) -> tuple[bool, str]:
     """
     Priority gates (first match wins — False = block entry):
-    1. Earnings imminent (earnings-safe modes exempt)
-    2. Event risk window (FOMC/NFP)
-    3. Stop-hunt zone
-    4. Bot herding score HIGH (blocks unless squeeze overrides)
-    5. Momentum exhaustion (blocks unless squeeze overrides)
+    1. Time gate (first ENTRY_GATE_OPEN_MINUTES after open and last ENTRY_GATE_CLOSE_MINUTES before close)
+    2. Earnings imminent (earnings-safe modes exempt)
+    3. Event risk window (FOMC/NFP)
+    4. Stop-hunt zone
+    5. Bot herding score HIGH (blocks unless squeeze overrides)
+    6. Momentum exhaustion (blocks unless squeeze overrides)
     """
     now = datetime.now(ET)
 
-    # 1. Earnings imminent
+    # 1. Time gate
+    if not is_entry_allowed(now):
+        return False, "outside entry time window"
+
+    # 2. Earnings imminent
     earnings_days = 1 if mode not in ("HYBRID", "SHORT_TERM") else 2
     if mode not in ("CAPITULATION", "PEAD") and is_earnings_imminent(symbol, days=earnings_days):
         return False, f"earnings within {earnings_days} day(s)"
 
-    # 2. Event risk window
+    # 3. Event risk window
     event_risk, event_name = is_event_risk_window(now)
     if event_risk:
         return False, f"event risk window: {event_name}"
 
-    # 3. Stop-hunt zone
+    # 4. Stop-hunt zone
     if iv.stop_hunt_zone:
         return False, "stop-hunt zone (round number or 5d hi/lo proximity)"
 
-    # 4. Bot herding — blocks high-herding entries unless squeeze
+    # 5. Bot herding — blocks high-herding entries unless squeeze
     if not iv.squeeze_setup:
         if iv.bot_herding_score >= config.BOT_HERD_HIGH_SCORE:
             return False, f"bot herding too high ({iv.bot_herding_score})"
 
-        # 5. Momentum exhaustion — skip when herding present
+        # 6. Momentum exhaustion — skip when herding present
         if iv.momentum_exhaustion and iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
             return False, f"momentum exhaustion + herding ({iv.bot_herding_score})"
 
