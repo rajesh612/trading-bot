@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -125,6 +126,16 @@ def _entry_timestamp(entry: dict) -> datetime:
         return dt
     except (ValueError, TypeError):
         return datetime.min.replace(tzinfo=ET)
+
+
+# ── EOD close helpers ────────────────────────────────────────────────────────
+
+def _eod_close_reason(pnl_pct: float) -> str:
+    if pnl_pct > config.EOD_PROFITABLE_THRESHOLD:
+        return "eod_force_profitable"
+    if pnl_pct < config.EOD_LOSS_THRESHOLD:
+        return "eod_force_loss"
+    return "eod_force_flat"
 
 
 # ── Mode routing ─────────────────────────────────────────────────────────────
@@ -1141,6 +1152,16 @@ def force_close_all():
         if symbol in swing_symbols:
             continue  # promoted to swing — do not journal or close
 
+        # Fix A — Phantom journal skip: verify symbol exists in live Alpaca positions
+        if config.EOD_VERIFY_FILLS:
+            live_symbols = set(alpaca.get_positions().keys())
+            if symbol not in live_symbols:
+                logger.warning(
+                    "EOD: %s not in Alpaca positions (phantom entry) — skipping journal", symbol
+                )
+                open_positions.pop(symbol, None)
+                continue
+
         try:
             price = alpaca.get_latest_price(symbol)
         except Exception:
@@ -1150,12 +1171,28 @@ def force_close_all():
         pnl_pct = (price - pos["entry_price"]) / pos["entry_price"] * 100
         pnl_dollar = (price - pos["entry_price"]) * pos["qty"]
 
-        # Close in Alpaca first — journal write must not block the actual close
+        # Fix C — Retry on close failure
         try:
             alpaca.close_position(symbol)
-        except Exception as exc:
-            logger.warning(f"EOD: could not close {symbol} in Alpaca: {exc}")
+        except Exception as e:
+            logger.warning("EOD close failed for %s, retrying: %s", symbol, e)
+            time.sleep(2)
+            try:
+                alpaca.close_position(symbol)
+            except Exception as e2:
+                logger.error("EOD close retry failed for %s: %s", symbol, e2)
+                try:
+                    alpaca.close_all_positions()
+                except Exception:
+                    pass
+                try:
+                    remaining = list(alpaca.get_positions().keys())
+                    if remaining:
+                        telegram_notify._send(f"⚠️ EOD close failed, positions still open: {remaining}")
+                except Exception:
+                    pass
 
+        # Fix B — Close reason classification
         append_trade({
             "type": "CLOSE",
             "symbol": symbol,
@@ -1165,7 +1202,7 @@ def force_close_all():
             "qty": pos["qty"],
             "pnl_pct": round(pnl_pct, 2),
             "pnl_dollar": round(pnl_dollar, 2),
-            "close_reason": "end_of_day_force_close",
+            "close_reason": _eod_close_reason(pnl_pct),
             "entry_composite_score": pos.get("entry_composite_score"),
             "exit_composite_score": None,
             "exit_indicators": {},

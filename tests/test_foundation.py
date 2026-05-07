@@ -3566,3 +3566,66 @@ class TestStartupExitAlerts:
             with patch("sys.exit") as mock_exit:
                 main._exit_with_alert("msg", code=2)
         mock_exit.assert_called_once_with(2)
+
+
+# ── EOD force-close helpers ───────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestForceCloseAll:
+    def _positions_json(self, tmp_path, positions: dict):
+        p = tmp_path / "open_positions.json"
+        p.write_text(json.dumps(positions))
+        return p
+
+    def test_eod_close_reason_profitable(self):
+        from trading_agent import _eod_close_reason
+        assert _eod_close_reason(1.0) == "eod_force_profitable"
+
+    def test_eod_close_reason_loss(self):
+        from trading_agent import _eod_close_reason
+        assert _eod_close_reason(-1.0) == "eod_force_loss"
+
+    def test_eod_close_reason_flat(self):
+        from trading_agent import _eod_close_reason
+        assert _eod_close_reason(0.0) == "eod_force_flat"
+
+    def test_eod_close_reason_boundary_profitable(self):
+        from trading_agent import _eod_close_reason
+        # exactly at threshold is NOT profitable (> not >=)
+        assert _eod_close_reason(0.5) == "eod_force_flat"
+        assert _eod_close_reason(0.51) == "eod_force_profitable"
+
+    def test_eod_close_reason_boundary_loss(self):
+        from trading_agent import _eod_close_reason
+        assert _eod_close_reason(-0.5) == "eod_force_flat"
+        assert _eod_close_reason(-0.51) == "eod_force_loss"
+
+    def test_force_close_phantom_skip(self, tmp_path, monkeypatch):
+        """Symbols not in Alpaca positions are skipped without journaling"""
+        from unittest.mock import MagicMock, patch
+        import trading_agent
+        import config
+
+        # position in JSON but NOT in alpaca
+        positions = {"AAPL": {"entry_price": 100.0, "stop_loss": 95.0, "take_profit": 110.0, "shares": 10, "qty": 10}}
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
+        (tmp_path / "open_positions.json").write_text(json.dumps(positions))
+        (tmp_path / "trade_journal.json").write_text("[]")
+
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_positions.return_value = {}  # AAPL not in live positions (empty dict)
+        mock_alpaca.cancel_all_orders.return_value = None
+
+        orig = config.EOD_VERIFY_FILLS
+        config.EOD_VERIFY_FILLS = True
+        try:
+            with patch("trading_agent.AlpacaClient", return_value=mock_alpaca):
+                trading_agent.force_close_all()
+        finally:
+            config.EOD_VERIFY_FILLS = orig
+
+        # journal should NOT have a CLOSE entry for AAPL
+        journal = json.loads((tmp_path / "trade_journal.json").read_text())
+        close_entries = [e for e in journal if e.get("type") == "CLOSE" and e.get("symbol") == "AAPL"]
+        assert close_entries == []
