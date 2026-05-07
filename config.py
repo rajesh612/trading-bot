@@ -173,3 +173,32 @@ FLASH_CRASH_SPY_RECOVERY_PCT = -5.0   # auto-clear lockout if SPY 5d return abov
 # ── State file hygiene ────────────────────────────────────────────────────────
 TRADE_JOURNAL_MAX_DAYS  = 30   # faster journal reads; archive keeps full history
 CORRUPT_BACKUP_MAX_DAYS = 3    # .corrupt.json backups useless after 3 days
+
+# ── Plan 4 ────────────────────────────────────────────────────────────────────
+
+ENTRY_GATE_OPEN_MINUTES = 30      # block entries for first N minutes after open
+ENTRY_GATE_CLOSE_MINUTES = 35     # block entries for last N minutes before close
+
+RS_MIN_RATIO = 0.0                # symbol must not underperform SPY by more than this
+
+MAX_SAME_SECTOR_POSITIONS = 2     # block entry if >= this many open positions share sector
+
+SENTIMENT_SIZE_TIERS: list[tuple[int, float]] = [
+    (20, 1.25),
+    (10, 1.10),
+    (-10, 1.00),
+    (-20, 0.75),
+]
+SENTIMENT_SIZE_FLOOR = 0.50
+
+MTF_BARS_LOOKBACK = 40            # 15-min bars to fetch for multi-timeframe filter
+MTF_TIMEFRAME_MINUTES = 15
+
+PROFIT_LOCK_TRIGGER_PCT = 2.0     # move stop to breakeven when unrealised PnL >= this %
+
+PROGRESSIVE_LOSS_STEP = 0.20      # reduce size by this fraction per loss
+PROGRESSIVE_LOSS_FLOOR = 0.40     # minimum size multiplier
+
+EOD_VERIFY_FILLS = True           # skip journal entry if symbol not in alpaca positions
+EOD_PROFITABLE_THRESHOLD = 0.5    # pnl_pct above this → "eod_force_profitable"
+EOD_LOSS_THRESHOLD = -0.5         # pnl_pct below this → "eod_force_loss"
