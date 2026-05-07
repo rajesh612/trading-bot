@@ -217,3 +217,15 @@ Before touching source files:
 2. Write the unit tests first (or alongside) — the acceptance criteria in the plan are the test cases.
 3. Keep new functions pure where possible (no side effects, no Alpaca calls) so they are trivially testable.
 4. Wire into `main.py` scheduler and `_catchup_missed_agents` last, after the module is verified.
+
+### Signal purity
+
+All signal functions in `signals/` must be pure (no Alpaca calls, no file I/O). This enables Approach C backtest tuning — the backtest runner can sweep thresholds without any side effects.
+
+### JSON file I/O
+
+All JSON file reads and writes must go through `utils.io_utils.load_json` / `save_json`. Never use ad-hoc `json.load` / `json.dump` directly in module bodies — this ensures atomic writes and corrupt-file recovery everywhere.
+
+### Startup exits
+
+Never call `sys.exit()` directly in `main.py`. Always use `_exit_with_alert()` so a Telegram notification fires before the process exits. This prevents silent startup failures when the bot auto-starts overnight.
