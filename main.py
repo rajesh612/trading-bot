@@ -314,7 +314,7 @@ def job_market_monitor():
         return
     if now.hour >= 16:
         return
-    from trading_agent import run_market_monitor
+    from utils.market_monitor import run_market_monitor
     _job_guard("market_monitor", run_market_monitor)
 
 

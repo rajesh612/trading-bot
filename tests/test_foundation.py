@@ -1726,8 +1726,8 @@ class TestVerifySpyWithPolygon:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = lambda: None
         mock_resp.json.return_value = {"ticker": {"todaysChangePerc": -3.1}}
-        import trading_agent
-        monkeypatch.setattr(trading_agent.requests, "get", lambda *a, **kw: mock_resp)
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm.requests, "get", lambda *a, **kw: mock_resp)
         from trading_agent import _verify_spy_with_polygon
         assert _verify_spy_with_polygon(-3.1) is True
 
@@ -1739,16 +1739,16 @@ class TestVerifySpyWithPolygon:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = lambda: None
         mock_resp.json.return_value = {"ticker": {"todaysChangePerc": -0.5}}
-        import trading_agent
-        monkeypatch.setattr(trading_agent.requests, "get", lambda *a, **kw: mock_resp)
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm.requests, "get", lambda *a, **kw: mock_resp)
         from trading_agent import _verify_spy_with_polygon
         assert _verify_spy_with_polygon(-2.6) is False
 
     def test_network_error_returns_none(self, monkeypatch):
         import config
         monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
-        import trading_agent
-        monkeypatch.setattr(trading_agent.requests, "get",
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm.requests, "get",
                             lambda *a, **kw: (_ for _ in ()).throw(Exception("timeout")))
         from trading_agent import _verify_spy_with_polygon
         assert _verify_spy_with_polygon(-3.0) is None
@@ -1781,8 +1781,8 @@ class TestFlashCrashTwoReading:
         fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
         self._write_regime(tmp_path, candidate=fresh)
         triggered = []
-        import trading_agent
-        monkeypatch.setattr(trading_agent, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
         from trading_agent import _handle_flash_crash_stage2
         _handle_flash_crash_stage2(-3.0)
         assert len(triggered) == 1
@@ -1795,8 +1795,8 @@ class TestFlashCrashTwoReading:
         stale = {"spy_pct": -2.7, "detected_at": old_time}
         self._write_regime(tmp_path, candidate=stale)
         triggered = []
-        import trading_agent
-        monkeypatch.setattr(trading_agent, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
         from trading_agent import _handle_flash_crash_stage2
         _handle_flash_crash_stage2(-3.0)
         assert len(triggered) == 0
@@ -3202,3 +3202,319 @@ class TestIoUtils:
         save_json(file_path, data)
         result = load_json(file_path, [])
         assert result == data
+
+
+# ── TestMarketMonitor ─────────────────────────────────────────────────────────
+
+class TestMarketMonitor:
+    """Unit tests for utils/market_monitor.py — no network or Alpaca calls."""
+
+    def _write_regime_file(self, tmp_path, **overrides):
+        """Write a minimal macro_regime.json and return its path."""
+        from utils.io_utils import save_json
+        path = tmp_path / "macro_regime.json"
+        data = {"regime": "NORMAL", "flash_crash_candidate": None}
+        data.update(overrides)
+        save_json(path, data)
+        return path
+
+    @pytest.mark.unit
+    def test_write_flash_crash_candidate_creates_file(self, tmp_path, monkeypatch):
+        """_write_flash_crash_candidate stores symbol, price, pct_drop, and timestamp."""
+        import config
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        from utils.market_monitor import _write_flash_crash_candidate
+        now = datetime(2026, 5, 6, 10, 0, tzinfo=ET)
+        _write_flash_crash_candidate(-3.1, now)
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        candidate = data.get("flash_crash_candidate")
+        assert candidate is not None
+        assert candidate["spy_pct"] == -3.1
+        assert candidate["detected_at"] == now.isoformat()
+
+    @pytest.mark.unit
+    def test_clear_flash_crash_candidate_removes_entry(self, tmp_path, monkeypatch):
+        """_clear_flash_crash_candidate sets flash_crash_candidate to None."""
+        import config
+        self._write_regime_file(
+            tmp_path,
+            flash_crash_candidate={"spy_pct": -3.0, "detected_at": "2026-05-06T10:00:00"},
+        )
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        from utils.market_monitor import _clear_flash_crash_candidate
+        _clear_flash_crash_candidate()
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        assert data.get("flash_crash_candidate") is None
+
+    @pytest.mark.unit
+    def test_clear_flash_crash_candidate_noop_if_missing(self, tmp_path, monkeypatch):
+        """_clear_flash_crash_candidate does not raise when macro_regime.json is absent."""
+        import config
+        missing = tmp_path / "no_such_file.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", missing)
+        from utils.market_monitor import _clear_flash_crash_candidate
+        _clear_flash_crash_candidate()  # must not raise
+
+    @pytest.mark.unit
+    def test_read_candidate_returns_none_if_missing(self, tmp_path, monkeypatch):
+        """_read_flash_crash_candidate returns None when file does not exist."""
+        import config
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "no_such.json")
+        from utils.market_monitor import _read_flash_crash_candidate
+        result = _read_flash_crash_candidate()
+        assert result is None
+
+    @pytest.mark.unit
+    def test_read_candidate_returns_data_if_exists(self, tmp_path, monkeypatch):
+        """_read_flash_crash_candidate returns the stored dict when file contains one."""
+        import config
+        self._write_regime_file(
+            tmp_path,
+            flash_crash_candidate={"spy_pct": -3.5, "detected_at": "2026-05-06T10:00:00"},
+        )
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        from utils.market_monitor import _read_flash_crash_candidate
+        result = _read_flash_crash_candidate()
+        assert result is not None
+        assert result["spy_pct"] == -3.5
+
+    @pytest.mark.unit
+    def test_set_crisis_lockout_writes_macro_regime(self, tmp_path, monkeypatch):
+        """_set_crisis_lockout writes regime=CRISIS and flash_crash_active=True."""
+        import config
+        self._write_regime_file(tmp_path)
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        from utils.market_monitor import _set_crisis_lockout
+        _set_crisis_lockout(hours=48)
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        assert data.get("regime") == "CRISIS"
+        assert data.get("flash_crash_active") is True
+        assert data.get("flash_crash_until") is not None
+
+    @pytest.mark.unit
+    def test_run_market_monitor_no_crash_returns_ok(self, tmp_path, monkeypatch):
+        """run_market_monitor does nothing when SPY drop is within normal range."""
+        import config
+        self._write_regime_file(tmp_path)
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "get_latest_price", lambda sym: 500.0)
+        monkeypatch.setattr(mm, "_get_spy_prev_close", lambda: 499.0)  # +0.2%
+
+        from utils.market_monitor import run_market_monitor
+        run_market_monitor()  # should complete without triggering lockout
+
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        assert data.get("flash_crash_active") is not True
+
+    @pytest.mark.unit
+    def test_run_market_monitor_stage1_triggers_on_drop(self, tmp_path, monkeypatch):
+        """run_market_monitor writes a stage-1 candidate when SPY drops past threshold."""
+        import config
+        self._write_regime_file(tmp_path)
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "get_latest_price", lambda sym: 480.0)
+        monkeypatch.setattr(mm, "_get_spy_prev_close", lambda: 500.0)  # -4%
+
+        from utils.market_monitor import run_market_monitor
+        run_market_monitor()
+
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        assert data.get("flash_crash_candidate") is not None
+        assert data["flash_crash_candidate"]["spy_pct"] == pytest.approx(-4.0, abs=0.05)
+
+    @pytest.mark.unit
+    def test_run_market_monitor_stage2_triggers_lockout(self, tmp_path, monkeypatch):
+        """Stage-2 confirmation calls force_close_all when candidate is still fresh."""
+        import config
+        from utils.io_utils import save_json
+        # Candidate was written 5 minutes ago (within 15-min window)
+        candidate_time = (datetime.now(ET) - __import__("datetime").timedelta(minutes=5)).isoformat()
+        self._write_regime_file(
+            tmp_path,
+            flash_crash_candidate={"spy_pct": -3.5, "detected_at": candidate_time},
+        )
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "get_latest_price", lambda sym: 480.0)
+        monkeypatch.setattr(mm, "_get_spy_prev_close", lambda: 500.0)  # -4%
+
+        force_close_called = []
+
+        def mock_force_close():
+            force_close_called.append(True)
+
+        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", lambda: (force_close_called.append(True), _set_crisis_lockout_direct(tmp_path)))
+
+        def _set_crisis_lockout_direct(tp):
+            data = {"regime": "CRISIS", "flash_crash_active": True, "flash_crash_until": "2026-05-08T10:00:00", "flash_crash_candidate": None}
+            save_json(tp / "macro_regime.json", data)
+
+        from utils.market_monitor import run_market_monitor
+        run_market_monitor()
+
+        assert len(force_close_called) == 1
+
+    @pytest.mark.unit
+    def test_run_market_monitor_clears_stale_candidate(self, tmp_path, monkeypatch):
+        """A candidate older than 15 min is overwritten with a fresh one, not confirmed."""
+        import config
+        from utils.io_utils import load_json
+        # Candidate was written 20 minutes ago (outside 15-min window)
+        old_time = (datetime.now(ET) - __import__("datetime").timedelta(minutes=20)).isoformat()
+        self._write_regime_file(
+            tmp_path,
+            flash_crash_candidate={"spy_pct": -3.5, "detected_at": old_time},
+        )
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "get_latest_price", lambda sym: 480.0)
+        monkeypatch.setattr(mm, "_get_spy_prev_close", lambda: 500.0)  # -4%
+
+        lockout_triggered = []
+        orig_trigger = mm._trigger_flash_crash_lockout
+        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", lambda: lockout_triggered.append(True))
+
+        from utils.market_monitor import run_market_monitor
+        run_market_monitor()
+
+        # Lockout must NOT be triggered for a stale candidate
+        assert len(lockout_triggered) == 0
+        # But a fresh candidate must have been written
+        data = load_json(tmp_path / "macro_regime.json", {})
+        candidate = data.get("flash_crash_candidate")
+        assert candidate is not None
+
+    @pytest.mark.unit
+    def test_verify_spy_with_polygon_returns_none_on_error(self, tmp_path, monkeypatch):
+        """_verify_spy_with_polygon returns None when the HTTP request fails."""
+        import config
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "fake-key")
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm.requests, "get", lambda *a, **kw: (_ for _ in ()).throw(Exception("network error")))
+
+        from utils.market_monitor import _verify_spy_with_polygon
+        result = _verify_spy_with_polygon(-3.0)
+        assert result is None
+
+    @pytest.mark.unit
+    def test_verify_spy_with_polygon_returns_price_on_success(self, tmp_path, monkeypatch):
+        """_verify_spy_with_polygon returns True when Polygon confirms a crash-level drop."""
+        import config
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "fake-key")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+
+        class MockResp:
+            def raise_for_status(self): pass
+            def json(self):
+                return {"ticker": {"todaysChangePerc": -4.0}}
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm.requests, "get", lambda *a, **kw: MockResp())
+
+        from utils.market_monitor import _verify_spy_with_polygon
+        result = _verify_spy_with_polygon(-4.0)
+        assert result is True
+
+    @pytest.mark.unit
+    def test_get_spy_prev_close_returns_float(self, monkeypatch):
+        """_get_spy_prev_close returns a positive float when market data is available."""
+        import pandas as pd
+
+        closes = [495.0, 500.0]
+        idx = pd.date_range("2026-05-05", periods=2, freq="B", tz="America/New_York")
+        mock_df = pd.DataFrame({"close": closes}, index=idx)
+
+        # Patch at the market_data module level — _get_spy_prev_close imports from there
+        import market_data
+        monkeypatch.setattr(market_data, "get_daily_bars", lambda *a, **kw: mock_df)
+
+        from utils.market_monitor import _get_spy_prev_close
+        result = _get_spy_prev_close()
+        assert isinstance(result, float)
+        assert result > 0
+
+    @pytest.mark.unit
+    def test_run_market_monitor_polygon_fallback_used(self, tmp_path, monkeypatch):
+        """When Polygon key is set but API fails, falls back to Stage 2 two-reading path."""
+        import config
+        self._write_regime_file(tmp_path)
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "fake-key-set")
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "get_latest_price", lambda sym: 480.0)
+        monkeypatch.setattr(mm, "_get_spy_prev_close", lambda: 500.0)  # -4%
+        # Polygon API unavailable → _verify_spy_with_polygon returns None
+        monkeypatch.setattr(mm, "_verify_spy_with_polygon", lambda pct: None)
+
+        from utils.market_monitor import run_market_monitor
+        run_market_monitor()
+
+        # Stage 2 path should have written a candidate (no prior candidate → Stage 1)
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        assert data.get("flash_crash_candidate") is not None
+
+    @pytest.mark.unit
+    def test_trigger_flash_crash_logs_and_notifies(self, tmp_path, monkeypatch):
+        """Stage-2 lockout notifies telegram when _trigger_flash_crash_lockout is called."""
+        import config
+        self._write_regime_file(tmp_path)
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
+        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
+        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
+
+        # Set up a fresh candidate (within 15-min window)
+        candidate_time = datetime.now(ET).isoformat()
+        from utils.io_utils import save_json
+        save_json(tmp_path / "macro_regime.json", {
+            "regime": "NORMAL",
+            "flash_crash_candidate": {"spy_pct": -3.5, "detected_at": candidate_time},
+        })
+
+        import utils.market_monitor as mm
+        monkeypatch.setattr(mm, "get_latest_price", lambda sym: 480.0)
+        monkeypatch.setattr(mm, "_get_spy_prev_close", lambda: 500.0)  # -4%
+
+        notify_calls = []
+
+        def mock_trigger():
+            notify_calls.append("triggered")
+            # Also write CRISIS so we can verify
+            save_json(tmp_path / "macro_regime.json", {
+                "regime": "CRISIS",
+                "flash_crash_active": True,
+                "flash_crash_until": "2026-05-08T10:00:00",
+                "flash_crash_candidate": None,
+            })
+
+        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", mock_trigger)
+
+        from utils.market_monitor import run_market_monitor
+        run_market_monitor()
+
+        assert "triggered" in notify_calls
+        from utils.io_utils import load_json
+        data = load_json(tmp_path / "macro_regime.json", {})
+        assert data.get("regime") == "CRISIS"
