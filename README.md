@@ -340,7 +340,7 @@ If you started via LaunchAgent but see nothing in `launchd_trading_bot.log`, Ful
 
 ```bash
 # Fast unit tests — no API calls, no .env required
-.venv/bin/pytest tests/test_foundation.py -v -m unit
+.venv/bin/pytest tests/ -v -m unit
 
 # Legacy unit tests
 .venv/bin/pytest test_agents.py -v -m unit

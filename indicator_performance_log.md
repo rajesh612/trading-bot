@@ -146,3 +146,44 @@
 - **DRAM**: Marginal +0.14% / +$6.89 EOD force-close; composite 55.4 with MACD incorrect suggests borderline conviction; late entry timing (near EOD) prevented the trade from reaching its target—consider tightening composite score floor for entries after 15:00.
 
 ---
+
+## 2026-05-07
+
+**Regime:** NORMAL | VIX=17.4 (90d avg=0.0) | SPY=+0.00%
+**Trades:** 3 total | W:0 L:3 | Win rate: 0.0% | P&L: $-549.64
+**Market conditions:** mixed | Regime impact: Despite a NORMAL VIX regime (17.36, declining) with bullish macro health (score=52) and strong sector scores in AI/Semi and Broad Tech, all three trades hit bracket stop-losses at -3%. The favorable regime did not translate into follow-through after entry, suggesting either intraday chop/mean-reversion dominated or entries were timed poorly relative to intraday price action. The 2-day green streak and SPY +3.13% 5-day return may have created overbought intraday conditions where momentum faded quickly post-entry.
+
+### Indicator Performance
+
+- **VWAP**: accuracy=0% | weight 20.8% → 17.8% (-3%) | Marked 'correct' on all three trades yet all hit stop-loss, indicating VWAP alignment gave false bullish signals today — the indicator failed to filter trades that reversed immediately after entry.
+- **RSI**: accuracy=33% | weight 16.18% → 18.18% (+2%) | RSI was 'incorrect' on DRAM (RSI 49.7 with -9.0 delta flagging cooling momentum) which proved prescient — the one trade where RSI signaled caution was still taken, suggesting RSI's bearish signals should carry more weight as a filter.
+- **Daily Volume Trend**: accuracy=0% | weight 8.08% → 6.08% (-2%) | Volume was 'neutral' on two of three losing trades, providing no meaningful signal and failing to help discriminate trade quality.
+- **MACD**: accuracy=0% | weight 4.35% → 2.35% (-2%) | MACD was 'correct' on all three trades yet all lost, indicating MACD momentum signals were misleading in today's choppy intraday environment.
+- **EMA 9/21 Crossover**: accuracy=0% | weight 14.52% → 12.52% (-2%) | EMA was 'correct' on all three losing trades, demonstrating it failed as a directional filter on a day with immediate post-entry reversals.
+- **Bollinger Bands**: accuracy=33% | weight 9.05% → 11.05% (+2%) | BB was 'neutral' on SYM/ACHR but 'correct' on DRAM — limited sample but BB's neutrality on weaker setups may have provided a mild warning that was underweighted.
+- **VWAP StdDev Bands**: accuracy=0% | weight 7.19% → 7.19% (0%) | No direct signal data available for this indicator today; keeping weight unchanged due to insufficient evidence.
+- **ATR**: accuracy=0% | weight 3.59% → 3.59% (0%) | ATR not directly referenced in today's trade signals; no evidence to adjust weight.
+- **Stochastic Oscillator**: accuracy=0% | weight 5.39% → 5.39% (0%) | Stochastic not referenced in today's trade data; no adjustment warranted.
+- **OBV**: accuracy=0% | weight 3.59% → 3.59% (0%) | OBV not referenced in today's signals; insufficient evidence to adjust.
+- **RSI Slope**: accuracy=33% | weight 6.29% → 9.29% (+3%) | The RSI delta of -9.0 on DRAM explicitly flagged cooling momentum and was noted in claude_reasoning — RSI Slope proved to be the most actionable warning signal today and deserves higher weight.
+- **Volume Ratio**: accuracy=33% | weight 0.97% → 2.97% (+2%) | Volume at 1.75x on DRAM was flagged as confirming participation yet the trade still lost — however Volume Ratio 'neutral' on SYM/ACHR may have been a valid caution signal that was underweighted.
+
+### Param Changes
+
+- rsi_buy_max: 72 → 65
+
+### Strategy Learnings
+
+- All three trades were entered with bullish indicator alignment (VWAP up, MACD positive, EMA correct) yet all hit stop-loss immediately — consensus 'green' signals across lagging indicators are insufficient to guarantee follow-through in choppy intraday conditions.
+- DRAM's claude_reasoning explicitly identified RSI delta of -9.0 and cooling momentum as a concern but the trade was still entered — when the reasoning layer identifies momentum deterioration, that should be treated as a hard filter or significant position reduction, not a footnote.
+- The rsi_buy_max of 72 is dangerously high for a momentum strategy; RSI levels near 57-61 at entry (SYM, ACHR) combined with a declining VIX and 2-day green streak suggests entries were made into potentially exhausted intraday moves — lowering rsi_buy_max to 65 adds a tighter momentum quality filter.
+- DRAM had a parabolic +70% prior run flagged in reasoning — mean-reversion risk on extended stocks should be a systematic disqualifier or require dramatically reduced position sizing, not just a 'moderate conviction' note.
+- With 3/3 trades hitting bracket stop-losses on a NORMAL VIX day with bullish macro, the composite score thresholds may need re-evaluation: DRAM entered at composite 26.85 (near the 15-gate minimum) which represents very low conviction and should have been skipped or sized at minimum.
+
+### Per-Stock Notes
+
+- **SYM**: Entered with high composite score (76.49) and strong indicator alignment including VWAP up and MACD positive, but still hit stop-loss at -3% — high composite scores do not protect against intraday momentum failure; the lack of Volume confirmation ('neutral') may have been an early warning of weak buying pressure.
+- **DRAM**: Most instructive trade of the day: claude_reasoning correctly identified RSI delta -9.0 and parabolic +70% prior run as risks, yet the trade was approved — this is a process failure where identified risks were not acted upon; RSI 'incorrect' signal and negative RSI slope should have blocked entry entirely.
+- **ACHR**: Mid-range composite (45.4) with moderate sentiment (55) and neutral Volume/BB signals — this was the weakest setup of the three and likely should not have met entry criteria; neutral indicators on two out of six signals in a choppy day is a meaningful caution.
+
+---

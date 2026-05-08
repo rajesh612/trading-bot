@@ -1,8 +1,8 @@
 {
   "fed_funds_rate": null,
   "fed_direction": "unknown",
-  "cpi_trend": "rising",
+  "cpi_trend": "stable",
   "unemployment_rising": false,
   "fred_modifier": 0,
-  "updated_at": "2026-05-05T16:00:02.857023-04:00"
+  "updated_at": "2026-05-07T16:00:04.374051-04:00"
 }
