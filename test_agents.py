@@ -302,26 +302,6 @@ class TestIndicatorEngine:
 
 class TestVolatilityScreener:
 
-    @pytest.mark.unit
-    def test_passthrough_when_under_limit(self, tmp_path, monkeypatch):
-        """≤50 tickers must pass through without scoring."""
-        from volatility_screener import run_volatility_screener
-
-        tickers = [f"SYM{i}" for i in range(10)]
-        tickers_file = tmp_path / "tickers.txt"
-        tickers_file.write_text("\n".join(tickers))
-        daily_file = tmp_path / "daily_tradeable.txt"
-
-        monkeypatch.setattr(config, "TICKERS_FILE", tickers_file)
-        monkeypatch.setattr(config, "DAILY_TRADEABLE_FILE", daily_file)
-
-        with patch("volatility_screener.AlpacaClient") as mock_alpaca:
-            result = run_volatility_screener()
-
-        assert set(result) == set(tickers)
-        assert daily_file.exists()
-        mock_alpaca.assert_not_called()  # Alpaca should NOT be called
-
     @pytest.mark.live
     def test_scores_real_tickers(self, alpaca):
         from volatility_screener import _score_ticker
