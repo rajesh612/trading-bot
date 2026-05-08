@@ -320,6 +320,14 @@ def _safe(series: pd.Series, fallback: float = 0.0) -> float:
     return fallback if pd.isna(val) else float(val)
 
 
+def _safe_penultimate(series: pd.Series, fallback: float = 0.0) -> float:
+    """Use second-to-last bar — the last bar is always the incomplete current bar."""
+    if len(series) < 2:
+        return fallback
+    val = series.iloc[-2]
+    return fallback if pd.isna(val) else float(val)
+
+
 def load_weights() -> dict:
     with open(config.INDICATOR_WEIGHTS_FILE) as f:
         return json.load(f)
@@ -494,7 +502,7 @@ def compute_indicators(
         "ema9":               _safe(ema9, price),
         "ema21":              _safe(ema21, price),
         "atr":                _safe(atr, 0.0),
-        "volume_ratio":       _safe(vol_ratio, 1.0),
+        "volume_ratio":       _safe_penultimate(vol_ratio, 1.0),
         "stoch_k":            _safe(stoch_k, 50.0),
         "stoch_d":            _safe(stoch_d, 50.0),
         "obv":                float(obv.iloc[-1]),

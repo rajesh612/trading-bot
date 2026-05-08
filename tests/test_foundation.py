@@ -1190,7 +1190,8 @@ class TestEarningsCalendar:
         self._write_cache(tmp_path)  # perfect block — all 5 conditions pass
         qualifies, score = ec.detect_pead_setup("NVDA")
         assert qualifies is True
-        assert score == 100
+        # eps=10.0 hits PEAD_EPS_BEAT_SOLID → 25 pts; other 4 conds × 20 = 80; total = 105
+        assert score == 105
 
     def test_detect_pead_three_conditions_fails(self, tmp_path):
         import earnings_calendar as ec
@@ -1202,18 +1203,20 @@ class TestEarningsCalendar:
         )
         qualifies, score = ec.detect_pead_setup("NVDA")
         assert qualifies is False
-        assert score == 60  # 3 × 20 pts
+        # eps=10% → 25 (PEAD_EPS_BEAT_SOLID) + revenue=20 + guidance=20 = 65
+        assert score == 65
 
     def test_detect_pead_guidance_lowered_reduces_score(self, tmp_path):
-        """Lowered guidance fails cond 3 (−20 pts). Other 4 pass → score=80 = threshold → still qualifies."""
+        """Lowered guidance fails cond 3 (−20 pts). Other 4 pass → score=85 > threshold → qualifies."""
         import earnings_calendar as ec
         self._write_cache(tmp_path, guidance_change="lowered")  # cond 3 ✗
         qualifies, score = ec.detect_pead_setup("NVDA")
-        assert score == 80       # guidance cost 20 pts
-        assert qualifies is True  # 4/5 conditions still meet the threshold
+        # eps=10% → 25 + revenue=20 + earn_day=20 + vol=20 = 85
+        assert score == 85
+        assert qualifies is True  # 4/5 conditions still meet the 80pt threshold
 
     def test_detect_pead_guidance_lowered_plus_weak_reaction_fails(self, tmp_path):
-        """Lowered guidance + poor earnings-day reaction → 3/5 conditions → below threshold."""
+        """Lowered guidance + poor earnings-day reaction → cond 1(25) + cond 2(20) + cond 5(20) = 65."""
         import earnings_calendar as ec
         self._write_cache(
             tmp_path,
@@ -1223,14 +1226,15 @@ class TestEarningsCalendar:
         )
         qualifies, score = ec.detect_pead_setup("NVDA")
         assert qualifies is False
-        assert score == 60  # 3 × 20 pts
+        # eps=10% → 25 + revenue=20 + vol=20 = 65 (guidance and reaction both fail)
+        assert score == 65
 
     def test_detect_pead_unknown_guidance_allowed(self, tmp_path):
         import earnings_calendar as ec
         self._write_cache(tmp_path, guidance_change="unknown")  # cond 3 ✓ (unknown ≠ lowered)
         qualifies, score = ec.detect_pead_setup("NVDA")
         assert qualifies is True
-        assert score == 100
+        assert score == 105  # eps=10% → 25; 4 others × 20 = 80; total = 105
 
 
 # ── Plan 3: Mode Routing & Learning ──────────────────────────────────────────
@@ -3019,6 +3023,16 @@ class TestBuildMarketContextBlock:
             "regime": "BULL_TREND",
             "macro_health_score": 32,
             "vix_current": 18.2,
+            "vix_90d_avg": 20.0,
+            "vix_trend": "declining",
+            "spy_5day_return": 1.5,
+            "consecutive_green_days": 2,
+            "consecutive_red_days": 0,
+            "spy_5day_sign_changes": 1,
+            "sector_scores": {"AI_SEMI": 80, "BROAD_TECH": 60},
+            "hyg_ret5d": 0.3,
+            "iwm_ret5d": 0.5,
+            "vix3m": 19.0,
         }
         base.update(overrides)
         return base
@@ -3041,10 +3055,14 @@ class TestBuildMarketContextBlock:
         base.update(overrides)
         return base
 
+    def _patch_context(self, monkeypatch):
+        """Patch intraday context and breadth to avoid HTTP calls."""
+        monkeypatch.setattr("economic_calendar.is_event_risk_window", lambda now: (False, ""))
+        monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda now: None)
+        monkeypatch.setattr("macro.breadth_signals.build_breadth_context_line", lambda s: "Breadth: HYG=+0.3%")
+
     def test_contains_all_six_fields(self, monkeypatch):
-        monkeypatch.setattr(
-            "economic_calendar.is_event_risk_window", lambda now: (False, "")
-        )
+        self._patch_context(monkeypatch)
         from trading_agent import _build_market_context_block
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -3054,13 +3072,11 @@ class TestBuildMarketContextBlock:
         assert "cutting" in block
         assert "falling" in block
         assert "None active" in block
-        assert "AI_SEMI" in block
+        assert "AI_SEMI" in block   # from sector_scores in regime
         assert "Capitulation watch" in block
 
     def test_shock_score_omitted_when_zero(self, monkeypatch):
-        monkeypatch.setattr(
-            "economic_calendar.is_event_risk_window", lambda now: (False, "")
-        )
+        self._patch_context(monkeypatch)
         from trading_agent import _build_market_context_block
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -3070,9 +3086,7 @@ class TestBuildMarketContextBlock:
         assert "elevated" not in block
 
     def test_shock_score_flagged_when_elevated(self, monkeypatch):
-        monkeypatch.setattr(
-            "economic_calendar.is_event_risk_window", lambda now: (False, "")
-        )
+        self._patch_context(monkeypatch)
         from trading_agent import _build_market_context_block
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -3084,10 +3098,9 @@ class TestBuildMarketContextBlock:
         assert "elevated" in block
 
     def test_active_event_risk_flagged(self, monkeypatch):
-        monkeypatch.setattr(
-            "economic_calendar.is_event_risk_window",
-            lambda now: (True, "Non-Farm Payrolls"),
-        )
+        monkeypatch.setattr("economic_calendar.is_event_risk_window", lambda now: (True, "Non-Farm Payrolls"))
+        monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda now: None)
+        monkeypatch.setattr("macro.breadth_signals.build_breadth_context_line", lambda s: "Breadth: HYG=+0.3%")
         from trading_agent import _build_market_context_block
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -3097,9 +3110,7 @@ class TestBuildMarketContextBlock:
         assert "avoid" in block
 
     def test_capitulation_candidates_listed(self, monkeypatch):
-        monkeypatch.setattr(
-            "economic_calendar.is_event_risk_window", lambda now: (False, "")
-        )
+        self._patch_context(monkeypatch)
         from trading_agent import _build_market_context_block
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -3964,29 +3975,44 @@ class TestProgressiveLoss:
         from trading_agent import _progressive_loss_multiplier
         assert _progressive_loss_multiplier(4) == pytest.approx(0.40)
 
-    def test_count_losses_empty_journal(self):
-        """Empty journal should return zero losses."""
-        from trading_agent import _count_todays_losses
-        assert _count_todays_losses([]) == 0
+    def _write_journal(self, tmp_path, entries):
+        import json, config
+        p = tmp_path / "trade_journal.json"
+        p.write_text(json.dumps(entries))
+        return p
 
-    def test_count_losses_counts_only_today(self):
+    def test_count_losses_empty_journal(self, tmp_path, monkeypatch):
+        """Empty journal should return zero losses."""
+        import config
+        p = self._write_journal(tmp_path, [])
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", p)
+        from trading.journal import count_todays_losses
+        assert count_todays_losses() == 0
+
+    def test_count_losses_counts_only_today(self, tmp_path, monkeypatch):
         """Count only CLOSE entries from today with negative pnl_pct."""
-        from trading_agent import _count_todays_losses
-        journal = [
+        import config
+        entries = [
             self._journal_entry("CLOSE", -1.5, today=True),
             self._journal_entry("CLOSE", -2.0, today=False),  # yesterday
         ]
-        assert _count_todays_losses(journal) == 1
+        p = self._write_journal(tmp_path, entries)
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", p)
+        from trading.journal import count_todays_losses
+        assert count_todays_losses() == 1
 
-    def test_count_losses_ignores_wins(self):
+    def test_count_losses_ignores_wins(self, tmp_path, monkeypatch):
         """Ignore positive pnl_pct and non-CLOSE entries."""
-        from trading_agent import _count_todays_losses
-        journal = [
+        import config
+        entries = [
             self._journal_entry("CLOSE", 2.0, today=True),   # win — ignore
             self._journal_entry("CLOSE", -1.5, today=True),   # loss — count
             self._journal_entry("BUY", -0.5, today=True),     # BUY entry — ignore
         ]
-        assert _count_todays_losses(journal) == 1
+        p = self._write_journal(tmp_path, entries)
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", p)
+        from trading.journal import count_todays_losses
+        assert count_todays_losses() == 1
 
 
 # ── learning_agent: regime win-rate computation ──────────────────────────────────
@@ -4634,12 +4660,16 @@ class TestPeadDetection:
     """Tests for detect_pead_setup — pure logic, no network calls."""
 
     def _perfect_block(self) -> dict:
-        """Return a recently_reported block that satisfies all 5 PEAD conditions."""
+        """Return a recently_reported block that satisfies all 5 PEAD conditions.
+
+        Scoring with graded EPS (eps=10% hits PEAD_EPS_BEAT_SOLID → 25 pts):
+        25 (EPS) + 20 (rev) + 20 (guidance) + 20 (reaction) + 20 (vol) = 105
+        """
         # Use today's date so the block passes the recency gate in recently_reported()
         today = datetime.now(ET).strftime("%Y-%m-%d")
         return {
             "report_date":                today,
-            "eps_surprise_pct":           10.0,   # > PEAD_EPS_SURPRISE_MIN (5%)
+            "eps_surprise_pct":           10.0,   # == PEAD_EPS_BEAT_SOLID → 25 pts
             "revenue_beat":               True,
             "guidance_change":            "raised",
             "earnings_day_return_pct":    5.0,    # > PEAD_DAY_RETURN_MIN (3%)
@@ -4667,7 +4697,7 @@ class TestPeadDetection:
             from earnings_calendar import detect_pead_setup
             qualifies, score = detect_pead_setup("AAPL")
             assert qualifies is True
-            assert score == 100
+            assert score == 105  # 25(eps=10%) + 20×4
         finally:
             config.EARNINGS_CALENDAR_FILE = original
 
@@ -4676,11 +4706,11 @@ class TestPeadDetection:
         original = config.EARNINGS_CALENDAR_FILE
         try:
             block = self._perfect_block()
-            block["eps_surprise_pct"] = 1.0  # below PEAD_EPS_SURPRISE_MIN
+            block["eps_surprise_pct"] = 1.0  # marginal hit ≥1% → 10 pts
             self._write_cache(tmp_path, "MSFT", block)
             from earnings_calendar import detect_pead_setup
             qualifies, score = detect_pead_setup("MSFT")
-            assert score == 80   # 4 of 5 conditions — still qualifies
+            assert score == 90   # 10(eps marginal) + 20×4 — still qualifies
             assert qualifies is True
         finally:
             config.EARNINGS_CALENDAR_FILE = original
@@ -4690,13 +4720,13 @@ class TestPeadDetection:
         original = config.EARNINGS_CALENDAR_FILE
         try:
             block = self._perfect_block()
-            block["eps_surprise_pct"] = 1.0         # miss cond 1
-            block["revenue_beat"] = False            # miss cond 2
+            block["eps_surprise_pct"] = 1.0         # marginal → 10 pts
+            block["revenue_beat"] = False            # miss cond 2 → 0 pts
             self._write_cache(tmp_path, "NVDA", block)
             from earnings_calendar import detect_pead_setup
             qualifies, score = detect_pead_setup("NVDA")
             assert qualifies is False
-            assert score == 60
+            assert score == 70   # 10 + 0 + 20×3 = 70 < threshold 80
         finally:
             config.EARNINGS_CALENDAR_FILE = original
 
@@ -4705,13 +4735,13 @@ class TestPeadDetection:
         original = config.EARNINGS_CALENDAR_FILE
         try:
             block = self._perfect_block()
-            block["guidance_change"] = "lowered"     # miss cond 3
-            block["revenue_beat"] = False            # miss cond 2  => only 3 of 5
+            block["guidance_change"] = "lowered"     # miss cond 3 → 0 pts
+            block["revenue_beat"] = False            # miss cond 2 → 0 pts
             self._write_cache(tmp_path, "TSLA", block)
             from earnings_calendar import detect_pead_setup
             qualifies, score = detect_pead_setup("TSLA")
             assert qualifies is False
-            assert score == 60
+            assert score == 65   # 25(eps=10%) + 0 + 0 + 20×2 = 65 < threshold 80
         finally:
             config.EARNINGS_CALENDAR_FILE = original
 

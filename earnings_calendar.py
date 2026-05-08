@@ -223,10 +223,29 @@ def recently_reported(symbol: str, days: int = 5) -> dict | None:
     return None
 
 
+def _fetch_forward_eps_revision(symbol: str) -> float | None:
+    """30-day revision of next-quarter EPS consensus from Yahoo earningsTrend."""
+    try:
+        data = _yahoo_quote_summary(symbol, "earningsTrend")
+        trend = data.get("earningsTrend", {}).get("trend", [])
+        current_q = next((t for t in trend if t.get("period") == "0q"), None)
+        if not current_q:
+            return None
+        eps_trend = current_q.get("epsTrend", {})
+        current   = eps_trend.get("current",   {}).get("raw")
+        ago_30d   = eps_trend.get("30daysAgo", {}).get("raw")
+        if current is None or ago_30d is None or ago_30d == 0:
+            return None
+        return (current - ago_30d) / abs(ago_30d) * 100
+    except Exception:
+        return None
+
+
 def detect_pead_setup(symbol: str) -> tuple[bool, int]:
     """
     PEAD (post-earnings announcement drift) qualification.
-    Requires 4 of 5 conditions (each = 20 pts), threshold = 80.
+    Score threshold: 80 raw points.
+    Max possible: 130 (blowout EPS=30 + 5 binary conditions × 20 each).
     Returns (qualifies, score).
     """
     block = recently_reported(symbol, days=5)
@@ -235,16 +254,23 @@ def detect_pead_setup(symbol: str) -> tuple[bool, int]:
 
     score = 0
 
-    # Condition 1: EPS beat ≥ PEAD_EPS_SURPRISE_MIN
+    # Condition 1: EPS beat — graded by magnitude
     eps_surp = block.get("eps_surprise_pct")
-    if eps_surp is not None and eps_surp >= config.PEAD_EPS_SURPRISE_MIN:
-        score += 20
+    if eps_surp is not None:
+        if eps_surp >= config.PEAD_EPS_BEAT_STRONG:
+            score += 30   # blowout ≥ 20%
+        elif eps_surp >= config.PEAD_EPS_BEAT_SOLID:
+            score += 25   # strong ≥ 10%
+        elif eps_surp >= config.PEAD_EPS_SURPRISE_MIN:
+            score += 20   # solid ≥ 3%
+        elif eps_surp >= 1.0:
+            score += 10   # marginal beat
 
     # Condition 2: Revenue beat
     if block.get("revenue_beat") is True:
         score += 20
 
-    # Condition 3: Guidance not lowered ("unknown" is OK per spec)
+    # Condition 3: Guidance not lowered ("unknown" is OK)
     guidance = block.get("guidance_change", "unknown")
     if guidance not in ("lowered",):
         score += 20
@@ -259,6 +285,11 @@ def detect_pead_setup(symbol: str) -> tuple[bool, int]:
     # Condition 5: Volume ratio ≥ PEAD_VOLUME_RATIO_MIN
     vr = block.get("earnings_day_volume_ratio")
     if vr is not None and vr >= config.PEAD_VOLUME_RATIO_MIN:
+        score += 20
+
+    # Condition 6: Forward EPS estimates revised upward post-earnings
+    fwd_rev = _fetch_forward_eps_revision(symbol)
+    if fwd_rev is not None and fwd_rev >= config.PEAD_FWD_REVISION_MIN:
         score += 20
 
     return score >= config.PEAD_SCORE_THRESHOLD, score

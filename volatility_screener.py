@@ -53,7 +53,13 @@ def _score_ticker(symbol: str, client: AlpacaClient) -> float:
 
 def run_volatility_screener() -> list[str]:
     raw = config.TICKERS_FILE.read_text().strip().splitlines()
-    tickers = [t.strip().upper() for t in raw if t.strip()]
+    tickers = [
+        t.strip().upper() for t in raw
+        if t.strip() and not t.strip().startswith("#") and t.strip().isalpha()
+    ]
+    dropped = [t.strip() for t in raw if t.strip() and t.strip().upper() not in tickers]
+    if dropped:
+        logger.info("Screener: skipping %d non-alpha/comment lines: %s", len(dropped), dropped[:5])
 
     if len(tickers) <= config.MAX_TICKERS_DIRECT:
         logger.info(f"{len(tickers)} tickers ≤ 50 — no screening needed.")

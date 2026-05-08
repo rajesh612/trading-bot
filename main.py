@@ -288,7 +288,18 @@ def job_position_monitor():
 def job_force_close():
     logger.info("━━━ FORCE CLOSE ALL POSITIONS ━━━")
     from trading_agent import force_close_all
-    _job_guard("force_close", force_close_all)
+    # Pause position_monitor to prevent double-close / double-journal during EOD sweep (RC-4)
+    try:
+        scheduler.pause_job("position_monitor")
+    except Exception:
+        pass
+    try:
+        _job_guard("force_close", force_close_all)
+    finally:
+        try:
+            scheduler.resume_job("position_monitor")
+        except Exception:
+            pass
 
 
 def job_evaluate_eod_holds():
@@ -347,21 +358,26 @@ def job_heartbeat():
 
 def setup_scheduler():
     kw = dict(day_of_week="mon-fri", timezone=ET)
+    # Pre-market jobs: can fire up to 5 min late (slow startup or network delay) and still run.
+    PRE_MARKET_KW = dict(**kw, max_instances=1, misfire_grace_time=300)
+    # Intraday jobs: stale by >30s use bad data — drop them rather than run late.
+    INTRADAY_KW = dict(**kw, max_instances=1, misfire_grace_time=30)
 
-    scheduler.add_job(job_earnings_calendar,   CronTrigger(hour=8,  minute=0,  **kw), id="earnings_calendar",   replace_existing=True)
-    scheduler.add_job(job_economic_calendar,   CronTrigger(hour=8,  minute=30, **kw), id="economic_calendar",   replace_existing=True)
-    scheduler.add_job(job_volatility_screener, CronTrigger(hour=8,  minute=45, **kw), id="volatility_screener", replace_existing=True)
-    scheduler.add_job(job_macro_regime,        CronTrigger(hour=8,  minute=55, **kw), id="macro_regime",        replace_existing=True)
-    scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list")
-    scheduler.add_job(job_swing_gap_check,     CronTrigger(hour=9,  minute=30, **kw), id="swing_gap_check",     replace_existing=True)
-    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True, max_instances=1)
-    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True, max_instances=1)
-    scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",          replace_existing=True)
-    scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",            replace_existing=True)
-    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=20, **kw), id="daily_report",        replace_existing=True)
+    # economic_calendar at 8:20 to avoid race condition with 8:30 bot startup
+    scheduler.add_job(job_earnings_calendar,   CronTrigger(hour=8,  minute=0,  **kw), id="earnings_calendar",   replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_economic_calendar,   CronTrigger(hour=config.ECONOMIC_CALENDAR_HOUR, minute=config.ECONOMIC_CALENDAR_MINUTE, **kw), id="economic_calendar", replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_volatility_screener, CronTrigger(hour=8,  minute=45, **kw), id="volatility_screener", replace_existing=True, **{k: v for k, v in PRE_MARKET_KW.items() if k not in kw})
+    scheduler.add_job(job_macro_regime,        CronTrigger(hour=8,  minute=55, **kw), id="macro_regime",        replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list",          replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_swing_gap_check,     CronTrigger(hour=9,  minute=30, **kw), id="swing_gap_check",     replace_existing=True, max_instances=1, misfire_grace_time=120)
+    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True, max_instances=1, misfire_grace_time=30)
+    scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True, max_instances=1, misfire_grace_time=30)
+    scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",          replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",            replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_daily_report,        CronTrigger(hour=16, minute=20, **kw), id="daily_report",        replace_existing=True, max_instances=1, misfire_grace_time=300)
 
     # Research once at 9:15 AM — after watch list is built, before first trades
-    scheduler.add_job(job_research, CronTrigger(hour=9, minute=15, **kw), id="research", replace_existing=True)
+    scheduler.add_job(job_research, CronTrigger(hour=9, minute=15, **kw), id="research", replace_existing=True, max_instances=1, misfire_grace_time=300)
 
     # Trading every 10 min during market hours
     scheduler.add_job(
@@ -370,6 +386,7 @@ def setup_scheduler():
         id="trading",
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=30,
     )
     # Position monitor every 60 seconds — catches SL/TP hits between trading cycles
     scheduler.add_job(
@@ -378,6 +395,7 @@ def setup_scheduler():
         id="position_monitor",
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=30,
     )
     # Flash-crash market monitor every 5 min — one SPY call, no Claude
     scheduler.add_job(
@@ -385,6 +403,8 @@ def setup_scheduler():
         CronTrigger(minute="*/5", hour="9-15", **kw),
         id="market_monitor",
         replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
     )
     # Heartbeat every 30 min all day — confirms scheduler is alive
     scheduler.add_job(
@@ -392,6 +412,7 @@ def setup_scheduler():
         CronTrigger(minute="*/30", **kw),
         id="heartbeat",
         replace_existing=True,
+        max_instances=1,
     )
 
 

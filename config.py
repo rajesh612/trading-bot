@@ -202,3 +202,28 @@ PROGRESSIVE_LOSS_FLOOR = 0.40     # minimum size multiplier
 EOD_VERIFY_FILLS = True           # skip journal entry if symbol not in alpaca positions
 EOD_PROFITABLE_THRESHOLD = 0.5    # pnl_pct above this → "eod_force_profitable"
 EOD_LOSS_THRESHOLD = -0.5         # pnl_pct below this → "eod_force_loss"
+
+# ── Signal Integrity (2026-05-07) ─────────────────────────────────────────────
+MAX_ENTRIES_PER_CYCLE       = 1       # one BUY per trading cycle maximum
+VWAP_OVEREXTENSION_GATE     = True    # block price > VWAP+2σ
+PARABOLIC_ENTRY_BLOCK       = True    # block parabolic=True entries
+POST_EVENT_POSITION_MULT    = 0.6     # 60% sizing on post-FOMC/NFP/CPI days
+INTRADAY_CONTEXT_TTL_SEC    = 300     # cache SPY intraday context 5 min
+RESEARCH_STALE_WARN_MIN     = 120     # warn if research report > 2h old
+RESEARCH_STALE_BLOCK_MIN    = 480     # skip cycle if research > 8h old
+FETCH_WORKERS               = 6       # parallel fetch threads in pipeline Phase 1
+ECONOMIC_CALENDAR_HOUR      = 8
+ECONOMIC_CALENDAR_MINUTE    = 20      # moved from 8:30 → 8:20 to avoid race with startup
+
+# ── Breadth Signals ───────────────────────────────────────────────────────────
+MACRO_BREADTH_TICKERS: dict[str, str] = {
+    "hyg":  "HYG",
+    "iwm":  "IWM",
+    "xlf":  "XLF",
+    "vix3m": "%5EVIX3M",
+}
+
+# ── PEAD Enhancements ─────────────────────────────────────────────────────────
+PEAD_EPS_BEAT_STRONG        = 20.0    # blowout beat threshold (30 pts)
+PEAD_EPS_BEAT_SOLID         = 10.0    # strong beat threshold (25 pts)
+PEAD_FWD_REVISION_MIN       = 3.0     # forward EPS revision % to qualify as 6th condition

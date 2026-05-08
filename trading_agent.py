@@ -32,10 +32,7 @@ from signals.mtf_confirm import passes_mtf_filter
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-# Prevents duplicate closes when position_monitor and trading_cycle fire simultaneously.
-# Held only for the file read-modify-write; never during API calls.
-_POSITIONS_LOCK = threading.Lock()
+# _POSITIONS_LOCK is imported from trading.journal — shared lock used by all state I/O
 
 
 # ── Persistence helpers ──────────────────────────────────────────────────────
@@ -82,56 +79,17 @@ def load_weights() -> dict:
     return load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
 
-def load_daily_closed() -> set[str]:
-    data = load_json(config.DAILY_CLOSED_FILE, [])
-    return set(data)
+from trading.journal import (
+    load_daily_closed,
+    record_daily_closed,
+    reset_daily_closed,
+    append_trade,
+    archive_old_journal_entries,
+    count_todays_losses,
+    flush_profit_lock_updates,
+    _POSITIONS_LOCK,
+)
 
-
-def record_daily_closed(symbol: str) -> None:
-    closed = load_daily_closed()
-    closed.add(symbol)
-    save_json(config.DAILY_CLOSED_FILE, list(closed))
-
-
-def reset_daily_closed() -> None:
-    save_json(config.DAILY_CLOSED_FILE, [])
-    logger.info("Daily closed list reset for new trading day.")
-
-
-def append_trade(entry: dict):
-    journal = load_json(config.TRADE_JOURNAL_FILE, [])
-    journal.append(entry)
-    save_json(config.TRADE_JOURNAL_FILE, journal)
-
-
-def archive_old_journal_entries() -> None:
-    """
-    Move entries older than TRADE_JOURNAL_MAX_DAYS from trade_journal.json to
-    trade_journal_archive.json. Keeps the active file small for fast reads.
-    """
-    from datetime import date, timezone
-    cutoff = datetime.now(ET) - timedelta(days=config.TRADE_JOURNAL_MAX_DAYS)
-    journal = load_json(config.TRADE_JOURNAL_FILE, [])
-    recent = [e for e in journal if _entry_timestamp(e) >= cutoff]
-    old    = [e for e in journal if _entry_timestamp(e) < cutoff]
-    if not old:
-        return
-    archive_path = config.BASE_DIR / "trade_journal_archive.json"
-    archived = load_json(archive_path, [])
-    save_json(archive_path, archived + old)
-    save_json(config.TRADE_JOURNAL_FILE, recent)
-    logger.info(f"Journal hygiene: archived {len(old)} entries → trade_journal_archive.json")
-
-
-def _entry_timestamp(entry: dict) -> datetime:
-    try:
-        ts = entry.get("timestamp", "")
-        dt = datetime.fromisoformat(ts)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=ET)
-        return dt
-    except (ValueError, TypeError):
-        return datetime.min.replace(tzinfo=ET)
 
 
 # ── EOD close helpers ────────────────────────────────────────────────────────
@@ -297,12 +255,20 @@ def _build_market_context_block(
     now: datetime,
 ) -> str:
     """
-    Assemble a compact (~150 token) market context string for the Claude system prompt.
-    Pure — no file I/O; callers load the dicts and pass them in.
+    Assemble market context for the Claude system prompt.
+    Includes intraday bias + breadth signals so Claude has full picture.
+    Pure — no file I/O; callers pass dicts in.
     """
     regime = regime_info.get("regime", "NORMAL")
     health = regime_info.get("macro_health_score", 0)
     vix    = regime_info.get("vix_current", 0.0)
+    vix_90d = regime_info.get("vix_90d_avg", 0.0)
+    vix_trend = regime_info.get("vix_trend", "unknown")
+    spy5d  = regime_info.get("spy_5day_return", 0.0)
+    green  = regime_info.get("consecutive_green_days", 0)
+    red    = regime_info.get("consecutive_red_days", 0)
+    sign_chg = regime_info.get("spy_5day_sign_changes", 0)
+    sector_scores = regime_info.get("sector_scores", {})
 
     fed   = fred_cache.get("fed_direction", "unknown")
     cpi   = fred_cache.get("cpi_trend", "unknown")
@@ -317,32 +283,45 @@ def _build_market_context_block(
     shock = research_meta.get("macro_shock_score", 0)
     shock_line = f"{shock}/100" + (" — elevated macro stress" if shock >= 40 else "")
 
-    sectors = research_meta.get("sector_sentiment", {})
-    sector_str = " ".join(f"{s}={v:+.0f}" for s, v in sectors.items()) or "N/A"
-
     caps = research_meta.get("capitulation_candidates", [])
     cap_str = ", ".join(caps) if caps else "None"
 
-    return (
-        f"MARKET CONTEXT ({now.strftime('%H:%M')} ET):\n"
-        f"Regime: {regime} | health={health:+d} | VIX={vix:.1f}\n"
-        f"FRED: Fed {fed} | CPI {cpi} | Unemployment {unemp}\n"
-        f"Event risk: {event_line}\n"
-        f"Macro shock: {shock_line}\n"
-        f"Sector sentiment: {sector_str}\n"
-        f"Capitulation watch: {cap_str}"
+    vix_note = ""
+    if vix_90d > 0:
+        vix_note = f" (90d avg={vix_90d:.1f}, {vix_trend})"
+
+    weekly_line = (
+        f"Weekly: SPY{spy5d:+.1f}% ({green}g/{red}r consecutive)"
+        + (f" sign_changes={sign_chg} (choppy)" if sign_chg >= 3 else "")
     )
 
+    sector_score_str = " ".join(f"{k}={v:.0f}" for k, v in sector_scores.items())
 
-def _count_todays_losses(journal: list) -> int:
-    """Count CLOSE entries in today's journal with negative pnl_pct."""
-    from datetime import date
-    today_str = date.today().isoformat()  # "2024-01-15"
-    return sum(
-        1 for entry in journal
-        if entry.get("action") == "CLOSE"
-        and str(entry.get("timestamp", "")).startswith(today_str)
-        and float(entry.get("pnl_pct", 0)) < 0
+    # Breadth signals
+    from macro.breadth_signals import build_breadth_context_line
+    breadth_line = build_breadth_context_line({
+        "hyg_ret5d":    regime_info.get("hyg_ret5d", 0.0),
+        "iwm_ret5d":    regime_info.get("iwm_ret5d", 0.0),
+        "spy_ret5d":    spy5d,
+        "vix_current":  vix,
+        "vix3m":        regime_info.get("vix3m", 0.0),
+    })
+
+    # Intraday context (cached — cheap to call per cycle)
+    from macro.intraday_context import get_intraday_context
+    intraday = get_intraday_context(now)
+    intraday_lines = intraday.to_context_lines() if intraday else "Intraday bias: unavailable"
+
+    return (
+        f"MARKET CONTEXT ({now.strftime('%H:%M')} ET):\n"
+        f"Daily regime: {regime} | health={health:+d} | VIX={vix:.1f}{vix_note}\n"
+        f"{weekly_line}\n"
+        f"{breadth_line}\n"
+        f"Sector scores: {sector_score_str}\n"
+        f"{intraday_lines}\n"
+        f"FRED: Fed {fed} | CPI {cpi} | Unemployment {unemp}\n"
+        f"Event risk: {event_line}\n"
+        f"Macro shock: {shock_line} | Capitulation watch: {cap_str}"
     )
 
 
@@ -372,8 +351,7 @@ def compute_position_size_for_mode(
         qty = max(1.0, round(qty * 0.70))
 
     # Progressive loss reduction: scale down after each loss
-    journal = load_json(config.TRADE_JOURNAL_FILE, [])
-    loss_count = _count_todays_losses(journal)
+    loss_count = count_todays_losses()
     loss_mult = _progressive_loss_multiplier(loss_count)
     if loss_mult < 1.0:
         logger.debug("Progressive loss reduction: %d losses today, multiplier=%.2f", loss_count, loss_mult)
@@ -562,28 +540,26 @@ def _ask_claude_batch(
     market_ctx = _build_market_context_block(
         _get_current_regime_info(), fred_cache, research_meta, now
     )
+    # Cache the full system block — it's stable within a cycle and across same-minute calls.
+    # Cache hit rate improves from ~30% (strategy_memory only) to ~85% (full system stable).
+    system_text = (
+        "You are an expert intraday day trader making final buy/sell decisions.\n"
+        "You receive technical indicators, news sentiment, and market context.\n"
+        "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
+        "Prioritise capital preservation. Never hold overnight.\n"
+        f"Current indicator weights: {json.dumps(weights)}\n\n"
+        f"{market_ctx}"
+    )
+    if strategy_memory:
+        system_text += f"\n\nToday's strategy memory:\n{strategy_memory}"
+
     system_blocks = [
         {
             "type": "text",
-            "text": (
-                "You are an expert intraday day trader making final buy/sell decisions.\n"
-                "You receive technical indicators, news sentiment, and market context.\n"
-                "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
-                "Prioritise capital preservation. Never hold overnight.\n"
-                f"Current indicator weights: {json.dumps(weights)}\n\n"
-                f"{market_ctx}"
-            ),
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
         }
     ]
-    if strategy_memory:
-        block: dict = {
-            "type": "text",
-            "text": f"Today's strategy memory:\n{strategy_memory}",
-        }
-        # Only request caching when the block is large enough (~1024+ tokens ≈ 4000 chars)
-        if len(strategy_memory) >= 3000:
-            block["cache_control"] = {"type": "ephemeral"}
-        system_blocks.append(block)
 
     try:
         response = ai.messages.create(
@@ -827,7 +803,7 @@ def run_position_monitor():
 
         # Apply profit-lock: tighten stop if position is profitable
         pos = _apply_profit_lock(pos, current_price)
-        open_positions[symbol] = pos  # update the dict with the modified position
+        open_positions[symbol] = pos
 
         entry_price = pos["entry_price"]
         pnl_pct = (current_price - entry_price) / entry_price * 100
@@ -848,7 +824,9 @@ def run_position_monitor():
             )
             _close_position(symbol, alpaca, open_positions, current_price, None, "monitor_take_profit")
 
-    save_open_positions(open_positions)
+    # RC-3 fix: merge-write only profit-lock changes — never wipe concurrent BUYs.
+    from trading.journal import flush_profit_lock_updates
+    flush_profit_lock_updates(open_positions)
 
     # ── Swing position tiered TP / trailing stop ──────────────────────────────
     try:
@@ -988,17 +966,10 @@ def run_trading_cycle():
         return
 
     # ── Phase 2: Filter to stocks that need a Claude decision ─────────────────
-    # Open positions: Alpaca bracket orders enforce SL/TP server-side; the
-    # position monitor handles the safety-net layer every 60 s.  Asking Claude
-    # every 10 min for a HOLD/CLOSE opinion on an already-bracketed position
-    # burns tokens without adding value — the view doesn't change that fast.
-    # Claude is only needed to validate potential NEW entries.
-    #
-    # AUTO_BUY path: composite > AUTO_BUY_COMPOSITE_THRESHOLD + all top indicators
-    # aligned → skip Claude, use mode-default SL/TP.  Entry gates still run to
-    # block earnings, event-risk, stop-hunt, and bot-herding scenarios.
-    needs_claude:      list[tuple[str, IndicatorValues, dict | None]] = []
-    auto_buy_decisions: dict[str, dict] = {}
+    # All candidates above composite threshold go to Claude — no AUTO-BUY shortcut.
+    # AUTO-BUY bypassed all entry gates and caused multi-symbol simultaneous entries.
+    from signals.entry_gates import check_all_gates
+    needs_claude: list[tuple[str, IndicatorValues, dict | None]] = []
 
     spy_ret5d = regime_info.get("spy_5day_return", 0.0)
 
@@ -1009,47 +980,21 @@ def run_trading_cycle():
                 f"BRACKET-MANAGED {symbol}: P&L={pnl_pct:+.2f}%, "
                 f"composite={iv.composite_score:+.1f} — Alpaca bracket active, skipping Claude"
             )
+        elif iv.composite_score > config.COMPOSITE_SCORE_THRESHOLD:
+            needs_claude.append((symbol, iv, None))
         else:
-            sentiment_score = research.get(symbol, {}).get("sentiment_score", 0)
-            path = _prefilter_decision(iv, sentiment_score)
-            if path == "AUTO_BUY":
-                mode = get_active_mode(regime, symbol)
-                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv, spy_ret5d, symbol_ret5d)
-                if gate_ok:
-                    sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
-                    auto_buy_decisions[symbol] = {
-                        "action": "BUY",
-                        "confidence": 75,
-                        "reasoning": (
-                            f"Auto-approved: composite={iv.composite_score:+.1f} "
-                            f"with VWAP↑ RSI={iv.rsi:.0f} MACD positive."
-                        ),
-                        "stop_loss_pct": sl_pct,
-                        "take_profit_pct": tp_pct,
-                        "indicator_signals": {
-                            "VWAP": "correct", "RSI": "correct", "MACD": "correct",
-                            "BB": "neutral", "EMA": "correct", "Volume": "neutral",
-                        },
-                    }
-                    logger.info(
-                        f"AUTO-BUY {symbol}: composite={iv.composite_score:+.1f} "
-                        f"sentiment={sentiment_score:+d} — all top indicators aligned, skipping Claude"
-                    )
-                else:
-                    logger.info(f"AUTO-BUY blocked {symbol}: {gate_reason}")
-            elif path == "ASK_CLAUDE":
-                needs_claude.append((symbol, iv, None))
-            else:
-                logger.info(
-                    f"SKIP-CLAUDE {symbol}: composite={iv.composite_score:+.1f} — below entry threshold"
-                )
+            logger.info(
+                f"SKIP-CLAUDE {symbol}: composite={iv.composite_score:+.1f} — below entry threshold"
+            )
 
     # ── Phase 3: Batch Claude calls (CLAUDE_BATCH_SIZE stocks per call) ───────
-    decisions: dict[str, dict] = dict(auto_buy_decisions)  # seed with pre-approved entries
+    decisions: dict[str, dict] = {}
     for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
         batch = needs_claude[i : i + config.CLAUDE_BATCH_SIZE]
         batch_decisions = _ask_claude_batch(batch, research, strategy_memory, weights, ai, fred_cache, research_meta)
         decisions.update(batch_decisions)
+
+    entries_this_cycle = 0   # enforces MAX_ENTRIES_PER_CYCLE cap
 
     # ── Phase 4: Act on decisions ─────────────────────────────────────────────
     for symbol, iv, existing_pos, symbol_ret5d in stock_data:
@@ -1062,10 +1007,6 @@ def run_trading_cycle():
             action = decision.get("action", "HOLD").upper()
 
             if action == "BUY" and not existing_pos and buying_power >= config.MIN_BUYING_POWER and can_open:
-                # No re-entry same day
-                if symbol in daily_closed:
-                    logger.info(f"SKIP {symbol} — already closed today.")
-                    continue
                 # RSI overbought filter (regime-adjusted)
                 if iv.rsi > rsi_max:
                     logger.info(f"SKIP {symbol} — RSI {iv.rsi:.1f} > {rsi_max} (regime={regime}).")
@@ -1098,12 +1039,25 @@ def run_trading_cycle():
                     )
                     continue
 
-                # Entry gates: earnings, event risk, stop-hunt, bot herding, RS filter
-                # (For AUTO_BUY these already ran in Phase 2; re-check here is cheap + safe)
-                gate_ok, gate_reason = _check_entry_gates(symbol, regime, mode, iv, spy_ret5d, symbol_ret5d)
-                if not gate_ok:
-                    logger.info(f"SKIP {symbol} — entry gate: {gate_reason}")
+                # All entry gates (hard + soft): time, per-cycle cap, daily_closed, VWAP
+                # overextension, parabolic, stop-hunt, RS, MTF, correlation. No bypass.
+                try:
+                    bars_15min = get_intraday_bars(symbol, lookback=config.MTF_BARS_LOOKBACK, timeframe_min=config.MTF_TIMEFRAME_MINUTES)
+                except Exception:
+                    bars_15min = None
+
+                gate = check_all_gates(
+                    symbol=symbol, iv=iv,
+                    open_positions=open_positions, daily_closed=daily_closed,
+                    bars_15min=bars_15min, now=now,
+                    entries_this_cycle=entries_this_cycle,
+                    spy_ret5d=spy_ret5d, symbol_ret5d=symbol_ret5d, mode=mode,
+                )
+                if not gate.passed:
+                    logger.info(f"SKIP {symbol} — gate: {gate.reason}")
                     continue
+                if gate.flags:
+                    logger.info(f"ENTRY {symbol} flagged: {', '.join(gate.flags)}")
 
                 # Effective composite gate — squeeze loosens, herding/choppy tightens
                 if iv.squeeze_setup:
@@ -1143,23 +1097,13 @@ def run_trading_cycle():
                 if iv.squeeze_setup and decision.get("confidence", 0) >= config.SQUEEZE_CONFIDENCE_GATE:
                     sl_pct, tp_pct = 6.0, 5.0  # fast trailing exit for squeeze plays
 
-                # Multi-timeframe confirmation: 15-min EMA(9) > EMA(21)
-                try:
-                    bars_15min = get_intraday_bars(symbol, lookback=config.MTF_BARS_LOOKBACK, timeframe_min=config.MTF_TIMEFRAME_MINUTES)
-                    if not passes_mtf_filter(bars_15min):
-                        logger.info(f"SKIP {symbol} — MTF filter blocked (15-min EMA9 < EMA21)")
-                        continue
-                except Exception as exc:
-                    logger.warning(f"MTF fetch failed for {symbol}: {exc} — allowing entry anyway")
-
-                # Guard against concurrent cycles (same process multiple threads, or multiple
-                # processes from bot restarts) both seeing an empty slot and both buying.
-                # Re-read from disk inside the lock — same pattern as _close_position.
+                # Concurrent guard: re-read from disk inside lock before placing order.
                 with _POSITIONS_LOCK:
                     disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
-                    if symbol in disk_positions:
-                        logger.info(f"SKIP {symbol} — already in open positions (concurrent cycle guard).")
-                        open_positions[symbol] = disk_positions[symbol]
+                    disk_closed = set(load_json(config.DAILY_CLOSED_FILE, []))
+                    if symbol in disk_positions or symbol in disk_closed:
+                        logger.info(f"SKIP {symbol} — concurrent cycle guard (disk check).")
+                        open_positions.update(disk_positions)
                         continue
 
                 # Bracket order: Alpaca enforces SL and TP server-side instantly
@@ -1220,9 +1164,11 @@ def run_trading_cycle():
                     "pnl_pct": None,
                     "pnl_dollar": None,
                 })
+                entries_this_cycle += 1
                 logger.info(
                     f"BUY {qty:.0f}x {symbol} @ ~${iv.current_price:.2f} | mode={mode} | "
                     f"SL=${order['stop_loss_price']} TP=${order['take_profit_price']} | "
+                    f"cycle_entry={entries_this_cycle}/{config.MAX_ENTRIES_PER_CYCLE} | "
                     f"{decision.get('reasoning', '')}"
                 )
                 telegram_notify.notify_buy(
@@ -1265,19 +1211,25 @@ def force_close_all():
 
     open_positions = load_open_positions()
 
+    # Fetch live positions once before the loop — not per-symbol (saves API calls, CC-2 fix)
+    live_symbols: set[str] | None = None
+    if config.EOD_VERIFY_FILLS:
+        try:
+            live_symbols = set(alpaca.get_positions().keys())
+        except Exception as exc:
+            logger.warning("EOD: could not fetch live positions for fill verification: %s", exc)
+
     for symbol, pos in list(open_positions.items()):
         if symbol in swing_symbols:
-            continue  # promoted to swing — do not journal or close
+            continue
 
-        # Fix A — Phantom journal skip: verify symbol exists in live Alpaca positions
-        if config.EOD_VERIFY_FILLS:
-            live_symbols = set(alpaca.get_positions().keys())
-            if symbol not in live_symbols:
-                logger.warning(
-                    "EOD: %s not in Alpaca positions (phantom entry) — skipping journal", symbol
-                )
-                open_positions.pop(symbol, None)
-                continue
+        # Phantom journal skip: verify fill using pre-fetched live_symbols
+        if live_symbols is not None and symbol not in live_symbols:
+            logger.warning(
+                "EOD: %s not in Alpaca positions (phantom entry) — skipping journal", symbol
+            )
+            open_positions.pop(symbol, None)
+            continue
 
         try:
             price = alpaca.get_latest_price(symbol)
@@ -1288,7 +1240,7 @@ def force_close_all():
         pnl_pct = (price - pos["entry_price"]) / pos["entry_price"] * 100
         pnl_dollar = (price - pos["entry_price"]) * pos["qty"]
 
-        # Fix C — Retry on close failure
+        # Retry on close failure; fall back to close_all if retry fails
         try:
             alpaca.close_position(symbol)
         except Exception as e:
@@ -1303,13 +1255,12 @@ def force_close_all():
                 except Exception:
                     pass
                 try:
-                    remaining = list(alpaca.get_positions().keys())
-                    if remaining:
-                        telegram_notify._send(f"⚠️ EOD close failed, positions still open: {remaining}")
+                    remaining_open = list(alpaca.get_positions().keys())
+                    if remaining_open:
+                        telegram_notify._send(f"⚠️ EOD close failed, positions still open: {remaining_open}")
                 except Exception:
                     pass
 
-        # Fix B — Close reason classification
         append_trade({
             "type": "CLOSE",
             "symbol": symbol,

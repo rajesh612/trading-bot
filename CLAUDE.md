@@ -229,3 +229,33 @@ All JSON file reads and writes must go through `utils.io_utils.load_json` / `sav
 ### Startup exits
 
 Never call `sys.exit()` directly in `main.py`. Always use `_exit_with_alert()` so a Telegram notification fires before the process exits. This prevents silent startup failures when the bot auto-starts overnight.
+
+### Module size limits
+
+No source file may exceed 300 lines. No test file may exceed 1,000 lines. If a file is approaching the limit, extract a focused submodule before adding more code.
+
+### Test file naming convention
+
+Test files are domain-scoped, not monolithic:
+- `tests/test_signals.py` — signals/ package unit tests
+- `tests/test_trading.py` — trading/ package unit tests
+- `tests/test_indicators.py` — indicator_engine.py unit tests
+- `tests/test_foundation.py` — macro, regime, swing, research, earnings
+
+Never add a new test class to `test_foundation.py` if it belongs in a more specific file.
+
+### No AUTO-BUY shortcuts
+
+All BUY orders must pass `check_all_gates()` before execution. No order bypasses gate checks for any reason — not for high composite scores, not for high sentiment. The gate-bypass pattern is the root cause of multiple production losses.
+
+### Locks for all shared state
+
+Any read-modify-write on a JSON state file shared between scheduler jobs must hold the corresponding lock from `trading/journal.py` (`_POSITIONS_LOCK`, `_DAILY_CLOSED_LOCK`, `_JOURNAL_LOCK`). Never read-modify-write shared state without a lock.
+
+### Intraday context is required for Claude
+
+`_build_market_context_block()` must include `IntradayContext` (spy_today_pct, bias, sector performance) and post-event-day flag. Claude cannot make informed decisions with only the daily regime snapshot.
+
+### Scheduler job defaults
+
+Every `scheduler.add_job()` call must specify `max_instances=1` and `misfire_grace_time`. Use `misfire_grace_time=300` for pre-market jobs (before 9:15 ET) and `misfire_grace_time=30` for intraday jobs.

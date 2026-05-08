@@ -144,28 +144,38 @@ def compute_macro_health_score(signals: dict, fred_modifier: int = 0) -> int:
     """
     Compute macro_health_score in [-100, 100] from Yahoo signals + FRED modifier.
     signals: {vix_closes, spy_ret5d, wti_ret5d, gold_ret5d, dxy_ret5d,
-              tnx_ret5d, soxx_ret5d, qqq_ret5d}
+              tnx_ret5d, soxx_ret5d, qqq_ret5d,
+              hyg_ret5d, iwm_ret5d, vix_current, vix3m}
+    Weights sum to 1.0; breadth signals added 2026-05-07.
     """
+    from macro.breadth_signals import score_hyg, score_iwm_vs_spy, score_vix_term_structure
+
     weights = {
-        "vix":  0.20,
-        "spy":  0.20,
-        "soxx": 0.15,
-        "qqq":  0.10,
-        "wti":  0.10,
-        "tnx":  0.09,
-        "gold": 0.08,
-        "dxy":  0.08,
+        "vix":      0.15,
+        "spy":      0.17,
+        "hyg":      0.12,
+        "soxx":     0.12,
+        "iwm_spy":  0.08,
+        "qqq":      0.08,
+        "vix_term": 0.06,
+        "wti":      0.07,
+        "tnx":      0.07,
+        "gold":     0.05,
+        "dxy":      0.03,
     }
 
     raw_scores = {
-        "vix":  _score_vix(signals.get("vix_closes", [])),
-        "spy":  _score_spy(signals.get("spy_ret5d", 0.0)),
-        "soxx": _score_tech(signals.get("soxx_ret5d", 0.0), 2.0, -1.0),
-        "qqq":  _score_tech(signals.get("qqq_ret5d", 0.0),  1.5, -1.0),
-        "wti":  _score_wti(signals.get("wti_ret5d", 0.0)),
-        "tnx":  _score_tnx(signals.get("tnx_ret5d", 0.0)),
-        "gold": _score_gold(signals.get("gold_ret5d", 0.0)),
-        "dxy":  _score_dxy(signals.get("dxy_ret5d", 0.0)),
+        "vix":      _score_vix(signals.get("vix_closes", [])),
+        "spy":      _score_spy(signals.get("spy_ret5d", 0.0)),
+        "hyg":      score_hyg(signals.get("hyg_ret5d", 0.0)),
+        "soxx":     _score_tech(signals.get("soxx_ret5d", 0.0), 2.0, -1.0),
+        "iwm_spy":  score_iwm_vs_spy(signals.get("iwm_ret5d", 0.0), signals.get("spy_ret5d", 0.0)),
+        "qqq":      _score_tech(signals.get("qqq_ret5d", 0.0), 1.5, -1.0),
+        "vix_term": score_vix_term_structure(signals.get("vix_current", 0.0), signals.get("vix3m", 0.0)),
+        "wti":      _score_wti(signals.get("wti_ret5d", 0.0)),
+        "tnx":      _score_tnx(signals.get("tnx_ret5d", 0.0)),
+        "gold":     _score_gold(signals.get("gold_ret5d", 0.0)),
+        "dxy":      _score_dxy(signals.get("dxy_ret5d", 0.0)),
     }
 
     weighted_sum = sum(weights[k] * raw_scores[k] for k in weights)
@@ -433,6 +443,7 @@ def fetch_macro_regime() -> dict:
         "tnx":  "%5ETNX",
         "soxx": "SOXX",
         "qqq":  "QQQ",
+        **config.MACRO_BREADTH_TICKERS,   # HYG, IWM, XLF, VIX3M
     }
 
     now = datetime.now(ET)
@@ -472,8 +483,14 @@ def fetch_macro_regime() -> dict:
         soxx_ret5d = _ret5d(closes.get("soxx", []))
         qqq_ret5d  = _ret5d(closes.get("qqq", []))
 
+        hyg_ret5d = _ret5d(closes.get("hyg", []))
+        iwm_ret5d = _ret5d(closes.get("iwm", []))
+        vix3m_closes = closes.get("vix3m", [])
+        vix3m_current = vix3m_closes[-1] if vix3m_closes else 0.0
+
         signals = {
             "vix_closes":   vix_closes,
+            "vix_current":  vix_current,
             "spy_ret5d":    spy_5day_return,
             "wti_ret5d":    _ret5d(closes.get("wti", [])),
             "gold_ret5d":   _ret5d(closes.get("gold", [])),
@@ -481,6 +498,9 @@ def fetch_macro_regime() -> dict:
             "tnx_ret5d":    _ret5d(closes.get("tnx", [])),
             "soxx_ret5d":   soxx_ret5d,
             "qqq_ret5d":    qqq_ret5d,
+            "hyg_ret5d":    hyg_ret5d,
+            "iwm_ret5d":    iwm_ret5d,
+            "vix3m":        vix3m_current,
         }
 
         macro_health = compute_macro_health_score(signals, fred_modifier)
@@ -554,6 +574,9 @@ def fetch_macro_regime() -> dict:
             "vix_90d_avg":             round(vix_90d_avg, 2),
             "vix_trend":               vix_trend,
             "spy_5day_return":         round(spy_5day_return, 2),
+            "hyg_ret5d":               round(hyg_ret5d, 2),
+            "iwm_ret5d":               round(iwm_ret5d, 2),
+            "vix3m":                   round(vix3m_current, 2),
             "flash_crash_active":      flash_crash_active,
             "flash_crash_until":       flash_crash_until,
             "flash_crash_candidate":   None,

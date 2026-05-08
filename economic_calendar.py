@@ -123,15 +123,41 @@ def refresh_economic_calendar() -> None:
     # Filter to today's events only
     todays = [e for e in events if e.get("date") == today_str]
 
+    # Carry forward previous events for post-event-day detection
+    try:
+        from utils.io_utils import load_json
+        prev_cache = load_json(config.ECONOMIC_CALENDAR_FILE, {})
+        prior_events = prev_cache.get("events", [])
+    except Exception:
+        prior_events = []
+
     payload = {
-        "date":   today_str,
-        "events": todays,
-        "source": source,
+        "date":         today_str,
+        "events":       todays,
+        "prior_events": prior_events,
+        "source":       source,
     }
     with open(config.ECONOMIC_CALENDAR_FILE, "w") as f:
         json.dump(payload, f, indent=2)
 
     logger.info(f"Economic calendar: {len(todays)} high-impact events today (source={source})")
+
+
+def is_post_major_event_day(now: datetime) -> tuple[bool, str]:
+    """Returns (True, event_name) if yesterday had a FOMC/NFP/CPI/PCE/JOLTS event."""
+    try:
+        with open(config.ECONOMIC_CALENDAR_FILE) as f:
+            data = json.load(f)
+        prior = data.get("prior_events", [])
+    except Exception:
+        return False, ""
+
+    high_impact = ["FOMC", "NFP", "CPI", "PCE", "JOLTS"]
+    for evt in prior:
+        name = evt.get("name", "").upper()
+        if any(tag in name for tag in high_impact):
+            return True, evt.get("name", "")
+    return False, ""
 
 
 def _load_todays_events() -> list[dict]:
