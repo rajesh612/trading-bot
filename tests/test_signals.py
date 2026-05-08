@@ -442,3 +442,169 @@ class TestEntryGates:
         )
         assert result.passed is True
         assert any("rs_weak" in f for f in result.flags)
+
+
+# ── signals.entry_gates: integration (multi-gate sequences) ──────────────────
+
+@pytest.mark.unit
+class TestCheckAllGates:
+    """Integration tests: verifies gate priority ordering and multi-gate behavior."""
+
+    def _now_open(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    def _now_closed(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 9, 40, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    @staticmethod
+    def _iv(**overrides):
+        base = dict(
+            current_price=100.0,
+            vwap=99.0,
+            vwap_std2_upper=110.0,
+            stop_hunt_zone=False,
+            parabolic=False,
+            momentum_exhaustion=False,
+            bot_herding_score=0,
+            squeeze_setup=False,
+        )
+        base.update(overrides)
+        return types.SimpleNamespace(**base)
+
+    def _patch_calendars(self, monkeypatch):
+        import earnings_calendar as ec
+        import economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    # ── Gate ordering ─────────────────────────────────────────────────────────
+
+    def test_time_gate_fires_before_cap(self, monkeypatch):
+        """Time gate (1) fires before per-cycle cap (2) — both conditions present."""
+        import config
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(), {}, set(), None,
+            self._now_closed(),                        # outside window
+            entries_this_cycle=config.MAX_ENTRIES_PER_CYCLE,  # cap also hit
+        )
+        assert result.passed is False
+        assert "time" in result.reason                # time gate message, not cap
+
+    def test_cap_fires_before_daily_closed(self, monkeypatch):
+        """Cap (2) fires before daily-closed check (3)."""
+        import config
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(), {}, {"NVDA"}, None,
+            self._now_open(),
+            entries_this_cycle=config.MAX_ENTRIES_PER_CYCLE,  # cap fires
+        )
+        assert result.passed is False
+        assert "cap" in result.reason                  # not "closed today"
+
+    def test_stop_hunt_fires_before_vwap_check(self, monkeypatch):
+        """Stop-hunt (6) is checked before VWAP overextension (7)."""
+        import config
+        monkeypatch.setattr(config, "VWAP_OVEREXTENSION_GATE", True)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = self._iv(stop_hunt_zone=True, current_price=120.0, vwap_std2_upper=100.0)
+        result = check_all_gates("NVDA", iv, {}, set(), None, self._now_open(), 0)
+        assert result.passed is False
+        assert "stop-hunt" in result.reason            # not VWAP message
+
+    def test_vwap_gate_fires_before_parabolic(self, monkeypatch):
+        """VWAP overextension (7) is checked before parabolic (8)."""
+        import config
+        monkeypatch.setattr(config, "VWAP_OVEREXTENSION_GATE", True)
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", True)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = self._iv(current_price=120.0, vwap_std2_upper=100.0, parabolic=True)
+        result = check_all_gates("NVDA", iv, {}, set(), None, self._now_open(), 0)
+        assert result.passed is False
+        assert "VWAP" in result.reason                 # not parabolic
+
+    # ── Hard gate short-circuits soft gates ───────────────────────────────────
+
+    def test_hard_gate_produces_no_flags(self, monkeypatch):
+        """When a hard gate blocks, flags list is empty (soft gates never run)."""
+        import config
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", True)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # Parabolic hard veto + weak RS (would be soft flag if we got there)
+        iv = self._iv(parabolic=True)
+        result = check_all_gates(
+            "NVDA", iv, {}, set(), None,
+            self._now_open(), entries_this_cycle=0,
+            spy_ret5d=10.0, symbol_ret5d=-5.0,         # weak RS — soft gate
+        )
+        assert result.passed is False
+        assert result.flags == ()                      # no soft flags collected
+
+    # ── Soft gates accumulate ─────────────────────────────────────────────────
+
+    def test_multiple_soft_flags_accumulate(self, monkeypatch):
+        """Weak RS + unavailable MTF bars both add flags; symbol still passes."""
+        import config
+        monkeypatch.setattr(config, "VWAP_OVEREXTENSION_GATE", False)
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", False)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(), {}, set(),
+            None,                                      # None → mtf_unavailable flag
+            self._now_open(), entries_this_cycle=0,
+            spy_ret5d=10.0, symbol_ret5d=-5.0,         # weak RS flag
+        )
+        assert result.passed is True
+        assert len(result.flags) >= 1                  # at least rs_weak
+
+    def test_clean_symbol_no_flags(self, monkeypatch):
+        """Fully clean symbol — passed=True, reason='', flags=()."""
+        import config
+        monkeypatch.setattr(config, "VWAP_OVEREXTENSION_GATE", True)
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", True)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(), {}, set(), None,
+            self._now_open(), entries_this_cycle=0,
+        )
+        assert result.passed is True
+        assert result.reason == ""
+        assert result.flags == ()
+
+    # ── Immutability ──────────────────────────────────────────────────────────
+
+    def test_gate_result_is_frozen(self, monkeypatch):
+        """GateResult is a frozen dataclass — mutation raises AttributeError."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(), {}, set(), None,
+            self._now_open(), entries_this_cycle=0,
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            result.passed = False  # type: ignore[misc]
+
+    # ── Specific gate reasons ─────────────────────────────────────────────────
+
+    def test_gate_result_reason_populated_on_block(self, monkeypatch):
+        """Every blocking gate populates reason with a non-empty string."""
+        import config
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", True)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(parabolic=True), {}, set(), None,
+            self._now_open(), entries_this_cycle=0,
+        )
+        assert result.passed is False
+        assert len(result.reason) > 0

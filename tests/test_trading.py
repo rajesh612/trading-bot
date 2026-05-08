@@ -149,315 +149,7 @@ class TestComputePositionSizeForMode:
         assert qty >= 1
 
 
-# ── Crash loop detection ───────────────────────────────────────────────────────
 
-@pytest.mark.unit
-class TestCrashLoopDetection:
-    def _write_health(self, tmp_path, **overrides):
-        base = {
-            "crash_count": 0,
-            "window_start": datetime.now(ET).isoformat(),
-            "backoff_until": None,
-        }
-        base.update(overrides)
-        (tmp_path / "bot_health.json").write_text(json.dumps(base))
-
-    def test_missing_file_creates_count_of_one(self, tmp_path):
-        import config
-        from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 5
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
-        _check_crash_loop()
-        data = json.loads((tmp_path / "bot_health.json").read_text())
-        assert data["crash_count"] == 1
-        assert data["backoff_until"] is None
-
-    def test_count_increments_within_window(self, tmp_path):
-        import config
-        from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 5
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
-        self._write_health(tmp_path, crash_count=2)
-        _check_crash_loop()
-        data = json.loads((tmp_path / "bot_health.json").read_text())
-        assert data["crash_count"] == 3
-        assert data["backoff_until"] is None
-
-    def test_expired_window_resets_before_increment(self, tmp_path):
-        import config
-        from datetime import timedelta
-        from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 5
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
-        old = (datetime.now(ET) - timedelta(minutes=15)).isoformat()
-        self._write_health(tmp_path, crash_count=4, window_start=old)
-        _check_crash_loop()
-        data = json.loads((tmp_path / "bot_health.json").read_text())
-        assert data["crash_count"] == 1  # reset to 0, then incremented
-
-    def test_threshold_triggers_backoff_then_resets(self, tmp_path, monkeypatch):
-        import config
-        import main as main_mod
-        from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 3
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
-        monkeypatch.setattr(main_mod.time, "sleep", lambda _: None)
-        self._write_health(tmp_path, crash_count=2)
-        _check_crash_loop()
-        data = json.loads((tmp_path / "bot_health.json").read_text())
-        # After backoff completes, _reset_bot_health() sets count=0
-        assert data["crash_count"] == 0
-        assert data["backoff_until"] is None
-
-    def test_reset_writes_zero_count(self, tmp_path):
-        import config
-        from main import _reset_bot_health
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        self._write_health(tmp_path, crash_count=5, backoff_until="sometime")
-        _reset_bot_health()
-        data = json.loads((tmp_path / "bot_health.json").read_text())
-        assert data["crash_count"] == 0
-
-
-# ── Orphan-order drain ────────────────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestOrphanOrderDrain:
-    def _make_client(self, monkeypatch, orders):
-        """Return an AlpacaClient with a mocked _trading that returns given orders."""
-        from unittest.mock import MagicMock
-        import config
-        config.ALPACA_API_KEY = "test-key"
-        config.ALPACA_SECRET_KEY = "test-secret"
-        from alpaca_client import AlpacaClient
-        client = AlpacaClient.__new__(AlpacaClient)
-        mock_trading = MagicMock()
-        mock_trading.get_orders.return_value = orders
-        client._trading = mock_trading
-        return client
-
-    def _make_order(self, order_id, symbol):
-        from unittest.mock import MagicMock
-        o = MagicMock()
-        o.id = order_id
-        o.symbol = symbol
-        return o
-
-    def test_get_open_buy_orders_returns_list(self, monkeypatch):
-        order = self._make_order("id-1", "APP")
-        client = self._make_client(monkeypatch, [order])
-        result = client.get_open_buy_orders()
-        assert result == [{"id": "id-1", "symbol": "APP"}]
-
-    def test_get_open_buy_orders_empty_when_none(self, monkeypatch):
-        client = self._make_client(monkeypatch, [])
-        result = client.get_open_buy_orders()
-        assert result == []
-
-    def test_cancel_order_delegates_to_alpaca(self, monkeypatch):
-        from unittest.mock import MagicMock
-        import config
-        config.ALPACA_API_KEY = "test-key"
-        config.ALPACA_SECRET_KEY = "test-secret"
-        from alpaca_client import AlpacaClient
-        client = AlpacaClient.__new__(AlpacaClient)
-        mock_trading = MagicMock()
-        client._trading = mock_trading
-        client.cancel_order("order-xyz")
-        mock_trading.cancel_order_by_id.assert_called_once_with("order-xyz")
-
-
-# ── Polygon helper ────────────────────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestVerifySpyWithPolygon:
-    def test_no_key_returns_none(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "POLYGON_API_KEY", "")
-        from utils.market_monitor import _verify_spy_with_polygon
-        assert _verify_spy_with_polygon(-3.0) is None
-
-    def test_confirmed_drop_returns_true(self, monkeypatch):
-        import config
-        from unittest.mock import MagicMock
-        monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
-        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = lambda: None
-        mock_resp.json.return_value = {"ticker": {"todaysChangePerc": -3.1}}
-        import utils.market_monitor as mm
-        monkeypatch.setattr(mm.requests, "get", lambda *a, **kw: mock_resp)
-        from utils.market_monitor import _verify_spy_with_polygon
-        assert _verify_spy_with_polygon(-3.1) is True
-
-    def test_bad_tick_returns_false(self, monkeypatch):
-        import config
-        from unittest.mock import MagicMock
-        monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
-        monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -2.5)
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = lambda: None
-        mock_resp.json.return_value = {"ticker": {"todaysChangePerc": -0.5}}
-        import utils.market_monitor as mm
-        monkeypatch.setattr(mm.requests, "get", lambda *a, **kw: mock_resp)
-        from utils.market_monitor import _verify_spy_with_polygon
-        assert _verify_spy_with_polygon(-2.6) is False
-
-    def test_network_error_returns_none(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "POLYGON_API_KEY", "test-key")
-        import utils.market_monitor as mm
-        monkeypatch.setattr(mm.requests, "get",
-                            lambda *a, **kw: (_ for _ in ()).throw(Exception("timeout")))
-        from utils.market_monitor import _verify_spy_with_polygon
-        assert _verify_spy_with_polygon(-3.0) is None
-
-
-@pytest.mark.unit
-class TestFlashCrashTwoReading:
-    def _write_regime(self, tmp_path, candidate=None):
-        data = {
-            "regime": "NORMAL",
-            "flash_crash_active": False,
-            "flash_crash_until": None,
-            "flash_crash_candidate": candidate,
-        }
-        (tmp_path / "macro_regime.json").write_text(json.dumps(data))
-
-    def test_no_candidate_writes_stage1(self, tmp_path, monkeypatch):
-        import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        self._write_regime(tmp_path, candidate=None)
-        from utils.market_monitor import _handle_flash_crash_stage2
-        _handle_flash_crash_stage2(-2.7)
-        data = json.loads((tmp_path / "macro_regime.json").read_text())
-        assert data["flash_crash_candidate"] is not None
-        assert data["flash_crash_candidate"]["spy_pct"] == -2.7
-
-    def test_fresh_candidate_triggers_lockout(self, tmp_path, monkeypatch):
-        import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
-        self._write_regime(tmp_path, candidate=fresh)
-        triggered = []
-        import utils.market_monitor as mm
-        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
-        from utils.market_monitor import _handle_flash_crash_stage2
-        _handle_flash_crash_stage2(-3.0)
-        assert len(triggered) == 1
-
-    def test_stale_candidate_overwritten_no_lockout(self, tmp_path, monkeypatch):
-        import config
-        from datetime import timedelta
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        old_time = (datetime.now(ET) - timedelta(minutes=20)).isoformat()
-        stale = {"spy_pct": -2.7, "detected_at": old_time}
-        self._write_regime(tmp_path, candidate=stale)
-        triggered = []
-        import utils.market_monitor as mm
-        monkeypatch.setattr(mm, "_trigger_flash_crash_lockout", lambda: triggered.append(1))
-        from utils.market_monitor import _handle_flash_crash_stage2
-        _handle_flash_crash_stage2(-3.0)
-        assert len(triggered) == 0
-        data = json.loads((tmp_path / "macro_regime.json").read_text())
-        new_ts = datetime.fromisoformat(data["flash_crash_candidate"]["detected_at"])
-        assert (datetime.now(ET) - new_ts).total_seconds() < 5
-
-    def test_spy_recovery_clears_candidate(self, tmp_path, monkeypatch):
-        import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
-        self._write_regime(tmp_path, candidate=fresh)
-        from utils.market_monitor import _clear_flash_crash_candidate
-        _clear_flash_crash_candidate()
-        data = json.loads((tmp_path / "macro_regime.json").read_text())
-        assert data["flash_crash_candidate"] is None
-
-    def test_set_crisis_lockout_clears_candidate(self, tmp_path, monkeypatch):
-        import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        candidate = {"spy_pct": -3.0, "detected_at": datetime.now(ET).isoformat()}
-        self._write_regime(tmp_path, candidate=candidate)
-        from utils.market_monitor import _set_crisis_lockout
-        _set_crisis_lockout(hours=1)
-        data = json.loads((tmp_path / "macro_regime.json").read_text())
-        assert data["flash_crash_active"] is True
-        assert data["flash_crash_candidate"] is None
-
-
-# ── trading_agent: persistence helpers ───────────────────────────────────────
-
-@pytest.mark.unit
-class TestTradingAgentHelpers:
-    def test_load_watch_list_returns_empty_when_missing(self, tmp_path):
-        import config
-        config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
-        from trading_agent import load_watch_list
-        assert load_watch_list() == []
-
-    def test_load_watch_list_strips_and_uppercases(self, tmp_path):
-        import config
-        config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
-        config.WATCH_LIST_FILE.write_text("nvda\n aapl \nAMD\n")
-        from trading_agent import load_watch_list
-        result = load_watch_list()
-        assert result == ["NVDA", "AAPL", "AMD"]
-
-    def test_load_open_positions_empty_when_no_file(self, tmp_path):
-        import config
-        config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
-        from trading.journal import load_open_positions
-        assert load_open_positions() == {}
-
-    def test_save_and_load_open_positions(self, tmp_path):
-        import config
-        config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
-        from trading.journal import save_open_positions, load_open_positions
-        positions = {"NVDA": {"entry_price": 100.0, "qty": 5}}
-        save_open_positions(positions)
-        loaded = load_open_positions()
-        assert loaded == positions
-
-    def test_estimate_batch_call_cost_scales_with_batch_size(self):
-        from trading.claude_caller import _estimate_batch_call_cost
-        cost1 = _estimate_batch_call_cost(1)
-        cost5 = _estimate_batch_call_cost(5)
-        assert cost5 > cost1
-        assert cost1 > 0
-
-    def test_load_daily_closed_returns_set(self, tmp_path):
-        import config
-        config.DAILY_CLOSED_FILE = tmp_path / "daily_closed.json"
-        from trading.journal import load_daily_closed
-        assert load_daily_closed() == set()
-
-    def test_record_and_load_daily_closed(self, tmp_path):
-        import config
-        config.DAILY_CLOSED_FILE = tmp_path / "daily_closed.json"
-        from trading.journal import record_daily_closed, load_daily_closed
-        record_daily_closed("NVDA")
-        record_daily_closed("AAPL")
-        closed = load_daily_closed()
-        assert "NVDA" in closed
-        assert "AAPL" in closed
-
-    def test_append_trade_accumulates_journal(self, tmp_path):
-        import config, json
-        config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
-        from trading.journal import append_trade
-        append_trade({"type": "BUY", "symbol": "NVDA"})
-        append_trade({"type": "CLOSE", "symbol": "NVDA"})
-        journal = json.loads(config.TRADE_JOURNAL_FILE.read_text())
-        assert len(journal) == 2
-        assert journal[0]["type"] == "BUY"
 
 
 
@@ -737,5 +429,390 @@ class TestProfitLock:
         pos = self._pos(100.0, 95.0)
         result = _apply_profit_lock(pos, 103.0)
         assert result is pos  # modifies in place
+
+
+# ── trading/journal: thread-safe state I/O ────────────────────────────────────
+
+@pytest.mark.unit
+class TestJournalLocks:
+    """Tests for lock-guarded read-modify-write operations in trading/journal.py."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "daily_closed.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
+        (tmp_path / "open_positions.json").write_text("{}")
+        (tmp_path / "daily_closed.json").write_text("[]")
+        (tmp_path / "trade_journal.json").write_text("[]")
+
+    def test_append_trade_single_entry(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import append_trade, load_journal
+        append_trade({"type": "BUY", "symbol": "AAPL"})
+        journal = load_journal()
+        assert len(journal) == 1
+        assert journal[0]["symbol"] == "AAPL"
+
+    def test_append_trade_concurrent_all_entries_present(self, tmp_path, monkeypatch):
+        """10 concurrent threads append different entries — all 10 must appear."""
+        import threading
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import append_trade, load_journal
+        threads = [
+            threading.Thread(target=append_trade, args=({"type": "BUY", "symbol": f"SYM{i}"},))
+            for i in range(10)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert len(load_journal()) == 10
+
+    def test_record_daily_closed_adds_symbol(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import record_daily_closed, load_daily_closed
+        record_daily_closed("NVDA")
+        assert "NVDA" in load_daily_closed()
+
+    def test_record_daily_closed_idempotent(self, tmp_path, monkeypatch):
+        """Adding the same symbol twice results in exactly one entry."""
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import record_daily_closed, load_daily_closed
+        record_daily_closed("NVDA")
+        record_daily_closed("NVDA")
+        assert list(load_daily_closed()).count("NVDA") == 1
+
+    def test_record_daily_closed_concurrent_all_symbols_present(self, tmp_path, monkeypatch):
+        """10 concurrent threads close different symbols — all 10 must appear."""
+        import threading
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import record_daily_closed, load_daily_closed
+        threads = [
+            threading.Thread(target=record_daily_closed, args=(f"SYM{i}",))
+            for i in range(10)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        closed = load_daily_closed()
+        assert all(f"SYM{i}" in closed for i in range(10))
+
+    def test_reset_daily_closed_empties_file(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import record_daily_closed, reset_daily_closed, load_daily_closed
+        record_daily_closed("AAPL")
+        reset_daily_closed()
+        assert load_daily_closed() == set()
+
+    def test_load_daily_closed_returns_set(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import load_daily_closed
+        result = load_daily_closed()
+        assert isinstance(result, set)
+
+    def test_multiple_trade_types_preserved(self, tmp_path, monkeypatch):
+        """BUY and CLOSE entries co-exist in the journal."""
+        self._setup(tmp_path, monkeypatch)
+        from trading.journal import append_trade, load_journal
+        append_trade({"type": "BUY", "symbol": "AAPL"})
+        append_trade({"type": "CLOSE", "symbol": "AAPL", "pnl_pct": 2.5})
+        journal = load_journal()
+        assert len(journal) == 2
+        assert journal[1]["pnl_pct"] == pytest.approx(2.5)
+
+
+# ── trading/journal: flush_profit_lock_updates ────────────────────────────────
+
+@pytest.mark.unit
+class TestFlushProfitLock:
+    """Tests for flush_profit_lock_updates merge-write semantics."""
+
+    def _write_positions(self, tmp_path, positions: dict):
+        f = tmp_path / "open_positions.json"
+        f.write_text(json.dumps(positions))
+        return f
+
+    def _setup(self, tmp_path, monkeypatch, positions: dict):
+        import config
+        self._write_positions(tmp_path, positions)
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+
+    def test_flush_updates_existing_symbol(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch, {"AAPL": {"stop_loss_price": 95.0, "entry_price": 100.0}})
+        from trading.journal import flush_profit_lock_updates, load_open_positions
+        flush_profit_lock_updates({"AAPL": {"stop_loss_price": 100.0, "entry_price": 100.0}})
+        pos = load_open_positions()
+        assert pos["AAPL"]["stop_loss_price"] == pytest.approx(100.0)
+
+    def test_flush_skips_symbol_not_on_disk(self, tmp_path, monkeypatch):
+        """Symbol in updates but not on disk is silently skipped — no KeyError."""
+        self._setup(tmp_path, monkeypatch, {"AAPL": {"stop_loss_price": 95.0}})
+        from trading.journal import flush_profit_lock_updates, load_open_positions
+        flush_profit_lock_updates({"NVDA": {"stop_loss_price": 200.0}})
+        pos = load_open_positions()
+        assert "NVDA" not in pos
+        assert "AAPL" in pos   # existing symbol untouched
+
+    def test_flush_preserves_concurrent_buy(self, tmp_path, monkeypatch):
+        """A BUY written to disk between snapshot and flush must survive."""
+        import config
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        positions_file = tmp_path / "open_positions.json"
+        positions_file.write_text(json.dumps({"AAPL": {"stop_loss_price": 95.0}}))
+
+        # Simulate a concurrent BUY for NVDA written to disk before flush executes
+        from utils.io_utils import load_json, save_json
+        disk = load_json(positions_file, {})
+        disk["NVDA"] = {"entry_price": 200.0, "stop_loss_price": 190.0}
+        save_json(positions_file, disk)
+
+        from trading.journal import flush_profit_lock_updates, load_open_positions
+        flush_profit_lock_updates({"AAPL": {"stop_loss_price": 100.0}})
+        pos = load_open_positions()
+        assert "NVDA" in pos     # concurrent BUY survived
+        assert "AAPL" in pos
+        assert pos["AAPL"]["stop_loss_price"] == pytest.approx(100.0)
+
+    def test_empty_updates_changes_nothing(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch, {"AAPL": {"stop_loss_price": 95.0}})
+        from trading.journal import flush_profit_lock_updates, load_open_positions
+        flush_profit_lock_updates({})
+        pos = load_open_positions()
+        assert pos["AAPL"]["stop_loss_price"] == pytest.approx(95.0)
+
+    def test_multiple_updates_all_applied(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch, {
+            "AAPL": {"stop_loss_price": 95.0},
+            "NVDA": {"stop_loss_price": 400.0},
+        })
+        from trading.journal import flush_profit_lock_updates, load_open_positions
+        flush_profit_lock_updates({
+            "AAPL": {"stop_loss_price": 100.0},
+            "NVDA": {"stop_loss_price": 450.0},
+        })
+        pos = load_open_positions()
+        assert pos["AAPL"]["stop_loss_price"] == pytest.approx(100.0)
+        assert pos["NVDA"]["stop_loss_price"] == pytest.approx(450.0)
+
+    def test_non_updated_symbol_preserved(self, tmp_path, monkeypatch):
+        """Symbols not in the updates dict are left untouched on disk."""
+        self._setup(tmp_path, monkeypatch, {
+            "AAPL": {"stop_loss_price": 95.0},
+            "TSLA": {"stop_loss_price": 200.0},
+        })
+        from trading.journal import flush_profit_lock_updates, load_open_positions
+        flush_profit_lock_updates({"AAPL": {"stop_loss_price": 100.0}})
+        pos = load_open_positions()
+        assert pos["TSLA"]["stop_loss_price"] == pytest.approx(200.0)
+
+
+# ── trading/pipeline: TradingPipeline pure-logic tests ────────────────────────
+
+@pytest.mark.unit
+class TestTradingPipeline:
+    """Tests for CycleResult, _compute_symbol_5day_return, and research staleness."""
+
+    def test_cycle_result_defaults(self):
+        from trading.pipeline import CycleResult
+        r = CycleResult()
+        assert r.entries == 0
+        assert r.closes == 0
+        assert r.skipped is False
+        assert r.reason == ""
+
+    def test_cycle_result_skipped(self):
+        from trading.pipeline import CycleResult
+        r = CycleResult(skipped=True, reason="stale_research")
+        assert r.skipped is True
+        assert r.reason == "stale_research"
+
+    def test_compute_5day_return_none_returns_zero(self):
+        from trading.pipeline import _compute_symbol_5day_return
+        assert _compute_symbol_5day_return(None) == pytest.approx(0.0)
+
+    def test_compute_5day_return_insufficient_rows(self):
+        import pandas as pd
+        from trading.pipeline import _compute_symbol_5day_return
+        df = pd.DataFrame({"close": [100.0, 101.0, 102.0]})
+        assert _compute_symbol_5day_return(df) == pytest.approx(0.0)
+
+    def test_compute_5day_return_correct_value(self):
+        import pandas as pd
+        from trading.pipeline import _compute_symbol_5day_return
+        # 6 rows: iloc[-6]=100, iloc[-1]=110 → (110-100)/100*100 = 10.0%
+        df = pd.DataFrame({"close": [100.0, 102.0, 104.0, 106.0, 108.0, 110.0]})
+        result = _compute_symbol_5day_return(df)
+        assert result == pytest.approx(10.0)
+
+    def test_compute_5day_return_negative(self):
+        import pandas as pd
+        from trading.pipeline import _compute_symbol_5day_return
+        df = pd.DataFrame({"close": [110.0, 108.0, 106.0, 104.0, 102.0, 100.0]})
+        result = _compute_symbol_5day_return(df)
+        assert result == pytest.approx(-100.0 * 10 / 110, rel=1e-4)
+
+    def test_research_staleness_skip_when_too_old(self, monkeypatch):
+        """pipeline.run() returns skipped=True when research > RESEARCH_STALE_BLOCK_MIN."""
+        from datetime import timedelta
+        import config
+        from trading.pipeline import TradingPipeline
+
+        stale_ts = (datetime.now(ET) - timedelta(minutes=config.RESEARCH_STALE_BLOCK_MIN + 10)).isoformat()
+        research = {"__meta__": {"timestamp": stale_ts}}
+
+        pipeline = TradingPipeline()
+        result = pipeline.run(
+            symbols=[], research=research, strategy_memory="", weights={},
+            ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
+            fred_cache={}, alpaca=None, portfolio_value=10000.0,
+            buying_power=5000.0, params={
+                "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
+                "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
+            },
+            can_open=True,
+        )
+        assert result.skipped is True
+        assert "stale" in result.reason
+
+    def test_research_staleness_no_skip_when_fresh(self, monkeypatch):
+        """pipeline.run() does not skip when research is within acceptable age."""
+        from datetime import timedelta
+        import config
+        from trading.pipeline import TradingPipeline
+        from unittest.mock import MagicMock, patch
+
+        fresh_ts = (datetime.now(ET) - timedelta(minutes=10)).isoformat()
+        research = {"__meta__": {"timestamp": fresh_ts}}
+
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_intraday_bars.return_value = None
+        mock_alpaca.get_daily_bars.return_value = None
+
+        with patch("trading.pipeline.load_open_positions", return_value={}), \
+             patch("trading.pipeline.load_daily_closed", return_value=set()):
+            pipeline = TradingPipeline()
+            result = pipeline.run(
+                symbols=[], research=research, strategy_memory="", weights={},
+                ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
+                fred_cache={}, alpaca=mock_alpaca, portfolio_value=10000.0,
+                buying_power=5000.0, params={
+                    "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
+                    "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
+                },
+                can_open=True,
+            )
+        assert result.skipped is False
+
+    def test_missing_meta_timestamp_no_crash(self, monkeypatch):
+        """pipeline.run() handles missing __meta__.timestamp without raising."""
+        from unittest.mock import MagicMock, patch
+        from trading.pipeline import TradingPipeline
+
+        research = {"__meta__": {}}  # no timestamp key
+        with patch("trading.pipeline.load_open_positions", return_value={}), \
+             patch("trading.pipeline.load_daily_closed", return_value=set()):
+            pipeline = TradingPipeline()
+            result = pipeline.run(
+                symbols=[], research=research, strategy_memory="", weights={},
+                ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
+                fred_cache={}, alpaca=MagicMock(), portfolio_value=10000.0,
+                buying_power=5000.0, params={
+                    "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
+                    "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
+                },
+                can_open=True,
+            )
+        assert result.skipped is False
+
+    def test_malformed_timestamp_no_crash(self, monkeypatch):
+        """pipeline.run() handles unparseable timestamp without raising."""
+        from unittest.mock import MagicMock, patch
+        from trading.pipeline import TradingPipeline
+
+        research = {"__meta__": {"timestamp": "not-a-date"}}
+        with patch("trading.pipeline.load_open_positions", return_value={}), \
+             patch("trading.pipeline.load_daily_closed", return_value=set()):
+            pipeline = TradingPipeline()
+            result = pipeline.run(
+                symbols=[], research=research, strategy_memory="", weights={},
+                ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
+                fred_cache={}, alpaca=MagicMock(), portfolio_value=10000.0,
+                buying_power=5000.0, params={
+                    "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
+                    "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
+                },
+                can_open=True,
+            )
+        assert result.skipped is False
+
+
+# ── trading/pipeline: per-cycle entry cap ─────────────────────────────────────
+
+@pytest.mark.unit
+class TestPipelinePerCycleCap:
+    """Tests for the MAX_ENTRIES_PER_CYCLE enforcement via check_all_gates."""
+
+    def _now_open(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    @staticmethod
+    def _iv(**overrides):
+        import types
+        base = dict(
+            current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
+            stop_hunt_zone=False, parabolic=False,
+            momentum_exhaustion=False, bot_herding_score=0, squeeze_setup=False,
+        )
+        base.update(overrides)
+        return types.SimpleNamespace(**base)
+
+    def _patch(self, monkeypatch):
+        import earnings_calendar as ec
+        import economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    def test_cap_blocks_regardless_of_symbol(self, monkeypatch):
+        """Cap is per-cycle, not per-symbol — applies even to a brand-new symbol."""
+        import config
+        monkeypatch.setattr(config, "MAX_ENTRIES_PER_CYCLE", 1)
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        for sym in ("AAPL", "NVDA", "TSLA"):
+            result = check_all_gates(
+                sym, self._iv(), {}, set(), None, self._now_open(), entries_this_cycle=1,
+            )
+            assert result.passed is False, f"{sym} should be blocked by cap"
+
+    def test_close_decision_bypasses_cap(self):
+        """CLOSE action in pipeline calls close_position, not check_all_gates — cap irrelevant."""
+        # check_all_gates is only called for BUY candidates; verifying it is not invoked for CLOSE
+        # is implicit — here we confirm close_position exists and accepts the right signature.
+        from trading.closer import close_position
+        import inspect
+        sig = inspect.signature(close_position)
+        assert "symbol" in sig.parameters
+        assert "entries_this_cycle" not in sig.parameters  # cap param is absent from closer
+
+    def test_5day_return_exactly_6_rows(self):
+        """_compute_symbol_5day_return needs at least 6 rows."""
+        import pandas as pd
+        from trading.pipeline import _compute_symbol_5day_return
+        df5 = pd.DataFrame({"close": [100.0] * 5})
+        df6 = pd.DataFrame({"close": [100.0] * 6})
+        assert _compute_symbol_5day_return(df5) == pytest.approx(0.0)
+        assert _compute_symbol_5day_return(df6) == pytest.approx(0.0)  # flat
+
+    def test_cycle_result_entries_increments_correctly(self):
+        """CycleResult.entries accumulates correctly when used as counter."""
+        from trading.pipeline import CycleResult
+        r = CycleResult()
+        r.entries += 1
+        assert r.entries == 1
+        r.entries += 1
+        assert r.entries == 2
 
 

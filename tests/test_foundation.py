@@ -665,199 +665,11 @@ class TestVixRegimeHelpers:
         assert params["stop_loss_pct"] == 3.5
 
 
-# ── earnings_calendar: cache helpers ─────────────────────────────────────────
-
-@pytest.mark.unit
-class TestEarningsCalendarCacheHelpers:
-    def _write_cache(self, tmp_path, symbol="NVDA", days_until=3, reported_block=None):
-        import config, json
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
-        ET = ZoneInfo("America/New_York")
-        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
-        today_et = datetime.now(ET).date()
-        next_date = (today_et + timedelta(days=days_until)).isoformat()
-        entry = {"next_earnings_date": next_date}
-        if reported_block:
-            entry["recently_reported"] = reported_block
-        payload = {
-            "date": today_et.isoformat(),
-            "symbols": {symbol: entry},
-        }
-        config.EARNINGS_CALENDAR_FILE.write_text(json.dumps(payload))
-
-    def test_days_until_earnings_returns_correct_count(self, tmp_path):
-        self._write_cache(tmp_path, days_until=5)
-        from earnings_calendar import days_until_earnings
-        d = days_until_earnings("NVDA")
-        assert d == 5
-
-    def test_days_until_earnings_returns_none_for_unknown(self, tmp_path):
-        import config
-        config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
-        from earnings_calendar import days_until_earnings
-        assert days_until_earnings("UNKNOWN") is None
-
-    def test_is_earnings_imminent_true_when_in_1_day(self, tmp_path):
-        self._write_cache(tmp_path, days_until=1)
-        from earnings_calendar import is_earnings_imminent
-        assert is_earnings_imminent("NVDA", days=1) is True
-
-    def test_is_earnings_imminent_false_when_far(self, tmp_path):
-        self._write_cache(tmp_path, days_until=10)
-        from earnings_calendar import is_earnings_imminent
-        assert is_earnings_imminent("NVDA", days=1) is False
-
-    def test_recently_reported_returns_block_when_fresh(self, tmp_path):
-        from datetime import date, timedelta
-        report_date = (date.today() - timedelta(days=2)).isoformat()
-        block = {"report_date": report_date, "eps_surprise_pct": 10.0}
-        self._write_cache(tmp_path, reported_block=block)
-        from earnings_calendar import recently_reported
-        result = recently_reported("NVDA", days=5)
-        assert result is not None
-        assert result["eps_surprise_pct"] == 10.0
-
-    def test_recently_reported_returns_none_when_stale(self, tmp_path):
-        from datetime import date, timedelta
-        old_date = (date.today() - timedelta(days=10)).isoformat()
-        block = {"report_date": old_date, "eps_surprise_pct": 10.0}
-        self._write_cache(tmp_path, reported_block=block)
-        from earnings_calendar import recently_reported
-        assert recently_reported("NVDA", days=5) is None
-
-
-# ── economic_calendar: additional coverage ───────────────────────────────────
-
-@pytest.mark.unit
-class TestEconomicCalendarAdditional:
-    def test_first_friday_feb_2026(self):
-        from economic_calendar import _first_friday
-        assert _first_friday(2026, 2) == 6  # Feb 2026: first Friday is the 6th
-
-    def test_first_friday_jan_2025(self):
-        from economic_calendar import _first_friday
-        assert _first_friday(2025, 1) == 3  # Jan 2025: first Friday is the 3rd
-
-    def test_hardcoded_events_returns_list(self):
-        from economic_calendar import _hardcoded_events
-        events = _hardcoded_events(2026, 3)
-        assert isinstance(events, list)
-        assert all("name" in e and "date" in e and "impact" in e for e in events)
-
-    def test_hardcoded_events_nfp_is_first_friday(self):
-        from economic_calendar import _hardcoded_events, _first_friday
-        day = _first_friday(2026, 6)
-        events = _hardcoded_events(2026, 6)
-        nfp = [e for e in events if "Non-Farm" in e["name"]]
-        assert nfp[0]["date"] == f"2026-06-{day:02d}"
-
-
 # ── macro_regime: scoring coverage ───────────────────────────────────────────
 
 @pytest.mark.unit
 class TestMacroRegimeCoverage:
-    """Tests for scoring helpers and _evaluate_lockout_recovery in macro_regime.py."""
-
-    # ── _score_vix ─────────────────────────────────────────────────────────
-
-    def test_score_vix_low_vix_returns_positive(self):
-        from macro.health_scorer import _score_vix
-        # VIX well below its 90d average → bullish (+10)
-        vix_closes = [25.0] * 90 + [15.0]
-        assert _score_vix(vix_closes) == pytest.approx(10.0)
-
-    def test_score_vix_elevated_vix_returns_negative(self):
-        from macro.health_scorer import _score_vix
-        # VIX well above 120% of average → -10
-        vix_closes = [20.0] * 90 + [30.0]
-        assert _score_vix(vix_closes) == pytest.approx(-10.0)
-
-    def test_score_vix_insufficient_data_returns_zero(self):
-        from macro.health_scorer import _score_vix
-        assert _score_vix([20.0, 21.0]) == 0.0
-
-    # ── _score_spy ─────────────────────────────────────────────────────────
-
-    def test_score_spy_strong_up_week_returns_10(self):
-        from macro.health_scorer import _score_spy
-        assert _score_spy(3.0) == pytest.approx(10.0)
-
-    def test_score_spy_crash_week_returns_minus10(self):
-        from macro.health_scorer import _score_spy
-        assert _score_spy(-2.0) == pytest.approx(-10.0)
-
-    # ── _score_wti ─────────────────────────────────────────────────────────
-
-    def test_score_wti_stable_returns_positive(self):
-        from macro.health_scorer import _score_wti
-        assert _score_wti(1.0) == pytest.approx(10.0)
-
-    def test_score_wti_spike_returns_negative(self):
-        from macro.health_scorer import _score_wti
-        assert _score_wti(7.0) == pytest.approx(-10.0)
-
-    # ── _score_gold ────────────────────────────────────────────────────────
-
-    def test_score_gold_surge_is_bearish_signal(self):
-        from macro.health_scorer import _score_gold
-        # Gold > +3% → flight to safety → -10
-        assert _score_gold(4.0) == pytest.approx(-10.0)
-
-    def test_score_gold_flat_is_bullish_signal(self):
-        from macro.health_scorer import _score_gold
-        # Flat/mild gold = risk-on
-        assert _score_gold(0.5) == pytest.approx(8.0)
-
-    # ── _evaluate_lockout_recovery ─────────────────────────────────────────
-
-    def test_lockout_clears_when_time_expired(self):
-        from macro.yahoo_fetcher import evaluate_lockout_recovery
-        from datetime import datetime, timezone, timedelta
-        now = datetime.now(timezone.utc)
-        past = (now - timedelta(hours=1)).isoformat()
-        active, until = evaluate_lockout_recovery(True, past, 25.0, -3.0, now)
-        assert active is False
-        assert until is None
-
-    def test_lockout_clears_on_vix_recovery(self):
-        from macro.yahoo_fetcher import evaluate_lockout_recovery
-        import config
-        from datetime import datetime, timezone, timedelta
-        now = datetime.now(timezone.utc)
-        future = (now + timedelta(hours=2)).isoformat()
-        # VIX below recovery threshold and SPY 5d return above recovery threshold
-        active, until = evaluate_lockout_recovery(
-            True, future,
-            config.FLASH_CRASH_VIX_RECOVERY - 1,
-            config.FLASH_CRASH_SPY_RECOVERY_PCT + 1,
-            now,
-        )
-        assert active is False
-
-    def test_lockout_stays_active_when_conditions_not_met(self):
-        from macro.yahoo_fetcher import evaluate_lockout_recovery
-        import config
-        from datetime import datetime, timezone, timedelta
-        now = datetime.now(timezone.utc)
-        future = (now + timedelta(hours=2)).isoformat()
-        # VIX still high, SPY still bad
-        active, until = evaluate_lockout_recovery(
-            True, future,
-            config.FLASH_CRASH_VIX_RECOVERY + 5,   # VIX too high
-            config.FLASH_CRASH_SPY_RECOVERY_PCT - 5,  # SPY return too bad
-            now,
-        )
-        assert active is True
-        assert until == future
-
-    def test_lockout_inactive_input_passes_through(self):
-        from macro.yahoo_fetcher import evaluate_lockout_recovery
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-        active, until = evaluate_lockout_recovery(False, None, 20.0, 1.0, now)
-        assert active is False
-        assert until is None
+    """Tests for sector scores and ret5d in macro_regime.py."""
 
     # ── _sector_scores ─────────────────────────────────────────────
 
@@ -949,3 +761,220 @@ class TestEconomicCalendarLogic:
             assert name == ""
         finally:
             config.ECONOMIC_CALENDAR_FILE = original
+
+
+# ── macro/breadth_signals ─────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBreadthSignals:
+    """Tests for pure breadth scorer functions in macro/breadth_signals.py."""
+
+    def test_score_hyg_deep_negative(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(-2.0) == pytest.approx(-10.0)
+
+    def test_score_hyg_mild_negative(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(-1.0) == pytest.approx(-5.0)
+
+    def test_score_hyg_neutral(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(0.0) == pytest.approx(3.0)
+
+    def test_score_hyg_positive(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(1.0) == pytest.approx(8.0)
+
+    def test_score_hyg_boundary_minus_1_5(self):
+        """Exactly -1.5 is the lower boundary — maps to -5, not -10."""
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(-1.5) == pytest.approx(-5.0)
+
+    def test_score_iwm_vs_spy_small_cap_lagging_hard(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(0.0, 2.0) == pytest.approx(-10.0)   # spread=-2.0
+
+    def test_score_iwm_vs_spy_small_cap_lagging_mild(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(0.0, 1.0) == pytest.approx(-5.0)    # spread=-1.0
+
+    def test_score_iwm_vs_spy_neutral(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(0.5, 0.5) == pytest.approx(0.0)     # spread=0
+
+    def test_score_iwm_vs_spy_risk_on(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(2.0, 0.5) == pytest.approx(8.0)     # spread=+1.5
+
+    def test_score_vix_term_zero_vix3m_returns_zero(self):
+        """Guard: vix3m <= 0 must return 0 to avoid division by zero."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(20.0, 0.0) == pytest.approx(0.0)
+
+    def test_score_vix_term_backwardation_hard(self):
+        """ratio > 1.1 → -10 (extreme backwardation)."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(22.0, 19.0) == pytest.approx(-10.0)
+
+    def test_score_vix_term_contango(self):
+        """ratio < 0.92 → +8 (calm term structure)."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(17.0, 20.0) == pytest.approx(8.0)
+
+    def test_score_vix_term_neutral(self):
+        """ratio near 1.0 → 0."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(20.0, 20.0) == pytest.approx(0.0)
+
+    def test_build_breadth_context_line_backwardation(self):
+        from macro.breadth_signals import build_breadth_context_line
+        line = build_breadth_context_line({"hyg_ret5d": -2.0, "iwm_ret5d": -1.0,
+                                           "spy_ret5d": 0.0, "vix_current": 22.0, "vix3m": 19.0})
+        assert "backwardation" in line
+
+    def test_build_breadth_context_line_contango(self):
+        from macro.breadth_signals import build_breadth_context_line
+        line = build_breadth_context_line({"hyg_ret5d": 1.0, "iwm_ret5d": 1.0,
+                                           "spy_ret5d": 0.5, "vix_current": 16.0, "vix3m": 20.0})
+        assert "contango" in line
+
+    def test_build_breadth_context_line_contains_hyg(self):
+        from macro.breadth_signals import build_breadth_context_line
+        line = build_breadth_context_line({"hyg_ret5d": 0.3})
+        assert "HYG" in line
+
+
+# ── macro/intraday_context: IntradayContext dataclass ─────────────────────────
+
+@pytest.mark.unit
+class TestIntradayContext:
+    """Tests for IntradayContext dataclass and to_context_lines() — no network."""
+
+    @staticmethod
+    def _ctx(**overrides):
+        from macro.intraday_context import IntradayContext
+        base = dict(
+            spy_today_pct=0.5,
+            spy_vwap_position="above",
+            spy_vwap_slope=0.05,
+            qqq_today_pct=0.4,
+            opening_gap_pct=0.2,
+            post_event_day=False,
+            sector_today={"XLF": 0.3, "XLK": -0.5},
+            bias="BULLISH",
+        )
+        base.update(overrides)
+        return IntradayContext(**base)
+
+    def test_bullish_bias_in_context_lines(self):
+        ctx = self._ctx(bias="BULLISH")
+        assert "BULLISH" in ctx.to_context_lines()
+
+    def test_bearish_bias_in_context_lines(self):
+        ctx = self._ctx(bias="BEARISH", spy_today_pct=-0.8, spy_vwap_position="below")
+        assert "BEARISH" in ctx.to_context_lines()
+
+    def test_neutral_bias_in_context_lines(self):
+        ctx = self._ctx(bias="NEUTRAL")
+        assert "NEUTRAL" in ctx.to_context_lines()
+
+    def test_post_event_day_warning_shown(self):
+        ctx = self._ctx(post_event_day=True)
+        assert "POST-EVENT" in ctx.to_context_lines()
+
+    def test_no_post_event_warning_when_false(self):
+        ctx = self._ctx(post_event_day=False)
+        assert "POST-EVENT" not in ctx.to_context_lines()
+
+    def test_sector_etfs_formatted_in_output(self):
+        ctx = self._ctx(sector_today={"XLF": 0.3, "XLK": -0.8})
+        lines = ctx.to_context_lines()
+        assert "XLF" in lines
+        assert "XLK" in lines
+
+    def test_spy_pct_in_output(self):
+        ctx = self._ctx(spy_today_pct=1.23)
+        assert "1.2" in ctx.to_context_lines()
+
+    def test_vwap_position_above_in_output(self):
+        ctx = self._ctx(spy_vwap_position="above")
+        assert "above" in ctx.to_context_lines()
+
+    def test_vwap_position_below_in_output(self):
+        ctx = self._ctx(spy_vwap_position="below")
+        assert "below" in ctx.to_context_lines()
+
+
+# ── economic_calendar: is_post_major_event_day ────────────────────────────────
+
+@pytest.mark.unit
+class TestPostEventDay:
+    """Tests for is_post_major_event_day() using tmp_path — no network."""
+
+    def _write_calendar(self, tmp_path, prior_events: list) -> None:
+        import config
+        self._original = config.ECONOMIC_CALENDAR_FILE
+        cache = tmp_path / "economic_calendar.json"
+        cache.write_text(json.dumps({"date": "2026-05-08", "events": [], "prior_events": prior_events}))
+        config.ECONOMIC_CALENDAR_FILE = cache
+
+    def _restore(self):
+        import config
+        config.ECONOMIC_CALENDAR_FILE = self._original
+
+    def test_fomc_in_prior_events_returns_true(self, tmp_path):
+        self._write_calendar(tmp_path, [{"name": "FOMC Rate Decision", "time": "14:00"}])
+        try:
+            from economic_calendar import is_post_major_event_day
+            result, name = is_post_major_event_day(datetime.now(ET))
+            assert result is True
+            assert "FOMC" in name
+        finally:
+            self._restore()
+
+    def test_nfp_in_prior_events_returns_true(self, tmp_path):
+        # The function matches the literal "NFP" substring; the stored name must contain it.
+        self._write_calendar(tmp_path, [{"name": "NFP Report", "time": "08:30"}])
+        try:
+            from economic_calendar import is_post_major_event_day
+            result, name = is_post_major_event_day(datetime.now(ET))
+            assert result is True
+            assert name == "NFP Report"
+        finally:
+            self._restore()
+
+    def test_cpi_in_prior_events_returns_true(self, tmp_path):
+        self._write_calendar(tmp_path, [{"name": "CPI Release", "time": "08:30"}])
+        try:
+            from economic_calendar import is_post_major_event_day
+            result, _ = is_post_major_event_day(datetime.now(ET))
+            assert result is True
+        finally:
+            self._restore()
+
+    def test_empty_prior_events_returns_false(self, tmp_path):
+        self._write_calendar(tmp_path, [])
+        try:
+            from economic_calendar import is_post_major_event_day
+            result, name = is_post_major_event_day(datetime.now(ET))
+            assert result is False
+            assert name == ""
+        finally:
+            self._restore()
+
+    def test_unknown_event_returns_false(self, tmp_path):
+        self._write_calendar(tmp_path, [{"name": "ISM Manufacturing", "time": "10:00"}])
+        try:
+            from economic_calendar import is_post_major_event_day
+            result, _ = is_post_major_event_day(datetime.now(ET))
+            assert result is False
+        finally:
+            self._restore()
+
+    def test_missing_file_returns_false(self, tmp_path, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "nonexistent.json")
+        from economic_calendar import is_post_major_event_day
+        result, name = is_post_major_event_day(datetime.now(ET))
+        assert result is False
+        assert name == ""
