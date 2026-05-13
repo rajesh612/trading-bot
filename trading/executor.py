@@ -83,7 +83,7 @@ def execute_buy(
             return None
 
     symbol_sentiment = research.get(symbol, {}).get("sentiment_score", 0)
-    if symbol_sentiment < config.AUTO_BUY_MIN_SENTIMENT:
+    if symbol_sentiment < config.SENTIMENT_HARD_BLOCK:
         logger.info("SKIP %s — bearish sentiment (%+d) blocks BUY", symbol, symbol_sentiment)
         return None
 
