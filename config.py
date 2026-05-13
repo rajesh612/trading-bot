@@ -196,6 +196,16 @@ MTF_TIMEFRAME_MINUTES = 15
 
 PROFIT_LOCK_TRIGGER_PCT = 2.0     # move stop to breakeven when unrealised PnL >= this %
 
+# ── Risk Manager ──────────────────────────────────────────────────────────────
+ENTRY_BUDGET_RATIO          = 0.70   # fraction of daily ceiling for new entry calls
+EXIT_BUDGET_RATIO           = 0.30   # fraction reserved for thesis-break exit calls
+EXIT_EVAL_COMPOSITE_DROP    = 10     # composite must drop >= this from entry score to trigger eval
+EXIT_EVAL_SENTIMENT_FLOOR   = -30    # sentiment below this triggers exit eval
+GAP_SKIP_PCT                = 3.0    # skip entry if price gapped > this % above prev close
+FILL_SLIPPAGE_THRESHOLD     = 0.005  # correct bracket if fill deviates > 0.5% from iv price
+FILL_POLL_ATTEMPTS          = 5      # max Alpaca polls for fill price after order placement
+FILL_POLL_INTERVAL_S        = 0.5    # seconds between fill poll attempts
+
 PROGRESSIVE_LOSS_STEP = 0.20      # reduce size by this fraction per loss
 PROGRESSIVE_LOSS_FLOOR = 0.40     # minimum size multiplier
 
