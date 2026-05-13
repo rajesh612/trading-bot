@@ -287,3 +287,49 @@ class TestBudgetGuard:
         }
         result = apply_exit_rollover(b, self._now_et(12, 30))
         assert result is False
+
+
+# ─── risk_manager additions ───────────────────────────────────────────────────
+
+class TestRiskManagerAdditions:
+
+    @pytest.mark.unit
+    def test_is_entry_budget_exhausted_false_by_default(self):
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = False
+        assert risk_manager.is_entry_budget_exhausted() is False
+
+    @pytest.mark.unit
+    def test_is_entry_budget_exhausted_true_after_set(self):
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = True
+        assert risk_manager.is_entry_budget_exhausted() is True
+        risk_manager._entry_exhausted_flag = False  # cleanup
+
+    @pytest.mark.unit
+    def test_try_rollover_writes_to_json(self, tmp_path):
+        from trading import risk_manager
+        import json
+        from unittest.mock import patch
+        budget = {
+            "date": "2026-05-13",
+            "entry_ceiling_usd": 0.70,
+            "exit_ceiling_usd": 0.30,
+            "exit_spent_usd": 0.0,
+            "entry_spent_usd": 0.60,
+        }
+        budget_file = tmp_path / "api_budget.json"
+        budget_file.write_text(json.dumps(budget))
+
+        now = datetime(2026, 5, 13, 12, 30, tzinfo=ET)
+        with patch("trading.risk_manager.config") as mc:
+            mc.API_BUDGET_FILE = budget_file
+            mc.BUDGET_ROLLOVER_HOUR = 12
+            mc.BUDGET_ROLLOVER_MINUTE = 30
+            mc.BUDGET_ROLLOVER_FRACTION = 0.5
+            mc.EXIT_ROLLOVER_MAX_USD = 0.15
+            from trading.risk_manager import try_rollover_exit_to_entry
+            try_rollover_exit_to_entry(now)
+
+        updated = json.loads(budget_file.read_text())
+        assert updated["entry_ceiling_usd"] == pytest.approx(0.85, abs=0.01)

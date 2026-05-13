@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import config
 import telegram_notify
 from indicators.values import IndicatorValues
+from trading.budget_guard import morning_cap_exceeded, midday_cap_exceeded, apply_exit_rollover
 from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,8 @@ _CACHE_WRITE_COST_PER_TOKEN = 3.75    / 1_000_000
 _CACHE_READ_COST_PER_TOKEN  = 0.30    / 1_000_000
 _OUTPUT_COST_PER_TOKEN      = 15.00   / 1_000_000
 
+_entry_exhausted_flag: bool = False
+
 
 # ── Budget management ─────────────────────────────────────────────────────────
 
@@ -33,25 +36,16 @@ def _fresh_budget() -> dict:
     today = datetime.now(ET).strftime("%Y-%m-%d")
     ceiling = config.API_BUDGET_NORMAL_CEILING
     return {
-        "date":                today,
-        "calls_made":          0,
-        "entry_calls":         0,
-        "exit_calls":          0,
-        "input_tokens":        0,
-        "output_tokens":       0,
-        "cache_write_tokens":  0,
-        "cache_read_tokens":   0,
-        "estimated_cost_usd":  0.0,
-        "entry_spent_usd":     0.0,
-        "exit_spent_usd":      0.0,
-        "ceiling_usd":         ceiling,
-        "entry_ceiling_usd":   round(ceiling * config.ENTRY_BUDGET_RATIO, 4),
-        "exit_ceiling_usd":    round(ceiling * config.EXIT_BUDGET_RATIO, 4),
-        "ceiling_mode":        "normal",
-        "entry_exhausted":     False,
-        "exit_exhausted":      False,
-        "budget_exhausted":    False,
-        "escalated":           False,
+        "date": today, "calls_made": 0, "entry_calls": 0, "exit_calls": 0,
+        "input_tokens": 0, "output_tokens": 0,
+        "cache_write_tokens": 0, "cache_read_tokens": 0,
+        "estimated_cost_usd": 0.0, "entry_spent_usd": 0.0, "exit_spent_usd": 0.0,
+        "ceiling_usd": ceiling,
+        "entry_ceiling_usd": round(ceiling * config.ENTRY_BUDGET_RATIO, 4),
+        "exit_ceiling_usd": round(ceiling * config.EXIT_BUDGET_RATIO, 4),
+        "ceiling_mode": "normal",
+        "entry_exhausted": False, "exit_exhausted": False,
+        "budget_exhausted": False, "escalated": False,
     }
 
 
@@ -91,12 +85,28 @@ def check_entry_budget(estimated_cost: float, gain_pct: float, regime: str) -> b
     spent = b.get("entry_spent_usd", 0.0)
     projected = spent + estimated_cost
 
+    _now = datetime.now(ET)
+    if morning_cap_exceeded(spent, entry_ceil, _now):
+        logger.warning(
+            "Morning budget cap reached: $%.4f / $%.4f (35%% of $%.4f) — preserving afternoon window.",
+            spent, entry_ceil * config.BUDGET_MORNING_CAP_PCT, entry_ceil,
+        )
+        return False
+    if midday_cap_exceeded(spent, entry_ceil, _now):
+        logger.warning(
+            "Midday budget cap reached: $%.4f / $%.4f (65%% of $%.4f).",
+            spent, entry_ceil * config.BUDGET_MIDDAY_CAP_PCT, entry_ceil,
+        )
+        return False
+
     if projected > entry_ceil:
         logger.warning(
             "Entry budget ceiling reached: $%.4f + $%.4f > $%.4f — blocking entry.",
             spent, estimated_cost, entry_ceil,
         )
         b["entry_exhausted"] = True
+        global _entry_exhausted_flag
+        _entry_exhausted_flag = True
         _check_both_exhausted(b)
         _save_budget(b)
         return False
@@ -192,6 +202,30 @@ def record_usage(
         b["estimated_cost_usd"], b["entry_spent_usd"], b["exit_spent_usd"], b["calls_made"],
     )
     _save_budget(b)
+
+
+def is_entry_budget_exhausted() -> bool:
+    """O(1) check — no disk I/O. Set by check_entry_budget() when ceiling hit."""
+    return _entry_exhausted_flag
+
+
+def try_rollover_exit_to_entry(now: datetime) -> None:
+    """
+    Called at 12:30 PM ET by scheduler. Rolls unused exit budget into entry pool.
+    Writes result to api_budget.json if rollover applied.
+    """
+    global _entry_exhausted_flag
+    b = load_budget()
+    if apply_exit_rollover(b, now):
+        _save_budget(b)
+        if _entry_exhausted_flag:
+            _entry_exhausted_flag = False
+            b["entry_exhausted"] = False
+            _save_budget(b)
+        logger.info(
+            "Exit-to-entry rollover applied: entry_ceiling now $%.4f",
+            b["entry_ceiling_usd"],
+        )
 
 
 # ── Gap guard ─────────────────────────────────────────────────────────────────
