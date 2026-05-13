@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import config
 import telegram_notify
 from alpaca_client import AlpacaClient
-from indicator_engine import IndicatorValues
+from indicators.values import IndicatorValues
 from market_data import get_intraday_bars
 from utils.io_utils import load_json, save_json
 from signals.entry_gates import check_all_gates

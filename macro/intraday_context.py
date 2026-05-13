@@ -79,7 +79,7 @@ def _fetch_intraday_context(now: datetime) -> "IntradayContext | None":
         opening_gap_pct = (spy_open - spy_prev_close) / spy_prev_close * 100 if spy_prev_close else 0.0
 
         # VWAP position and slope from intraday bars
-        from indicator_engine import _compute_vwap
+        from indicators.math_utils import _compute_vwap
         spy_vwap_series = _compute_vwap(spy_bars)
         spy_vwap = float(spy_vwap_series.iloc[-1]) if spy_vwap_series is not None else spy_current
         spy_vwap_position = "above" if spy_current >= spy_vwap else "below"

@@ -8,7 +8,7 @@ from datetime import datetime
 
 import config
 import economic_calendar as _ec_mod
-from indicator_engine import IndicatorValues
+from indicators.values import IndicatorValues
 
 
 def build_stock_block(

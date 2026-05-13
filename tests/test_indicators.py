@@ -43,21 +43,21 @@ def _make_daily_df(n: int = 25, volume: float = 1_000_000.0, close: float = 100.
 @pytest.mark.unit
 class TestIndicatorEnginePlan2:
     def test_is_parabolic_true(self):
-        from indicator_engine import _is_parabolic
+        from indicators.counter_signals import _is_parabolic
         closes = [100.0] * 5 + [115.0]
         assert _is_parabolic(closes) is True
 
     def test_is_parabolic_false_just_below(self):
-        from indicator_engine import _is_parabolic
+        from indicators.counter_signals import _is_parabolic
         closes = [100.0] * 5 + [114.9]
         assert _is_parabolic(closes) is False
 
     def test_is_parabolic_insufficient_data(self):
-        from indicator_engine import _is_parabolic
+        from indicators.counter_signals import _is_parabolic
         assert _is_parabolic([100.0, 115.0]) is False
 
     def test_compute_squeeze_setup_all_conditions(self):
-        from indicator_engine import compute_squeeze_setup
+        from indicators.counter_signals import compute_squeeze_setup
         qualifies, score = compute_squeeze_setup(
             float_turnover_3d=0.20,
             price_vs_resistance_pct=2.0,
@@ -68,7 +68,7 @@ class TestIndicatorEnginePlan2:
         assert score == 100
 
     def test_compute_squeeze_setup_three_conditions(self):
-        from indicator_engine import compute_squeeze_setup
+        from indicators.counter_signals import compute_squeeze_setup
         qualifies, score = compute_squeeze_setup(
             float_turnover_3d=0.20,
             price_vs_resistance_pct=2.0,
@@ -79,7 +79,7 @@ class TestIndicatorEnginePlan2:
         assert score == 75
 
     def test_compute_squeeze_setup_two_conditions(self):
-        from indicator_engine import compute_squeeze_setup
+        from indicators.counter_signals import compute_squeeze_setup
         qualifies, score = compute_squeeze_setup(
             float_turnover_3d=0.20,
             price_vs_resistance_pct=2.0,
@@ -90,7 +90,7 @@ class TestIndicatorEnginePlan2:
         assert score == 50
 
     def test_compute_squeeze_setup_no_conditions(self):
-        from indicator_engine import compute_squeeze_setup
+        from indicators.counter_signals import compute_squeeze_setup
         qualifies, score = compute_squeeze_setup(
             float_turnover_3d=0.05,
             price_vs_resistance_pct=5.0,
@@ -101,7 +101,7 @@ class TestIndicatorEnginePlan2:
         assert score == 0
 
     def test_compute_bot_herding_score_zero_signals(self):
-        from indicator_engine import compute_bot_herding_score
+        from indicators.counter_signals import compute_bot_herding_score
         score = compute_bot_herding_score(
             series_dict={}, spy_closes=[],
             buy_signal_count=0, total_watch=10, volume_cv=0.5,
@@ -109,7 +109,7 @@ class TestIndicatorEnginePlan2:
         assert 0 <= score <= 100
 
     def test_compute_bot_herding_score_high_herding(self):
-        from indicator_engine import compute_bot_herding_score
+        from indicators.counter_signals import compute_bot_herding_score
         score = compute_bot_herding_score(
             series_dict={}, spy_closes=[],
             buy_signal_count=10, total_watch=10, volume_cv=0.0,
@@ -122,7 +122,7 @@ class TestIndicatorEnginePlan2:
 @pytest.mark.unit
 class TestVolumeExhaustion:
     def test_true_at_high_with_low_volume(self):
-        from indicator_engine import _is_volume_exhaustion
+        from indicators.counter_signals import _is_volume_exhaustion
         df = _make_intraday_df(n=400, close=100.0, high=100.0)
         daily = _make_daily_df(n=25, volume=1_000_000.0)
         daily_low_vol = daily.copy()
@@ -130,7 +130,7 @@ class TestVolumeExhaustion:
         assert _is_volume_exhaustion(df, daily_low_vol) is True
 
     def test_false_not_at_high(self):
-        from indicator_engine import _is_volume_exhaustion
+        from indicators.counter_signals import _is_volume_exhaustion
         df_low = _make_intraday_df(n=400, close=95.0, high=95.0)
         df_high_hist = _make_intraday_df(n=400, close=100.0, high=102.0)
         combined = pd.concat([df_high_hist.iloc[:-1], df_low.iloc[-1:]])
@@ -140,19 +140,19 @@ class TestVolumeExhaustion:
         assert _is_volume_exhaustion(combined, daily_low_vol) is False
 
     def test_false_normal_volume_at_high(self):
-        from indicator_engine import _is_volume_exhaustion
+        from indicators.counter_signals import _is_volume_exhaustion
         df = _make_intraday_df(n=400, close=100.0, high=100.0)
         daily = _make_daily_df(n=25, volume=1_000_000.0)
         assert _is_volume_exhaustion(df, daily) is False
 
     def test_false_insufficient_intraday_data(self):
-        from indicator_engine import _is_volume_exhaustion
+        from indicators.counter_signals import _is_volume_exhaustion
         df = _make_intraday_df(n=3, close=100.0)
         daily = _make_daily_df(n=25, volume=600_000.0)
         assert _is_volume_exhaustion(df, daily) is False
 
     def test_false_no_daily_df(self):
-        from indicator_engine import _is_volume_exhaustion
+        from indicators.counter_signals import _is_volume_exhaustion
         df = _make_intraday_df(n=400, close=100.0, high=100.0)
         assert _is_volume_exhaustion(df, None) is False
 
@@ -175,28 +175,28 @@ class TestOBVDivergence:
         return df, obv
 
     def test_bearish_divergence(self):
-        from indicator_engine import _obv_divergence_signal
+        from indicators.counter_signals import _obv_divergence_signal
         closes = [90.0, 95.0, 98.0, 99.0, 100.0, 100.0]
         obv_v  = [1000.0, 900.0, 850.0, 800.0, 750.0, 700.0]
         df, obv = self._make_df_obv(closes, obv_v)
         assert _obv_divergence_signal(df, obv) == "bearish"
 
     def test_bullish_divergence(self):
-        from indicator_engine import _obv_divergence_signal
+        from indicators.counter_signals import _obv_divergence_signal
         closes = [110.0, 105.0, 102.0, 101.0, 100.0, 100.0]
         obv_v  = [500.0, 550.0, 600.0, 650.0, 700.0, 750.0]
         df, obv = self._make_df_obv(closes, obv_v)
         assert _obv_divergence_signal(df, obv) == "bullish"
 
     def test_none_no_divergence(self):
-        from indicator_engine import _obv_divergence_signal
+        from indicators.counter_signals import _obv_divergence_signal
         closes = [95.0, 98.0, 100.0, 99.0, 101.0, 100.0]
         obv_v  = [500.0, 550.0, 600.0, 650.0, 700.0, 750.0]
         df, obv = self._make_df_obv(closes, obv_v)
         assert _obv_divergence_signal(df, obv) == "none"
 
     def test_none_insufficient_data(self):
-        from indicator_engine import _obv_divergence_signal
+        from indicators.counter_signals import _obv_divergence_signal
         df, obv = self._make_df_obv([100.0, 101.0], [500.0, 600.0])
         assert _obv_divergence_signal(df, obv) == "none"
 
@@ -206,38 +206,38 @@ class TestOBVDivergence:
 @pytest.mark.unit
 class TestStopHuntZone:
     def test_true_at_round_dollar(self):
-        from indicator_engine import _is_stop_hunt_zone
+        from indicators.counter_signals import _is_stop_hunt_zone
         df = _make_intraday_df(n=10, close=100.0, high=100.0, low=100.0)
         assert _is_stop_hunt_zone(df) is True
 
     def test_true_near_half_dollar(self):
-        from indicator_engine import _is_stop_hunt_zone
+        from indicators.counter_signals import _is_stop_hunt_zone
         df = _make_intraday_df(n=10, close=100.49, high=100.49, low=100.49)
         assert _is_stop_hunt_zone(df) is True
 
     def test_true_near_5day_high(self):
-        from indicator_engine import _is_stop_hunt_zone
+        from indicators.counter_signals import _is_stop_hunt_zone
         df = _make_intraday_df(n=400, close=50.25, high=50.40, low=44.0)
         df_copy = df.copy()
         df_copy.iloc[-1, df_copy.columns.get_loc("close")] = 50.25
         assert _is_stop_hunt_zone(df_copy) is True
 
     def test_true_near_5day_low(self):
-        from indicator_engine import _is_stop_hunt_zone
+        from indicators.counter_signals import _is_stop_hunt_zone
         df = _make_intraday_df(n=400, close=50.25, high=56.0, low=50.10)
         df_copy = df.copy()
         df_copy.iloc[-1, df_copy.columns.get_loc("close")] = 50.25
         assert _is_stop_hunt_zone(df_copy) is True
 
     def test_false_far_from_levels(self):
-        from indicator_engine import _is_stop_hunt_zone
+        from indicators.counter_signals import _is_stop_hunt_zone
         df = _make_intraday_df(n=400, close=50.25, high=55.0, low=44.0)
         df_copy = df.copy()
         df_copy.iloc[-1, df_copy.columns.get_loc("close")] = 50.25
         assert _is_stop_hunt_zone(df_copy) is False
 
     def test_false_empty_df(self):
-        from indicator_engine import _is_stop_hunt_zone
+        from indicators.counter_signals import _is_stop_hunt_zone
         assert _is_stop_hunt_zone(pd.DataFrame()) is False
 
 
@@ -246,14 +246,14 @@ class TestStopHuntZone:
 @pytest.mark.unit
 class TestBaseIndicatorFunctions:
     def test_ema_falls_toward_last_value(self):
-        from indicator_engine import _ema
+        from indicators.math_utils import _ema
         s = pd.Series([100.0] * 20 + [200.0])
         result = _ema(s, period=5)
         assert float(result.iloc[-1]) > 100.0
         assert float(result.iloc[-1]) < 200.0
 
     def test_compute_vwap_equals_tp_at_constant_price(self):
-        from indicator_engine import _compute_vwap
+        from indicators.math_utils import _compute_vwap
         n = 10
         idx = pd.date_range("2026-05-01 09:30", periods=n, freq="5min", tz="America/New_York")
         df = pd.DataFrame({"high": 102.0, "low": 98.0, "close": 100.0, "volume": 1000.0}, index=idx)
@@ -261,33 +261,33 @@ class TestBaseIndicatorFunctions:
         assert abs(float(vwap.iloc[-1]) - 100.0) < 1e-6
 
     def test_compute_vwap_bands_upper_above_lower(self):
-        from indicator_engine import _compute_vwap, _compute_vwap_bands
+        from indicators.math_utils import _compute_vwap, _compute_vwap_bands
         df = _make_intraday_df(n=20, close=100.0)
         vwap = _compute_vwap(df)
         vs1u, vs1l, vs2u, vs2l = _compute_vwap_bands(df, vwap)
         assert float(vs1u.dropna().iloc[-1]) >= float(vs1l.dropna().iloc[-1])
 
     def test_compute_rsi_stays_in_bounds(self):
-        from indicator_engine import _compute_rsi
+        from indicators.math_utils import _compute_rsi
         s = pd.Series([float(i) for i in range(1, 51)])
         rsi = _compute_rsi(s)
         valid = rsi.dropna()
         assert (valid >= 0).all() and (valid <= 100).all()
 
     def test_compute_rsi_trending_up_above_50(self):
-        from indicator_engine import _compute_rsi
+        from indicators.math_utils import _compute_rsi
         s = pd.Series([100.0 + i for i in range(30)])
         rsi = _compute_rsi(s)
         assert float(rsi.dropna().iloc[-1]) > 50
 
     def test_compute_macd_histogram_sign_follows_momentum(self):
-        from indicator_engine import _compute_macd
+        from indicators.math_utils import _compute_macd
         s = pd.Series([100.0 + i * 2 for i in range(60)])
         _, _, hist = _compute_macd(s)
         assert float(hist.dropna().iloc[-1]) > 0
 
     def test_compute_bollinger_upper_above_lower(self):
-        from indicator_engine import _compute_bollinger
+        from indicators.math_utils import _compute_bollinger
         s = pd.Series([100.0 + np.random.randn() for _ in range(40)])
         upper, mid, lower = _compute_bollinger(s)
         valid_upper = upper.dropna()
@@ -295,26 +295,26 @@ class TestBaseIndicatorFunctions:
         assert (valid_upper > valid_lower).all()
 
     def test_compute_atr_positive_with_volatile_bars(self):
-        from indicator_engine import _compute_atr
+        from indicators.math_utils import _compute_atr
         df = _make_intraday_df(n=20, close=100.0, high=105.0, low=95.0)
         atr = _compute_atr(df)
         assert float(atr.dropna().iloc[-1]) > 0
 
     def test_compute_volume_ratio_normal_is_one(self):
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         vol = pd.Series([1000.0] * 30)
         ratio = _compute_volume_ratio(vol)
         assert abs(float(ratio.dropna().iloc[-1]) - 1.0) < 1e-6
 
     def test_compute_stochastic_in_bounds(self):
-        from indicator_engine import _compute_stochastic
+        from indicators.math_utils import _compute_stochastic
         df = _make_intraday_df(n=20)
         k, d = _compute_stochastic(df)
         valid_k = k.dropna()
         assert (valid_k >= 0).all() and (valid_k <= 100).all()
 
     def test_compute_obv_increases_on_up_bars(self):
-        from indicator_engine import _compute_obv
+        from indicators.math_utils import _compute_obv
         closes = [100.0 + i for i in range(10)]
         idx = pd.date_range("2026-05-01", periods=10, freq="5min", tz="America/New_York")
         df = pd.DataFrame({"close": closes, "volume": 1000.0, "open": closes,
@@ -324,12 +324,12 @@ class TestBaseIndicatorFunctions:
         assert float(obv.iloc[-1]) > float(obv.iloc[0])
 
     def test_safe_returns_fallback_on_nan(self):
-        from indicator_engine import _safe
+        from indicators.composite import _safe
         s = pd.Series([float("nan")])
         assert _safe(s, fallback=42.0) == 42.0
 
     def test_safe_returns_value_when_valid(self):
-        from indicator_engine import _safe
+        from indicators.composite import _safe
         s = pd.Series([99.5])
         assert _safe(s) == 99.5
 
@@ -339,24 +339,24 @@ class TestBaseIndicatorFunctions:
 @pytest.mark.unit
 class TestDailyVolumeStats:
     def test_none_df_returns_defaults(self):
-        from indicator_engine import _compute_daily_volume_stats
+        from indicators.math_utils import _compute_daily_volume_stats
         ratio, trend, mean = _compute_daily_volume_stats(None)
         assert ratio == 1.0 and trend == 0.0 and mean == 0.0
 
     def test_too_few_rows_returns_defaults(self):
-        from indicator_engine import _compute_daily_volume_stats
+        from indicators.math_utils import _compute_daily_volume_stats
         df = _make_daily_df(n=2)
         ratio, trend, mean = _compute_daily_volume_stats(df)
         assert ratio == 1.0 and trend == 0.0 and mean == 0.0
 
     def test_constant_volume_ratio_is_one(self):
-        from indicator_engine import _compute_daily_volume_stats
+        from indicators.math_utils import _compute_daily_volume_stats
         df = _make_daily_df(n=10, volume=1_000_000.0)
         ratio, trend, mean = _compute_daily_volume_stats(df)
         assert abs(ratio - 1.0) < 0.05
 
     def test_increasing_volume_trend_positive(self):
-        from indicator_engine import _compute_daily_volume_stats
+        from indicators.math_utils import _compute_daily_volume_stats
         idx = pd.date_range("2026-01-01", periods=10, freq="B", tz="America/New_York")
         vols = [500_000.0 * (1 + i * 0.2) for i in range(10)]
         df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
@@ -365,7 +365,7 @@ class TestDailyVolumeStats:
         assert trend > 0
 
     def test_returns_correct_mean(self):
-        from indicator_engine import _compute_daily_volume_stats
+        from indicators.math_utils import _compute_daily_volume_stats
         df = _make_daily_df(n=8, volume=2_000_000.0)
         ratio, trend, mean = _compute_daily_volume_stats(df)
         assert abs(mean - 2_000_000.0) < 1000.0
@@ -376,22 +376,22 @@ class TestDailyVolumeStats:
 @pytest.mark.unit
 class TestApproxCorr:
     def test_identical_series_returns_one(self):
-        from indicator_engine import _approx_corr
+        from indicators.counter_signals import _approx_corr
         a = [1.0, 2.0, 3.0, 4.0, 5.0]
         assert abs(_approx_corr(a, a) - 1.0) < 1e-6
 
     def test_opposite_series_returns_negative_one(self):
-        from indicator_engine import _approx_corr
+        from indicators.counter_signals import _approx_corr
         a = [1.0, 2.0, 3.0, 4.0, 5.0]
         b = [5.0, 4.0, 3.0, 2.0, 1.0]
         assert abs(_approx_corr(a, b) - (-1.0)) < 1e-6
 
     def test_too_short_returns_zero(self):
-        from indicator_engine import _approx_corr
+        from indicators.counter_signals import _approx_corr
         assert _approx_corr([1.0, 2.0], [1.0, 2.0]) == 0.0
 
     def test_constant_series_returns_zero(self):
-        from indicator_engine import _approx_corr
+        from indicators.counter_signals import _approx_corr
         a = [5.0, 5.0, 5.0, 5.0, 5.0]
         b = [1.0, 2.0, 3.0, 4.0, 5.0]
         assert _approx_corr(a, b) == 0.0
@@ -430,19 +430,19 @@ class TestCompositeScore:
         }
 
     def test_bullish_vals_give_buy_signal(self):
-        from indicator_engine import _composite_score
+        from indicators.composite import _composite_score
         score, signal, conf = _composite_score(self._bullish_vals(), self._equal_weights())
         assert score > 15
         assert signal == "BUY"
 
     def test_bearish_vals_give_sell_signal(self):
-        from indicator_engine import _composite_score
+        from indicators.composite import _composite_score
         score, signal, conf = _composite_score(self._bearish_vals(), self._equal_weights())
         assert score < -15
         assert signal == "SELL"
 
     def test_neutral_gives_hold(self):
-        from indicator_engine import _composite_score
+        from indicators.composite import _composite_score
         vals = self._bullish_vals(price=100.0)
         vals.update({"rsi": 50.0, "macd_hist": 0.0, "ema9": 100.0, "ema21": 100.0,
                      "stoch_k": 50.0, "stoch_d": 50.0, "daily_volume_trend": 0.0,
@@ -451,12 +451,12 @@ class TestCompositeScore:
         assert signal == "HOLD"
 
     def test_empty_weights_returns_zero_hold(self):
-        from indicator_engine import _composite_score
+        from indicators.composite import _composite_score
         score, signal, conf = _composite_score(self._bullish_vals(), {})
         assert score == 0.0 and signal == "HOLD"
 
     def test_confidence_scales_with_volume(self):
-        from indicator_engine import _composite_score
+        from indicators.composite import _composite_score
         high_vol = dict(self._bullish_vals())
         high_vol["daily_volume_ratio"] = 1.5
         low_vol = dict(self._bullish_vals())
@@ -471,7 +471,7 @@ class TestCompositeScore:
 @pytest.mark.unit
 class TestComputeIndicators:
     def test_returns_none_for_short_df(self):
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         df = _make_intraday_df(n=10)
         assert compute_indicators("APP", df) is None
 
@@ -484,7 +484,8 @@ class TestComputeIndicators:
             "ATR": 10.0, "Stochastic Oscillator": 10.0, "OBV": 10.0, "RSI Slope": 10.0,
         }
         config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
-        from indicator_engine import compute_indicators, IndicatorValues
+        from indicators.engine import compute_indicators
+        from indicators.values import IndicatorValues
         df = _make_intraday_df(n=100)
         result = compute_indicators("APP", df)
         assert result is not None
@@ -501,7 +502,7 @@ class TestComputeIndicators:
             "OBV", "RSI Slope"
         ]}
         config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         df = _make_intraday_df(n=100)
         daily = _make_daily_df(n=10)
         result = compute_indicators("NVDA", df, daily_df=daily)
@@ -517,7 +518,7 @@ class TestVolumePenultimate:
 
     def test_uses_second_to_last_bar(self):
         """_safe_penultimate must return the second-to-last element, skipping the incomplete last bar."""
-        from indicator_engine import _safe_penultimate
+        from indicators.composite import _safe_penultimate
         # series where last=0 (incomplete bar), penultimate=1.0
         s = pd.Series([1.0] * 25 + [0.0])
         result = _safe_penultimate(s, fallback=0.0)
@@ -525,7 +526,7 @@ class TestVolumePenultimate:
 
     def test_fallback_when_less_than_2_bars(self):
         """Single bar → fallback to 1.0."""
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         vol_series = pd.Series([500.0])
         ratio = _compute_volume_ratio(vol_series)
         # With only 1 bar there may be no valid rolling result; result should be safe
@@ -535,20 +536,20 @@ class TestVolumePenultimate:
 
     def test_normal_bar_computation(self):
         """Standard constant-volume series → ratio = 1.0."""
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         vol = pd.Series([1000.0] * 30)
         ratio = _compute_volume_ratio(vol)
         assert abs(float(ratio.dropna().iloc[-1]) - 1.0) < 1e-6
 
     def test_empty_series_fallback(self):
         """Empty series must not raise."""
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         ratio = _compute_volume_ratio(pd.Series([], dtype=float))
         assert len(ratio) == 0 or ratio.isna().all()
 
     def test_all_zero_volume_fallback(self):
         """All-zero volume — ratio must not blow up (div-by-zero safe)."""
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         vol = pd.Series([0.0] * 20)
         ratio = _compute_volume_ratio(vol)
         valid = ratio.dropna()
@@ -557,7 +558,7 @@ class TestVolumePenultimate:
 
     def test_penultimate_ignores_incomplete_bar(self):
         """Spike only on the very last bar should not inflate ratio."""
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         base = [1000.0] * 25
         spike = base + [100_000.0]   # last bar spike
         ratio = _compute_volume_ratio(pd.Series(spike))
@@ -587,7 +588,7 @@ class TestPrevCloseField:
 
     def test_prev_close_populated_when_daily_bars_available(self, tmp_path):
         self._make_weights(tmp_path)
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         intraday = _make_intraday_df(n=100, close=100.0)
         daily = _make_daily_df(n=10, close=100.0)
         daily.iloc[-2, daily.columns.get_loc("close")] = 95.0
@@ -597,7 +598,7 @@ class TestPrevCloseField:
 
     def test_prev_close_zero_when_daily_bars_insufficient(self, tmp_path):
         self._make_weights(tmp_path)
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         intraday = _make_intraday_df(n=100, close=100.0)
         daily = _make_daily_df(n=1, close=88.0)
         result = compute_indicators("AAPL", intraday, daily_df=daily)
@@ -606,7 +607,7 @@ class TestPrevCloseField:
 
     def test_prev_close_zero_when_daily_df_none(self, tmp_path):
         self._make_weights(tmp_path)
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         intraday = _make_intraday_df(n=100, close=100.0)
         result = compute_indicators("AAPL", intraday, daily_df=None)
         assert result is not None

@@ -19,7 +19,8 @@ import anthropic
 
 import config
 from alpaca_client import AlpacaClient
-from indicator_engine import IndicatorValues, compute_indicators
+from indicators.values import IndicatorValues
+from indicators.engine import compute_indicators
 from utils.io_utils import load_json
 from trading.journal import (
     load_daily_closed,

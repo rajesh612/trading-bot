@@ -13,7 +13,7 @@ from datetime import datetime
 import pandas as pd
 
 import config
-from indicator_engine import IndicatorValues
+from indicators.values import IndicatorValues
 from signals.time_gate import is_entry_allowed
 from signals.relative_strength import rs_rank, passes_rs_filter
 from signals.correlation_guard import passes_correlation_guard

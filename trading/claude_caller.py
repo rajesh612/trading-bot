@@ -18,7 +18,7 @@ import config
 from trading import risk_manager
 import telegram_notify
 from alpaca_client import AlpacaClient
-from indicator_engine import IndicatorValues
+from indicators.values import IndicatorValues
 from macro_regime import load_macro_regime
 from trading.context_builder import build_stable_system_context, build_dynamic_user_context, build_stock_block, build_exit_stock_block
 

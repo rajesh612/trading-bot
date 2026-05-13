@@ -1,5 +1,5 @@
 import config
-from indicator_engine import IndicatorValues
+from indicators.values import IndicatorValues
 
 
 def passes_vwap_guard(iv: IndicatorValues) -> bool:

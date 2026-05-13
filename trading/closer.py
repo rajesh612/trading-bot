@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import config
 import telegram_notify
 from alpaca_client import AlpacaClient
-from indicator_engine import IndicatorValues
+from indicators.values import IndicatorValues
 from utils.io_utils import load_json, save_json
 from trading.journal import (
     _POSITIONS_LOCK,

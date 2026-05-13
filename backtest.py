@@ -23,7 +23,7 @@ from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 import config
-from indicator_engine import compute_indicators
+from indicators.engine import compute_indicators
 
 logging.basicConfig(
     level=logging.INFO,

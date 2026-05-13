@@ -149,14 +149,14 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_vwap_is_positive(self, synthetic_bars):
-        from indicator_engine import _compute_vwap
+        from indicators.math_utils import _compute_vwap
         vwap = _compute_vwap(synthetic_bars)
         assert (vwap > 0).all()
         assert not vwap.isna().all()
 
     @pytest.mark.unit
     def test_rsi_bounds(self, synthetic_bars):
-        from indicator_engine import _compute_rsi
+        from indicators.math_utils import _compute_rsi
         rsi = _compute_rsi(synthetic_bars["close"])
         valid = rsi.dropna()
         assert (valid >= 0).all() and (valid <= 100).all(), "RSI out of [0, 100]"
@@ -164,14 +164,14 @@ class TestIndicatorEngine:
     @pytest.mark.unit
     def test_rsi_mean_reversion(self):
         """Strongly trending up data should push RSI toward overbought (>60)."""
-        from indicator_engine import _compute_rsi
+        from indicators.math_utils import _compute_rsi
         close = pd.Series([100 + i * 0.5 for i in range(50)])
         rsi = _compute_rsi(close).dropna()
         assert rsi.iloc[-1] > 60
 
     @pytest.mark.unit
     def test_macd_components(self, synthetic_bars):
-        from indicator_engine import _compute_macd
+        from indicators.math_utils import _compute_macd
         macd, signal, hist = _compute_macd(synthetic_bars["close"])
         # Histogram must equal MACD minus signal
         diff = (macd - signal - hist).dropna().abs()
@@ -179,7 +179,7 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_bollinger_bands_ordering(self, synthetic_bars):
-        from indicator_engine import _compute_bollinger
+        from indicators.math_utils import _compute_bollinger
         upper, mid, lower = _compute_bollinger(synthetic_bars["close"])
         valid = ~upper.isna()
         assert (upper[valid] >= mid[valid]).all(), "upper < mid"
@@ -187,14 +187,14 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_atr_positive(self, synthetic_bars):
-        from indicator_engine import _compute_atr
+        from indicators.math_utils import _compute_atr
         atr = _compute_atr(synthetic_bars)
         valid = atr.dropna()
         assert (valid > 0).all(), "ATR must be positive"
 
     @pytest.mark.unit
     def test_volume_ratio_baseline(self, synthetic_bars):
-        from indicator_engine import _compute_volume_ratio
+        from indicators.math_utils import _compute_volume_ratio
         vr = _compute_volume_ratio(synthetic_bars["volume"])
         valid = vr.dropna()
         # With random volume, ratio should cluster around 1.0
@@ -202,7 +202,7 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_stochastic_bounds(self, synthetic_bars):
-        from indicator_engine import _compute_stochastic
+        from indicators.math_utils import _compute_stochastic
         k, d = _compute_stochastic(synthetic_bars)
         valid_k = k.dropna()
         valid_d = d.dropna()
@@ -211,14 +211,14 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_obv_cumulative(self, synthetic_bars):
-        from indicator_engine import _compute_obv
+        from indicators.math_utils import _compute_obv
         obv = _compute_obv(synthetic_bars)
         assert len(obv) == len(synthetic_bars)
         assert not obv.isna().any()
 
     @pytest.mark.unit
     def test_vwap_bands_ordering(self, synthetic_bars):
-        from indicator_engine import _compute_vwap, _compute_vwap_bands
+        from indicators.math_utils import _compute_vwap, _compute_vwap_bands
         vwap = _compute_vwap(synthetic_bars)
         s1u, s1l, s2u, s2l = _compute_vwap_bands(synthetic_bars, vwap)
         valid = ~s2u.isna()
@@ -227,7 +227,7 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_composite_score_range(self, synthetic_bars):
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         iv = compute_indicators(TEST_SYMBOL, synthetic_bars)
         assert iv is not None
         assert -100 <= iv.composite_score <= 100
@@ -236,7 +236,8 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_compute_indicators_returns_all_fields(self, synthetic_bars):
-        from indicator_engine import compute_indicators, IndicatorValues
+        from indicators.engine import compute_indicators
+        from indicators.values import IndicatorValues
         import dataclasses
         iv = compute_indicators(TEST_SYMBOL, synthetic_bars)
         assert iv is not None
@@ -247,14 +248,14 @@ class TestIndicatorEngine:
 
     @pytest.mark.unit
     def test_insufficient_bars_returns_none(self):
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         tiny = _synthetic_bars(10)
         result = compute_indicators(TEST_SYMBOL, tiny)
         assert result is None
 
     @pytest.mark.unit
     def test_weight_loading(self):
-        from indicator_engine import load_weights
+        from indicators.composite import load_weights
         weights = load_weights()
         assert len(weights) >= 10
         total = sum(weights.values())
@@ -263,7 +264,7 @@ class TestIndicatorEngine:
     @pytest.mark.unit
     def test_buy_signal_on_bullish_data(self):
         """Strongly bullish synthetic data should produce a BUY signal."""
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         # Price consistently above VWAP, high volume
         n = 80
         rng = np.random.default_rng(0)
@@ -281,7 +282,7 @@ class TestIndicatorEngine:
 
     @pytest.mark.live
     def test_live_indicators(self, live_bars):
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         iv = compute_indicators(TEST_SYMBOL, live_bars)
         assert iv is not None
         assert iv.current_price > 0
@@ -459,7 +460,7 @@ class TestTradingAgent:
     def test_claude_decision_structure(self, tmp_path, monkeypatch):
         """Claude must return a valid structured decision for a real indicator snapshot."""
         from trading_agent import _ask_claude_batch
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
         from alpaca_client import AlpacaClient
         import anthropic as ant
 
@@ -616,7 +617,7 @@ class TestEndToEnd:
     def test_indicator_pipeline_aapl(self):
         """Pull live bars → compute indicators → verify sane values."""
         from alpaca_client import AlpacaClient
-        from indicator_engine import compute_indicators
+        from indicators.engine import compute_indicators
 
         client = AlpacaClient()
         bars = client.get_intraday_bars("AAPL", lookback=100)
