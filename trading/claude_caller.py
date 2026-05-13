@@ -14,8 +14,8 @@ from zoneinfo import ZoneInfo
 
 import anthropic
 
-import api_budget
 import config
+from trading import risk_manager
 import telegram_notify
 from alpaca_client import AlpacaClient
 from indicator_engine import IndicatorValues
@@ -124,7 +124,7 @@ def _ask_claude_batch(
     estimated_cost = _estimate_batch_call_cost(len(batch))
     gain_pct = _get_portfolio_intraday_gain()
     regime   = _get_current_regime()
-    if not api_budget.check_budget(estimated_cost, gain_pct, regime):
+    if not risk_manager.check_entry_budget(estimated_cost, gain_pct, regime):
         logger.warning("API budget blocked — HOLD for %s", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 
@@ -205,11 +205,12 @@ def _ask_claude_batch(
 
     try:
         usage = response.usage
-        api_budget.record_usage(
+        risk_manager.record_usage(
             input_tokens=getattr(usage, "input_tokens", 0),
             output_tokens=getattr(usage, "output_tokens", 0),
             cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
             cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+            kind="entry",
         )
     except Exception:
         pass

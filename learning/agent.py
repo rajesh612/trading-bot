@@ -9,8 +9,8 @@ from datetime import date
 
 import anthropic
 
-import api_budget
 import config
+from trading import risk_manager
 from macro_regime import load_macro_regime, load_trading_params
 from learning.trade_analysis import (
     _aggregate_by_regime,
@@ -128,7 +128,7 @@ def run_learning_agent():
     )
 
     usage = analysis_response.usage
-    api_budget.record_usage(
+    risk_manager.record_usage(
         input_tokens=getattr(usage, "input_tokens", 0),
         output_tokens=getattr(usage, "output_tokens", 0),
         cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
@@ -270,7 +270,7 @@ def run_learning_agent():
     )
 
     usage = memory_response.usage
-    api_budget.record_usage(
+    risk_manager.record_usage(
         input_tokens=getattr(usage, "input_tokens", 0),
         output_tokens=getattr(usage, "output_tokens", 0),
         cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),

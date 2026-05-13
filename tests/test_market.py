@@ -28,14 +28,16 @@ class TestApiBudget:
         return budget_file
 
     def test_fresh_budget_starts_at_zero(self, tmp_path):
-        import api_budget, config
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        budget = api_budget.load_budget()
+        budget = risk_manager.load_budget()
         assert budget["estimated_cost_usd"] == 0.0
         assert budget["calls_made"] == 0
 
     def test_budget_resets_on_new_day(self, tmp_path):
-        import api_budget, config
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
         # Write stale budget
         stale = {
@@ -52,60 +54,65 @@ class TestApiBudget:
         }
         with open(config.API_BUDGET_FILE, "w") as f:
             json.dump(stale, f)
-        budget = api_budget.load_budget()
+        budget = risk_manager.load_budget()
         assert budget["estimated_cost_usd"] == 0.0
         assert budget["calls_made"] == 0
 
-    def test_normal_ceiling_default(self):
-        from api_budget import get_ceiling
+    def test_normal_ceiling_default(self, tmp_path):
+        from trading import risk_manager
         import config
-        assert get_ceiling() == config.API_BUDGET_NORMAL_CEILING
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        assert risk_manager.get_ceiling() == config.API_BUDGET_NORMAL_CEILING
 
-    def test_elevated_ceiling_on_high_gain(self):
-        from api_budget import get_ceiling
+    def test_elevated_ceiling_when_mode_elevated(self, tmp_path):
+        from trading import risk_manager
         import config
-        assert get_ceiling(portfolio_gain_pct=1.0) == config.API_BUDGET_ELEVATED_CEILING
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        b = risk_manager.load_budget()
+        b["ceiling_mode"] = "elevated"
+        risk_manager._save_budget(b)
+        assert risk_manager.get_ceiling() == config.API_BUDGET_ELEVATED_CEILING
 
-    def test_elevated_ceiling_on_crisis_regime(self):
-        from api_budget import get_ceiling
+    def test_normal_ceiling_when_mode_normal(self, tmp_path):
+        from trading import risk_manager
         import config
-        assert get_ceiling(regime="CRISIS") == config.API_BUDGET_ELEVATED_CEILING
-
-    def test_elevated_ceiling_on_capitulation(self):
-        from api_budget import get_ceiling
-        import config
-        assert get_ceiling(regime="CAPITULATION") == config.API_BUDGET_ELEVATED_CEILING
+        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        assert risk_manager.get_ceiling() == config.API_BUDGET_NORMAL_CEILING
 
     def test_check_budget_allows_within_ceiling(self, tmp_path):
-        import api_budget, config
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        assert api_budget.check_budget(0.50) is True
+        assert risk_manager.check_entry_budget(0.50, 0.0, "NORMAL") is True
 
     def test_check_budget_blocks_over_ceiling(self, tmp_path):
-        import api_budget, config
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        # Record usage that fills 90% of ceiling
-        api_budget.record_usage(input_tokens=290_000, output_tokens=0)
+        # Record usage that fills entry pool (70% of $1.00 = $0.70)
+        risk_manager.record_usage(input_tokens=290_000, output_tokens=0)
         # Now try to add more than remaining
-        assert api_budget.check_budget(0.50) is False
+        assert risk_manager.check_entry_budget(0.50, 0.0, "NORMAL") is False
 
     def test_record_usage_accumulates(self, tmp_path):
-        import api_budget, config
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        api_budget.record_usage(input_tokens=1000, output_tokens=100)
-        api_budget.record_usage(input_tokens=1000, output_tokens=100)
-        budget = api_budget.load_budget()
+        risk_manager.record_usage(input_tokens=1000, output_tokens=100)
+        risk_manager.record_usage(input_tokens=1000, output_tokens=100)
+        budget = risk_manager.load_budget()
         assert budget["input_tokens"] == 2000
         assert budget["output_tokens"] == 200
         assert budget["calls_made"] == 2
         assert budget["estimated_cost_usd"] > 0
 
     def test_corrupt_file_resets_cleanly(self, tmp_path):
-        import api_budget, config
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
         with open(config.API_BUDGET_FILE, "w") as f:
             f.write("not json{{{")
-        budget = api_budget.load_budget()
+        budget = risk_manager.load_budget()
         assert budget["calls_made"] == 0
 
 
@@ -196,28 +203,31 @@ class TestAlpacaClientHelpers:
 @pytest.mark.unit
 class TestApiBudgetRemaining:
     def test_record_call_increases_cost(self, tmp_path):
-        import config, api_budget
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        api_budget.record_usage(input_tokens=1000, output_tokens=100,
-                                cache_write_tokens=0, cache_read_tokens=0)
-        budget = api_budget.load_budget()
+        risk_manager.record_usage(input_tokens=1000, output_tokens=100,
+                                  cache_write_tokens=0, cache_read_tokens=0)
+        budget = risk_manager.load_budget()
         assert budget["estimated_cost_usd"] > 0
         assert budget["calls_made"] == 1
 
     def test_check_budget_not_exhausted_returns_true(self, tmp_path):
-        import config, api_budget
+        from trading import risk_manager
+        import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        assert api_budget.check_budget(estimated_call_cost=0.0) is True
+        assert risk_manager.check_entry_budget(estimated_cost=0.0, gain_pct=0.0, regime="NORMAL") is True
 
-    def test_ceiling_exhausted_after_many_calls(self, tmp_path):
-        import config, api_budget
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        config.API_DAILY_BUDGET_USD = 0.001  # tiny ceiling
+    def test_ceiling_exhausted_after_many_calls(self, tmp_path, monkeypatch):
+        from trading import risk_manager
+        import config
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
+        monkeypatch.setattr(config, "API_BUDGET_NORMAL_CEILING", 0.001)  # tiny ceiling
         # Simulate expensive calls
         for _ in range(5):
-            api_budget.record_usage(input_tokens=100_000, output_tokens=10_000,
-                                    cache_write_tokens=0, cache_read_tokens=0)
-        assert api_budget.check_budget(estimated_call_cost=0.0) is False
+            risk_manager.record_usage(input_tokens=100_000, output_tokens=10_000,
+                                      cache_write_tokens=0, cache_read_tokens=0)
+        assert risk_manager.check_entry_budget(estimated_cost=0.0, gain_pct=0.0, regime="NORMAL") is False
 
 
 # ── telegram_notify ───────────────────────────────────────────────────────────

@@ -857,7 +857,7 @@ class TestContextSplit:
 
 @pytest.mark.unit
 class TestAgentBudgetRecording:
-    """Verify that watch_list_agent and research/analyzer call api_budget.record_usage()."""
+    """Verify that watch_list_agent and research/analyzer call risk_manager.record_usage()."""
 
     def _fake_response(self, input_tok=100, output_tok=50, cache_write=200, cache_read=0):
         """Build a minimal mock of the anthropic Messages response."""
@@ -876,7 +876,6 @@ class TestAgentBudgetRecording:
         """run_watch_list_agent records token usage after its Claude call."""
         import types
         import watch_list_agent
-        import api_budget
 
         fake_resp = self._fake_response(input_tok=300, output_tok=80, cache_write=500)
 
@@ -894,14 +893,14 @@ class TestAgentBudgetRecording:
         mock_alpaca.get_daily_bars.return_value = None  # _score_stock returns None → scored=[]
 
         recorded = {}
-        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0):
+        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0, **kwargs):
             recorded["input"] = input_tokens
             recorded["output"] = output_tokens
             recorded["cache_write"] = cache_write_tokens
 
         with patch("watch_list_agent.AlpacaClient", return_value=mock_alpaca), \
              patch("anthropic.Anthropic") as MockAI, \
-             patch("api_budget.record_usage", side_effect=fake_record):
+             patch("trading.risk_manager.record_usage", side_effect=fake_record):
             MockAI.return_value.messages.create.return_value = fake_resp
             # scored list is empty so Claude picks from fallback — still calls messages.create
             # Force scored to have one entry so the Claude call is reached
@@ -933,12 +932,12 @@ class TestAgentBudgetRecording:
         ai.messages.create.return_value = resp
 
         recorded = {}
-        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0):
+        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0, **kwargs):
             recorded["input"] = input_tokens
             recorded["output"] = output_tokens
             recorded["cache_write"] = cache_write_tokens
 
-        with patch("api_budget.record_usage", side_effect=fake_record):
+        with patch("trading.risk_manager.record_usage", side_effect=fake_record):
             _analyze_stock("AAPL", [], "ctx", {}, {}, {}, ai, [])
 
         assert recorded.get("input") == 400
