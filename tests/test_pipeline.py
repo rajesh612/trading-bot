@@ -381,3 +381,90 @@ class TestWatchListFilter:
         snapshots = {}  # no data
         result = _apply_technical_filter(["NVDA"], snapshots, rsi_limit=70, stoch_limit=80)
         assert "NVDA" in result
+
+
+# ─── CycleSnapshot intraday_news wiring (Task 9) ─────────────────────────────
+
+class TestCycleSnapshotIntradayNews:
+
+    @pytest.mark.unit
+    def test_build_snapshot_includes_intraday_news(self, tmp_path):
+        """build_cycle_snapshot() populates intraday_news from cache."""
+        import json
+        from datetime import timezone
+        from trading.cycle_context import build_cycle_snapshot, invalidate_fred_cache
+
+        fresh_ts = datetime.now(timezone.utc).isoformat()
+        news_cache = {"__updated_at": fresh_ts, "NVDA": {"sentiment_score": 15, "shock_score": 0, "headlines": []}}
+        news_file = tmp_path / "intraday_news_cache.json"
+        news_file.write_text(json.dumps(news_cache))
+
+        with patch("trading.cycle_context.load_macro_regime", return_value={"regime": "NORMAL", "macro_health_score": 0}), \
+             patch("trading.cycle_context.load_trading_params", return_value={}), \
+             patch("trading.cycle_context.load_json", return_value={}), \
+             patch("trading.cycle_context.load_intraday_news", return_value={"NVDA": {"sentiment_score": 15, "shock_score": 0}}):
+            snap = build_cycle_snapshot(portfolio_gain_pct=0.0)
+
+        assert snap.intraday_news.get("NVDA", {}).get("sentiment_score") == 15
+
+
+# ─── Pipeline phase-2 tiers (Task 10) ────────────────────────────────────────
+
+class TestPipelinePhase2Tiers:
+
+    def _make_iv(self, symbol, composite, rsi=55.0, stoch_d=50.0, current_price=100.0):
+        from tests.test_signals import TestFastGate
+        return TestFastGate()._iv(
+            symbol=symbol, composite_score=composite, rsi=rsi,
+            stoch_d=stoch_d, current_price=current_price
+        )
+
+    def _snap(self, research=None, intraday_news=None):
+        from trading.cycle_context import CycleSnapshot
+        return CycleSnapshot(
+            regime_info={"regime": "NORMAL", "macro_health_score": 0},
+            regime="NORMAL",
+            fred_cache={},
+            research=research or {"TEST": {"sentiment_score": 25}},
+            research_meta={"macro_shock_score": 0},
+            strategy_memory="",
+            weights={},
+            params={
+                "rsi_buy_max": 72, "rsi_buy_max_high_vol": 65,
+                "high_vol_position_mult": 0.5,
+                "entry_start_hour": 10, "entry_end_hour": 15,
+            },
+            portfolio_gain_pct=0.0,
+            intraday_news=intraday_news or {},
+        )
+
+    @pytest.mark.unit
+    def test_budget_exhausted_skips_claude_phase(self):
+        from trading.pipeline import TradingPipeline
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = True
+        pipeline = TradingPipeline()
+        with patch("trading.pipeline._ask_claude_batch") as mock_claude, \
+             patch("trading.pipeline._fetch_symbol_data", return_value=None):
+            result = pipeline.run(
+                symbols=["TEST"], snap=self._snap(),
+                ai=MagicMock(), now=datetime(2026, 5, 13, 10, 0, tzinfo=ET),
+                alpaca=MagicMock(), portfolio_value=10000, buying_power=5000,
+                can_open=True,
+            )
+        mock_claude.assert_not_called()
+        risk_manager._entry_exhausted_flag = False
+
+    @pytest.mark.unit
+    def test_low_composite_skipped_no_claude(self):
+        from trading.pipeline import TradingPipeline
+        iv = self._make_iv("TEST", composite=25.0)
+        with patch("trading.pipeline._fetch_symbol_data", return_value=("TEST", iv, None, 0.0)), \
+             patch("trading.pipeline._ask_claude_batch") as mock_claude:
+            TradingPipeline().run(
+                symbols=["TEST"], snap=self._snap(),
+                ai=MagicMock(), now=datetime(2026, 5, 13, 10, 0, tzinfo=ET),
+                alpaca=MagicMock(), portfolio_value=10000, buying_power=5000,
+                can_open=True,
+            )
+        mock_claude.assert_not_called()
