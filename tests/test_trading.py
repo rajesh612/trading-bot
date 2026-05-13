@@ -977,3 +977,106 @@ class TestBudgetEscalationNotify:
         with patch("requests.post", side_effect=Exception("network error")):
             telegram_notify.notify_budget_escalation(0.25, 1.50)
             # Must not raise — function should return normally
+
+
+# ── trading/risk_manager: budget pools ───────────────────────────────────────
+
+@pytest.mark.unit
+class TestRiskManagerBudget:
+    """Tests for trading.risk_manager budget pool functions."""
+
+    def _setup(self, tmp_path, monkeypatch, **overrides):
+        """Write a pre-populated budget to tmp_path and patch config path."""
+        import config
+        budget_file = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", budget_file)
+
+        # Build a fresh budget from the module, then apply overrides
+        from trading.risk_manager import _fresh_budget
+        budget = _fresh_budget()
+        budget.update(overrides)
+        import json
+        budget_file.write_text(json.dumps(budget))
+        return budget_file
+
+    # 1. Entry pool blocks when spent
+    def test_check_entry_blocks_when_entry_pool_spent(self, tmp_path, monkeypatch):
+        """check_entry_budget returns False when entry pool is exhausted."""
+        import config
+        self._setup(tmp_path, monkeypatch, entry_spent_usd=0.70,
+                    entry_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.ENTRY_BUDGET_RATIO, 4))
+        from trading.risk_manager import check_entry_budget
+        result = check_entry_budget(0.01, 0.0, "NORMAL")
+        assert result is False
+
+    # 2. Entry pool allows when under limit
+    def test_check_entry_allows_when_under_limit(self, tmp_path, monkeypatch):
+        """check_entry_budget returns True when entry pool has room."""
+        self._setup(tmp_path, monkeypatch, entry_spent_usd=0.0)
+        from trading.risk_manager import check_entry_budget
+        result = check_entry_budget(0.01, 0.0, "NORMAL")
+        assert result is True
+
+    # 3. Exit pool escalates when exhausted with open positions
+    def test_check_exit_escalates_when_pool_exhausted_with_open_positions(self, tmp_path, monkeypatch):
+        """check_exit_budget escalates ceiling and calls notify_budget_escalation once."""
+        import config
+        self._setup(tmp_path, monkeypatch, exit_spent_usd=0.30,
+                    exit_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.EXIT_BUDGET_RATIO, 4),
+                    escalated=False)
+        from unittest.mock import patch
+        with patch("trading.risk_manager.telegram_notify.notify_budget_escalation") as mock_notify:
+            from trading.risk_manager import check_exit_budget
+            result = check_exit_budget(0.01, open_position_count=1, regime="NORMAL")
+        mock_notify.assert_called_once()
+        assert result is True
+
+    # 4. Escalation is idempotent
+    def test_check_exit_escalation_idempotent(self, tmp_path, monkeypatch):
+        """Second call when already escalated does not trigger a second notification."""
+        import config
+        self._setup(tmp_path, monkeypatch, exit_spent_usd=0.30,
+                    exit_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.EXIT_BUDGET_RATIO, 4),
+                    escalated=True,
+                    ceiling_mode="elevated",
+                    ceiling_usd=config.API_BUDGET_ELEVATED_CEILING)
+        from unittest.mock import patch
+        with patch("trading.risk_manager.telegram_notify.notify_budget_escalation") as mock_notify:
+            from trading.risk_manager import check_exit_budget
+            check_exit_budget(0.01, open_position_count=1, regime="NORMAL")
+        mock_notify.assert_not_called()
+
+    # 5. record_usage routes entry to entry pool
+    def test_record_usage_entry_routes_to_entry_pool(self, tmp_path, monkeypatch):
+        """record_usage with kind='entry' increments entry_spent_usd, not exit_spent_usd."""
+        self._setup(tmp_path, monkeypatch)
+        from trading.risk_manager import record_usage, load_budget
+        record_usage(100, 50, 0, 0, kind="entry")
+        b = load_budget()
+        assert b["entry_spent_usd"] > 0
+        assert b["exit_spent_usd"] == 0.0
+
+    # 6. record_usage routes exit to exit pool
+    def test_record_usage_exit_routes_to_exit_pool(self, tmp_path, monkeypatch):
+        """record_usage with kind='exit' increments exit_spent_usd, not entry_spent_usd."""
+        self._setup(tmp_path, monkeypatch)
+        from trading.risk_manager import record_usage, load_budget
+        record_usage(100, 50, 0, 0, kind="exit")
+        b = load_budget()
+        assert b["exit_spent_usd"] > 0
+        assert b["entry_spent_usd"] == 0.0
+
+    # 7. budget_exhausted only when both pools spent
+    def test_budget_exhausted_only_when_both_pools_spent(self, tmp_path, monkeypatch):
+        """budget_exhausted is True only after both entry and exit are exhausted."""
+        import config
+        self._setup(tmp_path, monkeypatch,
+                    entry_spent_usd=0.70,
+                    exit_spent_usd=0.30,
+                    entry_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.ENTRY_BUDGET_RATIO, 4),
+                    exit_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.EXIT_BUDGET_RATIO, 4))
+        from trading.risk_manager import check_entry_budget, check_exit_budget, load_budget
+        check_entry_budget(0.01, 0.0, "NORMAL")   # marks entry_exhausted
+        check_exit_budget(0.01, open_position_count=0, regime="NORMAL")  # marks exit_exhausted, no escalation
+        b = load_budget()
+        assert b["budget_exhausted"] is True
