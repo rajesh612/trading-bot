@@ -567,3 +567,47 @@ class TestVolumePenultimate:
         # This is a soft assertion — the engine is allowed to use the last bar for the ratio
         # series but for entry decisions it picks iloc[-2]; test documents expected behavior.
         assert last_ratio < 200, f"Ratio {last_ratio} suspiciously high — check penultimate logic"
+
+
+# ── indicator_engine: prev_close field ───────────────────────────────────────
+
+@pytest.mark.unit
+class TestPrevCloseField:
+    @staticmethod
+    def _make_weights(tmp_path):
+        import config
+        import json
+        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        weights = {k: 10.0 for k in [
+            "VWAP", "RSI", "Daily Volume Trend", "MACD", "EMA 9/21 Crossover",
+            "Bollinger Bands", "VWAP StdDev Bands", "ATR", "Stochastic Oscillator",
+            "OBV", "RSI Slope"
+        ]}
+        config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
+
+    def test_prev_close_populated_when_daily_bars_available(self, tmp_path):
+        self._make_weights(tmp_path)
+        from indicator_engine import compute_indicators
+        intraday = _make_intraday_df(n=100, close=100.0)
+        daily = _make_daily_df(n=10, close=100.0)
+        daily.iloc[-2, daily.columns.get_loc("close")] = 95.0
+        result = compute_indicators("AAPL", intraday, daily_df=daily)
+        assert result is not None
+        assert result.prev_close == 95.0
+
+    def test_prev_close_zero_when_daily_bars_insufficient(self, tmp_path):
+        self._make_weights(tmp_path)
+        from indicator_engine import compute_indicators
+        intraday = _make_intraday_df(n=100, close=100.0)
+        daily = _make_daily_df(n=1, close=88.0)
+        result = compute_indicators("AAPL", intraday, daily_df=daily)
+        assert result is not None
+        assert result.prev_close == 0.0
+
+    def test_prev_close_zero_when_daily_df_none(self, tmp_path):
+        self._make_weights(tmp_path)
+        from indicator_engine import compute_indicators
+        intraday = _make_intraday_df(n=100, close=100.0)
+        result = compute_indicators("AAPL", intraday, daily_df=None)
+        assert result is not None
+        assert result.prev_close == 0.0

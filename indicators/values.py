@@ -56,3 +56,4 @@ class IndicatorValues:
     squeeze_setup: bool = False
     squeeze_confidence: int = 0          # 0-100
     stop_hunt_zone: bool = False
+    prev_close: float = 0.0

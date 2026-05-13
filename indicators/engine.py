@@ -130,6 +130,8 @@ def compute_indicators(
     weights = load_weights()
     composite_score, signal, confidence = _composite_score(vals, weights)
 
+    prev_close = float(daily_df["close"].iloc[-2]) if daily_df is not None and len(daily_df) >= 2 else 0.0
+
     # ── New Plan-2 signals ────────────────────────────────────────────────────
     daily_closes: list[float] = []
     if daily_df is not None and not daily_df.empty:
@@ -164,5 +166,6 @@ def compute_indicators(
         squeeze_setup=_squeeze,
         squeeze_confidence=_squeeze_conf,
         stop_hunt_zone=stop_hunt,
+        prev_close=prev_close,
         **{k: v for k, v in vals.items() if k not in ("obv_trend",)},
     )
