@@ -179,7 +179,7 @@ class TradingPipeline:
                         logger.info("EXIT-EVAL %s: intraday shock %d", symbol, intra["shock_score"])
 
         if exit_candidates:
-            exit_decisions = _ask_claude_exit_batch(exit_candidates, snap.research, ai)
+            exit_decisions = _ask_claude_exit_batch(exit_candidates, snap, ai)
             for sym, iv, existing_pos in exit_candidates:
                 decision = exit_decisions.get(sym, {})
                 if decision.get("action") == "CLOSE":
@@ -194,9 +194,7 @@ class TradingPipeline:
         decisions: dict[str, dict] = {}
         for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
             batch = needs_claude[i : i + config.CLAUDE_BATCH_SIZE]
-            batch_decisions = _ask_claude_batch(
-                batch, snap.research, snap.strategy_memory, snap.weights, ai, snap.fred_cache, snap.research_meta
-            )
+            batch_decisions = _ask_claude_batch(batch, snap, ai)
             decisions.update(batch_decisions)
         claude_elapsed = time.monotonic() - t_claude
 

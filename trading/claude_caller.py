@@ -17,9 +17,8 @@ import anthropic
 import config
 from trading import risk_manager
 import telegram_notify
-from alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
-from macro_regime import load_macro_regime
+from trading.cycle_context import CycleSnapshot
 from trading.context_builder import build_stable_system_context, build_dynamic_user_context, build_stock_block, build_exit_stock_block
 
 logger = logging.getLogger(__name__)
@@ -37,14 +36,12 @@ _STABLE_CTX_TTL: float = 3600.0
 _STABLE_CTX_LOCK = threading.Lock()
 
 
-def _get_cached_stable_context(fred_cache: dict, research_meta: dict) -> str:
+def _get_cached_stable_context(fred_cache: dict, research_meta: dict, regime_info: dict) -> str:
     global _stable_ctx_text, _stable_ctx_time
     with _STABLE_CTX_LOCK:
         if _stable_ctx_text and (time.monotonic() - _stable_ctx_time) < _STABLE_CTX_TTL:
             return _stable_ctx_text
-        _stable_ctx_text = build_stable_system_context(
-            _get_current_regime_info(), fred_cache, research_meta
-        )
+        _stable_ctx_text = build_stable_system_context(regime_info, fred_cache, research_meta)
         _stable_ctx_time = time.monotonic()
         return _stable_ctx_text
 
@@ -71,41 +68,10 @@ def _estimate_batch_call_cost(batch_size: int) -> float:
     return system_tokens * 3.00 / 1_000_000 + output_tokens * 15.00 / 1_000_000
 
 
-def _get_portfolio_intraday_gain() -> float:
-    """Best-effort intraday gain % for budget ceiling decision."""
-    try:
-        alpaca = AlpacaClient()
-        account = alpaca.get_account()
-        last_equity = float(account.last_equity)
-        portfolio   = float(account.portfolio_value)
-        if last_equity > 0:
-            return (portfolio - last_equity) / last_equity * 100
-    except Exception:
-        pass
-    return 0.0
-
-
-def _get_current_regime() -> str:
-    try:
-        return load_macro_regime().get("regime", "NORMAL")
-    except Exception:
-        return "NORMAL"
-
-
-def _get_current_regime_info() -> dict:
-    try:
-        return load_macro_regime()
-    except Exception:
-        return {"regime": "NORMAL", "macro_health_score": 0, "vix_current": 0.0}
-
 def _ask_claude_batch(
     batch: list[tuple[str, IndicatorValues, dict | None]],
-    research: dict,
-    strategy_memory: str,
-    weights: dict,
+    snap: CycleSnapshot,
     ai: anthropic.Anthropic,
-    fred_cache: dict,
-    research_meta: dict,
 ) -> dict[str, dict]:
     """Ask Claude for decisions on multiple stocks in a single API call."""
     global _CLAUDE_DISABLED_REASON
@@ -117,19 +83,17 @@ def _ask_claude_batch(
             return {sym: _default_hold(sym) for sym in symbols}
 
     estimated_cost = _estimate_batch_call_cost(len(batch))
-    gain_pct = _get_portfolio_intraday_gain()
-    regime   = _get_current_regime()
-    if not risk_manager.check_entry_budget(estimated_cost, gain_pct, regime):
+    if not risk_manager.check_entry_budget(estimated_cost, snap.portfolio_gain_pct, snap.regime):
         logger.warning("API budget blocked — HOLD for %s", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 
     stock_blocks = "\n\n".join(
-        build_stock_block(sym, iv, research, existing_pos)
+        build_stock_block(sym, iv, snap.research, existing_pos)
         for sym, iv, existing_pos in batch
     )
 
     now = datetime.now(ET)
-    stable_ctx = _get_cached_stable_context(fred_cache, research_meta)
+    stable_ctx = _get_cached_stable_context(snap.fred_cache, snap.research_meta, snap.regime_info)
     dynamic_ctx = build_dynamic_user_context(now)
 
     system_text = (
@@ -137,11 +101,11 @@ def _ask_claude_batch(
         "You receive technical indicators, news sentiment, and market context.\n"
         "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
         "Prioritise capital preservation. Never hold overnight.\n"
-        f"Current indicator weights: {json.dumps(weights)}\n\n"
+        f"Current indicator weights: {json.dumps(snap.weights)}\n\n"
         f"{stable_ctx}"
     )
-    if strategy_memory:
-        system_text += f"\n\nToday's strategy memory:\n{strategy_memory}"
+    if snap.strategy_memory:
+        system_text += f"\n\nToday's strategy memory:\n{snap.strategy_memory}"
 
     system_blocks = [
         {
@@ -222,7 +186,7 @@ def _ask_claude_batch(
 
 def _ask_claude_exit_batch(
     exit_candidates: list[tuple[str, IndicatorValues, dict]],
-    research: dict,
+    snap: CycleSnapshot,
     ai: anthropic.Anthropic,
 ) -> dict[str, dict]:
     """Ask Claude to evaluate thesis-break candidates using compact exit prompts."""
@@ -236,12 +200,12 @@ def _ask_claude_exit_batch(
     open_count = len(exit_candidates)
     estimated_cost = (300 * open_count) * 3.00 / 1_000_000
 
-    if not risk_manager.check_exit_budget(estimated_cost, open_count, _get_current_regime()):
+    if not risk_manager.check_exit_budget(estimated_cost, open_count, snap.regime):
         logger.warning("Exit budget blocked for thesis-break eval — HOLD for %s", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 
     exit_blocks = "\n\n".join(
-        build_exit_stock_block(sym, iv, pos, research)
+        build_exit_stock_block(sym, iv, pos, snap.research)
         for sym, iv, pos in exit_candidates
     )
 
