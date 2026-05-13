@@ -1,11 +1,11 @@
 # indicators/composite.py
-import json
 import logging
 
 import numpy as np
 import pandas as pd
 
 import config
+from utils.io_utils import load_json
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,7 @@ def _safe_penultimate(series: pd.Series, fallback: float = 0.0) -> float:
 
 
 def load_weights() -> dict:
-    with open(config.INDICATOR_WEIGHTS_FILE) as f:
-        return json.load(f)
+    return load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
 
 def _composite_score(vals: dict, weights: dict) -> tuple[float, str, float]:

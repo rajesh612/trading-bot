@@ -105,8 +105,7 @@ def compute_squeeze_setup(
         score += 25
     if obv_rising_with_falling_price:
         score += 25
-    from config import SQUEEZE_CONFIDENCE_GATE
-    return score >= SQUEEZE_CONFIDENCE_GATE, score
+    return score >= config.SQUEEZE_CONFIDENCE_GATE, score
 
 
 def compute_bot_herding_score(

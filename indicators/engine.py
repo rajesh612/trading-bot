@@ -1,6 +1,8 @@
 # indicators/engine.py
+import datetime as _dt
 import logging
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -44,13 +46,12 @@ def compute_indicators(
     df = df.copy()
 
     # VWAP resets at market open each day.
-    ET = __import__("zoneinfo").ZoneInfo("America/New_York")
-    _dt = __import__("datetime")
+    ET = ZoneInfo("America/New_York")
     ref_et = (as_of.astimezone(ET) if as_of is not None else _dt.datetime.now(ET))
     market_open_today = ref_et.replace(hour=9, minute=30, second=0, microsecond=0)
     if df.index.tz is None:
         df.index = df.index.tz_localize("UTC")
-    df_today = df[df.index >= market_open_today.astimezone(__import__("zoneinfo").ZoneInfo("UTC"))]
+    df_today = df[df.index >= market_open_today.astimezone(ZoneInfo("UTC"))]
     df_vwap = df_today if len(df_today) >= 2 else df
 
     vwap = _compute_vwap(df_vwap)
