@@ -218,3 +218,28 @@ def _analyze_stock(
         "summary": "Parse error.",
         "strategy": "No strategy data.",
     }
+
+
+# ── Intraday symbol sentiment (keyword + StockTwits, no Claude) ───────────────
+
+_INTRADAY_POSITIVE = {"beat", "upgrade", "approval", "surge", "record", "strong", "breakout", "raised"}
+_INTRADAY_NEGATIVE = {"miss", "downgrade", "recall", "warning", "cut", "weak", "fail", "suspend", "fraud"}
+
+
+def _compute_symbol_sentiment(headlines: list[dict], stocktwits: dict) -> int:
+    """
+    Keyword-weighted score: +5 per positive hit, -5 per negative hit,
+    plus StockTwits bull ratio scaled to [-15, +15].
+    Clamped to [-100, +100].
+    """
+    if not headlines and not stocktwits:
+        return 0
+    text = " ".join(
+        (h.get("title", "") + " " + h.get("summary", "")).lower()
+        for h in headlines
+    )
+    score = sum(5 for kw in _INTRADAY_POSITIVE if kw in text)
+    score -= sum(5 for kw in _INTRADAY_NEGATIVE if kw in text)
+    bull_pct = stocktwits.get("bullish_percent", 50)
+    score += round((bull_pct - 50) * 0.3)   # 50% neutral = 0, 100% bullish = +15
+    return max(-100, min(100, score))

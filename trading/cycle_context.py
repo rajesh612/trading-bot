@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import config
-from intraday_news import load_intraday_news
+from research.intraday import load_intraday_news
 from macro_regime import load_macro_regime, load_trading_params
 from utils.io_utils import load_json
 

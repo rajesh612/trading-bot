@@ -191,7 +191,7 @@ def job_daily_report():
 
 def job_intraday_news():
     logger.info("━━━ INTRADAY NEWS ━━━")
-    from intraday_news import refresh_intraday_news
+    from research.intraday import refresh_intraday_news
     _job_guard("intraday_news", lambda: refresh_intraday_news(_read_watch_list()))
 
 
