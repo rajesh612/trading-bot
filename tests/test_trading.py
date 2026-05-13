@@ -854,3 +854,93 @@ class TestContextSplit:
         text = build_dynamic_user_context(now)
         assert "11:30" in text
 
+
+@pytest.mark.unit
+class TestAgentBudgetRecording:
+    """Verify that watch_list_agent and research/analyzer call api_budget.record_usage()."""
+
+    def _fake_response(self, input_tok=100, output_tok=50, cache_write=200, cache_read=0):
+        """Build a minimal mock of the anthropic Messages response."""
+        from unittest.mock import MagicMock
+        usage = MagicMock()
+        usage.input_tokens = input_tok
+        usage.output_tokens = output_tok
+        usage.cache_creation_input_tokens = cache_write
+        usage.cache_read_input_tokens = cache_read
+        resp = MagicMock()
+        resp.usage = usage
+        resp.content = [MagicMock(text='["AAPL", "NVDA"]')]
+        return resp
+
+    def test_watch_list_agent_records_budget(self, monkeypatch, tmp_path):
+        """run_watch_list_agent records token usage after its Claude call."""
+        import types
+        import watch_list_agent
+        import api_budget
+
+        fake_resp = self._fake_response(input_tok=300, output_tok=80, cache_write=500)
+
+        # Patch Alpaca, file paths, and the Claude client
+        fake_ticker = tmp_path / "tickers.txt"
+        fake_ticker.write_text("AAPL\n")
+        monkeypatch.setattr("config.DAILY_TRADEABLE_FILE", tmp_path / "nonexistent.txt")
+        monkeypatch.setattr("config.TICKERS_FILE", fake_ticker)
+        monkeypatch.setattr("config.WATCH_LIST_FILE", tmp_path / "watch_list.txt")
+        monkeypatch.setattr("config.STRATEGY_MEMORY_FILE", tmp_path / "strategy_memory.md")
+        monkeypatch.setattr("config.WATCH_LIST_MAX", 15)
+
+        from unittest.mock import MagicMock, patch
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_daily_bars.return_value = None  # _score_stock returns None → scored=[]
+
+        recorded = {}
+        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0):
+            recorded["input"] = input_tokens
+            recorded["output"] = output_tokens
+            recorded["cache_write"] = cache_write_tokens
+
+        with patch("watch_list_agent.AlpacaClient", return_value=mock_alpaca), \
+             patch("anthropic.Anthropic") as MockAI, \
+             patch("api_budget.record_usage", side_effect=fake_record):
+            MockAI.return_value.messages.create.return_value = fake_resp
+            # scored list is empty so Claude picks from fallback — still calls messages.create
+            # Force scored to have one entry so the Claude call is reached
+            monkeypatch.setattr(watch_list_agent, "_load_universe", lambda: ["AAPL"])
+            mock_score = {"symbol": "AAPL", "price": 100.0, "vol_spike": 2.0, "atr_pct": 2.0, "gap_pct": 0.5}
+            monkeypatch.setattr(watch_list_agent, "_score_stock", lambda sym, client: mock_score)
+            watch_list_agent.run_watch_list_agent()
+
+        assert recorded.get("input") == 300
+        assert recorded.get("output") == 80
+        assert recorded.get("cache_write") == 500
+
+    def test_research_analyzer_records_budget(self, monkeypatch):
+        """_analyze_stock records token usage after its Claude call."""
+        import types
+        from unittest.mock import MagicMock, patch
+        from research.analyzer import _analyze_stock
+
+        usage = MagicMock()
+        usage.input_tokens = 400
+        usage.output_tokens = 60
+        usage.cache_creation_input_tokens = 800
+        usage.cache_read_input_tokens = 0
+        resp = MagicMock()
+        resp.usage = usage
+        resp.content = [MagicMock(text='{"news_sentiment_score": 10, "news_sentiment_label": "BULLISH", "social_sentiment_score": 5, "social_sentiment_label": "BULLISH", "combined_sentiment_score": 8, "combined_sentiment_label": "BULLISH", "key_catalyst": null, "risk_flag": null, "divergence_alert": null, "summary": "ok", "strategy": "hold"}')]
+
+        ai = MagicMock()
+        ai.messages.create.return_value = resp
+
+        recorded = {}
+        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0):
+            recorded["input"] = input_tokens
+            recorded["output"] = output_tokens
+            recorded["cache_write"] = cache_write_tokens
+
+        with patch("api_budget.record_usage", side_effect=fake_record):
+            _analyze_stock("AAPL", [], "ctx", {}, {}, {}, ai, [])
+
+        assert recorded.get("input") == 400
+        assert recorded.get("output") == 60
+        assert recorded.get("cache_write") == 800

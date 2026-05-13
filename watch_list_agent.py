@@ -5,6 +5,7 @@ import re
 import pandas as pd
 import anthropic
 
+import api_budget
 import config
 from alpaca_client import AlpacaClient
 
@@ -106,6 +107,17 @@ def run_watch_list_agent() -> list[str]:
             }
         ],
     )
+
+    try:
+        usage = response.usage
+        api_budget.record_usage(
+            input_tokens=getattr(usage, "input_tokens", 0),
+            output_tokens=getattr(usage, "output_tokens", 0),
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+        )
+    except Exception:
+        pass
 
     text = response.content[0].text.strip()
     match = re.search(r"\[.*?\]", text, re.DOTALL)

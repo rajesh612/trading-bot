@@ -4,6 +4,7 @@ import re
 
 import anthropic
 
+import api_budget
 import config
 from tier1_config import get_sector
 
@@ -184,6 +185,17 @@ def _analyze_stock(
             }
         ],
     )
+
+    try:
+        usage = response.usage
+        api_budget.record_usage(
+            input_tokens=getattr(usage, "input_tokens", 0),
+            output_tokens=getattr(usage, "output_tokens", 0),
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+        )
+    except Exception:
+        pass
 
     text = response.content[0].text.strip()
     match = re.search(r"\{.*\}", text, re.DOTALL)
