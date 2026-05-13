@@ -11,17 +11,17 @@ import pytest
 @pytest.mark.unit
 class TestResearchAgentPlan2:
     def test_macro_shock_empty_headlines(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         assert _compute_macro_shock_score([]) == 0
 
     def test_macro_shock_single_keyword(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         headlines = [{"title": "New tariff announced on imports", "summary": ""}]
         score = _compute_macro_shock_score(headlines)
         assert score >= 20
 
     def test_macro_shock_multiple_keywords(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         headlines = [
             {"title": "Fed emergency rate cut due to bank failure", "summary": "circuit breaker triggered"},
         ]
@@ -29,12 +29,12 @@ class TestResearchAgentPlan2:
         assert score == 100  # capped at 100
 
     def test_macro_shock_no_keywords(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         headlines = [{"title": "Earnings beat expectations", "summary": "quarterly revenue up"}]
         assert _compute_macro_shock_score(headlines) == 0
 
     def test_sector_sentiment_groups_by_sector(self):
-        from research_agent import _compute_sector_sentiment
+        from research.analyzer import _compute_sector_sentiment
         report = {
             "NVDA": {"combined_sentiment_score": 60},
             "AMD":  {"combined_sentiment_score": 40},
@@ -47,7 +47,7 @@ class TestResearchAgentPlan2:
         assert result["HYPERSCALER"] == 80.0
 
     def test_sector_sentiment_skips_meta(self):
-        from research_agent import _compute_sector_sentiment
+        from research.analyzer import _compute_sector_sentiment
         report = {
             "NVDA": {"combined_sentiment_score": 50},
             "__meta__": {"sector_sentiment": {}, "macro_shock_score": 0},
@@ -56,7 +56,7 @@ class TestResearchAgentPlan2:
         assert "__meta__" not in result
 
     def test_detect_capitulation_candidate_true(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         assert _detect_capitulation_candidate(
             symbol="NVDA",
             drawdown_from_20d_high=-25.0,
@@ -65,7 +65,7 @@ class TestResearchAgentPlan2:
         ) is True
 
     def test_detect_capitulation_insufficient_drawdown(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         assert _detect_capitulation_candidate(
             symbol="NVDA",
             drawdown_from_20d_high=-15.0,
@@ -74,7 +74,7 @@ class TestResearchAgentPlan2:
         ) is False
 
     def test_detect_capitulation_sector_too_positive(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         assert _detect_capitulation_candidate(
             symbol="NVDA",
             drawdown_from_20d_high=-25.0,
@@ -83,7 +83,7 @@ class TestResearchAgentPlan2:
         ) is False
 
     def test_detect_capitulation_obv_not_rising(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         assert _detect_capitulation_candidate(
             symbol="NVDA",
             drawdown_from_20d_high=-25.0,
@@ -97,7 +97,7 @@ class TestResearchAgentPlan2:
 @pytest.mark.unit
 class TestFetchWithRetry:
     def test_succeeds_on_first_attempt(self):
-        from research_agent import _fetch_with_retry
+        from research.fetchers import _fetch_with_retry
         calls = []
         def fn():
             calls.append(1)
@@ -107,7 +107,7 @@ class TestFetchWithRetry:
         assert len(calls) == 1
 
     def test_retries_on_failure_then_succeeds(self):
-        from research_agent import _fetch_with_retry
+        from research.fetchers import _fetch_with_retry
         calls = []
         def fn():
             calls.append(1)
@@ -119,7 +119,7 @@ class TestFetchWithRetry:
         assert len(calls) == 3
 
     def test_raises_after_all_attempts_exhausted(self):
-        from research_agent import _fetch_with_retry
+        from research.fetchers import _fetch_with_retry
         def fn():
             raise ConnectionError("down")
         with pytest.raises(ConnectionError):
@@ -135,30 +135,30 @@ class TestResearchAgentOrchestration:
     # ── _compute_macro_shock_score ─────────────────────────────────────────
 
     def test_macro_shock_empty_headlines_returns_zero(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         assert _compute_macro_shock_score([]) == 0
 
     def test_macro_shock_no_keywords_returns_zero(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         headlines = [{"title": "Stocks mixed on earnings season", "summary": "Investors watch results."}]
         assert _compute_macro_shock_score(headlines) == 0
 
     def test_macro_shock_single_keyword_returns_weight(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         # "tariff" carries weight 20
         headlines = [{"title": "New tariff announced on imports", "summary": ""}]
         score = _compute_macro_shock_score(headlines)
         assert score == 20
 
     def test_macro_shock_multiple_keywords_accumulate(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         # "tariff" (20) + "recession" (20) = 40
         headlines = [{"title": "Tariff fears spark recession worries", "summary": ""}]
         score = _compute_macro_shock_score(headlines)
         assert score == 40
 
     def test_macro_shock_capped_at_100(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         # Fill with every keyword — sum would far exceed 100
         title = "tariff trade war sanction war escalation fed emergency bank failure cpi shock inflation surge recession default nuclear pandemic market crash circuit breaker"
         headlines = [{"title": title, "summary": ""}]
@@ -166,14 +166,14 @@ class TestResearchAgentOrchestration:
         assert score == 100
 
     def test_macro_shock_case_insensitive(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         # Keywords are lower-cased before matching; title in upper case must still match
         headlines = [{"title": "TARIFF WAR DECLARED", "summary": ""}]
         score = _compute_macro_shock_score(headlines)
         assert score > 0
 
     def test_macro_shock_scans_summary_field(self):
-        from research_agent import _compute_macro_shock_score
+        from research.analyzer import _compute_macro_shock_score
         # Keyword is only in summary, not title
         headlines = [{"title": "Markets update", "summary": "Fed emergency rate cut announced"}]
         score = _compute_macro_shock_score(headlines)
@@ -182,12 +182,12 @@ class TestResearchAgentOrchestration:
     # ── _compute_sector_sentiment ──────────────────────────────────────────
 
     def test_sector_sentiment_empty_report(self):
-        from research_agent import _compute_sector_sentiment
+        from research.analyzer import _compute_sector_sentiment
         result = _compute_sector_sentiment({})
         assert result == {}
 
     def test_sector_sentiment_skips_meta_key(self):
-        from research_agent import _compute_sector_sentiment
+        from research.analyzer import _compute_sector_sentiment
         report = {
             "__meta__": {"macro_shock_score": 40},
             "NVDA": {"combined_sentiment_score": 60},
@@ -196,7 +196,7 @@ class TestResearchAgentOrchestration:
         assert "__meta__" not in result
 
     def test_sector_sentiment_averages_scores_per_sector(self):
-        from research_agent import _compute_sector_sentiment
+        from research.analyzer import _compute_sector_sentiment
         # NVDA and AMD both map to "AI_SEMI" in tier1_config;
         # if they map to different sectors the test still asserts correct averaging logic.
         report = {
@@ -211,7 +211,7 @@ class TestResearchAgentOrchestration:
         assert totals == pytest.approx(100.0) or all(v in (80.0, 20.0, 50.0) for v in result.values())
 
     def test_sector_sentiment_uses_combined_score_preferentially(self):
-        from research_agent import _compute_sector_sentiment
+        from research.analyzer import _compute_sector_sentiment
         report = {
             "NVDA": {
                 "sentiment_score": 10,           # legacy fallback
@@ -226,21 +226,21 @@ class TestResearchAgentOrchestration:
     # ── _detect_capitulation_candidate ────────────────────────────────────
 
     def test_capitulation_all_conditions_met(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         assert _detect_capitulation_candidate("NVDA", -25.0, -30.0, 0.15) is True
 
     def test_capitulation_drawdown_too_small(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         # drawdown only -15% (must be ≤ -20%)
         assert _detect_capitulation_candidate("NVDA", -15.0, -30.0, 0.15) is False
 
     def test_capitulation_sector_sentiment_too_high(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         # sector_sentiment -10 (must be < -20)
         assert _detect_capitulation_candidate("NVDA", -25.0, -10.0, 0.15) is False
 
     def test_capitulation_obv_declining(self):
-        from research_agent import _detect_capitulation_candidate
+        from research.analyzer import _detect_capitulation_candidate
         # obv_trend ≤ 0.10 — institutions not yet accumulating
         assert _detect_capitulation_candidate("NVDA", -25.0, -30.0, 0.05) is False
 
@@ -248,7 +248,7 @@ class TestResearchAgentOrchestration:
 
     def test_quick_sentiment_returns_none_when_news_present(self):
         import config
-        from research_agent import _quick_sentiment_result
+        from research.analyzer import _quick_sentiment_result
         stocktwits = {
             "available": True,
             "bullish_count": 20,
@@ -261,13 +261,13 @@ class TestResearchAgentOrchestration:
         assert result is None
 
     def test_quick_sentiment_returns_none_when_stocktwits_unavailable(self):
-        from research_agent import _quick_sentiment_result
+        from research.analyzer import _quick_sentiment_result
         result = _quick_sentiment_result({"available": False}, [])
         assert result is None
 
     def test_quick_sentiment_bullish_rule_fires(self):
         import config
-        from research_agent import _quick_sentiment_result
+        from research.analyzer import _quick_sentiment_result
         tagged = config.STOCKTWITS_MIN_TAGGED + 5
         bull = int(tagged * config.QUICK_SENTIMENT_BULL_PCT / 100) + 1
         bear = tagged - bull
@@ -284,7 +284,7 @@ class TestResearchAgentOrchestration:
 
     def test_quick_sentiment_bearish_rule_fires(self):
         import config
-        from research_agent import _quick_sentiment_result
+        from research.analyzer import _quick_sentiment_result
         tagged = config.STOCKTWITS_MIN_TAGGED + 5
         bull = int(tagged * config.QUICK_SENTIMENT_BEAR_PCT / 100) - 1
         bear = tagged - bull
@@ -301,7 +301,7 @@ class TestResearchAgentOrchestration:
 
     def test_quick_sentiment_returns_none_when_insufficient_tagged(self):
         import config
-        from research_agent import _quick_sentiment_result
+        from research.analyzer import _quick_sentiment_result
         # Tagged below minimum threshold
         stocktwits = {
             "available": True,

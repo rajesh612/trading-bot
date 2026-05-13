@@ -376,7 +376,7 @@ class TestResearchAgent:
 
     @pytest.mark.live
     def test_rss_fetch_returns_list(self):
-        from research_agent import _fetch_rss
+        from research.fetchers import _fetch_rss
         items = _fetch_rss("https://feeds.marketwatch.com/marketwatch/topstories/")
         assert isinstance(items, list)
         if items:
@@ -386,21 +386,21 @@ class TestResearchAgent:
 
     @pytest.mark.unit
     def test_rss_fetch_bad_url_doesnt_crash(self):
-        from research_agent import _fetch_rss
+        from research.fetchers import _fetch_rss
         # feedparser swallows errors and returns an empty feed — must not raise
         result = _fetch_rss("https://this-url-does-not-exist-xyz.invalid/feed")
         assert isinstance(result, list)
 
     @pytest.mark.live
     def test_fetch_stock_news(self):
-        from research_agent import _fetch_stock_news
+        from research.fetchers import _fetch_stock_news
         items = _fetch_stock_news(TEST_SYMBOL)
         assert isinstance(items, list)
         print(f"\n  {TEST_SYMBOL} news items fetched: {len(items)}")
 
     @pytest.mark.live
     def test_full_research_report(self, tmp_path, monkeypatch):
-        from research_agent import run_research_agent
+        from research.agent import run_research_agent
 
         report_file = tmp_path / "research_report.json"
         monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", report_file)

@@ -88,7 +88,7 @@ def job_watch_list():
 def job_research():
     logger.info("━━━ RESEARCH AGENT ━━━")
     def _run():
-        from research_agent import run_research_agent
+        from research.agent import run_research_agent
         if config.WATCH_LIST_FILE.exists():
             watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
         else:
