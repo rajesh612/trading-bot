@@ -317,6 +317,7 @@ class TestEntryGates:
             squeeze_setup=False,
             rsi=50.0,       # below RSI_HARD_SKIP_THRESHOLD (72)
             stoch_d=50.0,   # below STOCH_HARD_VETO_THRESHOLD (88)
+            prev_close=100.0,  # no gap-up (100 / 100 = 1.0 = 0% gap)
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -473,6 +474,7 @@ class TestCheckAllGates:
             squeeze_setup=False,
             rsi=50.0,
             stoch_d=50.0,
+            prev_close=100.0,
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -634,6 +636,7 @@ class TestRsiStochGates:
             squeeze_setup=False,
             rsi=50.0,
             stoch_d=50.0,
+            prev_close=100.0,
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -686,6 +689,74 @@ class TestRsiStochGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "MSFT", self._iv(rsi=60.0, stoch_d=70.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is True
+
+
+@pytest.mark.unit
+class TestGapUpGate:
+    """Gate 12: gap-up skip — blocks entries when current price > prev_close * (1 + GAP_SKIP_PCT)."""
+
+    def _now(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    @staticmethod
+    def _iv(**overrides):
+        """Build IndicatorValues-compatible namespace with all hard gates passing."""
+        base = dict(
+            current_price=100.0,
+            vwap=99.0,
+            vwap_std2_upper=110.0,
+            stop_hunt_zone=False,
+            parabolic=False,
+            momentum_exhaustion=False,
+            bot_herding_score=0,
+            squeeze_setup=False,
+            rsi=50.0,
+            stoch_d=50.0,
+            prev_close=100.0,
+        )
+        base.update(overrides)
+        return types.SimpleNamespace(**base)
+
+    def _patch_calendars(self, monkeypatch):
+        import earnings_calendar as ec
+        import economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    def test_gap_up_skip_blocks_entry_when_gap_exceeds_threshold(self, monkeypatch):
+        """prev_close=100, current_price=104 (4% > 3%) → gate fails with message."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # prev_close=100, current=104 → 4% gap up, exceeds 3% threshold
+        result = check_all_gates(
+            "TEST", self._iv(prev_close=100.0, current_price=104.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is False
+        assert "gap-up skip" in result.reason
+
+    def test_gap_up_skip_allows_entry_when_gap_within_threshold(self, monkeypatch):
+        """prev_close=100, current_price=102 (2% < 3%) → gate passes."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # prev_close=100, current=102 → 2% gap up, within 3% threshold
+        result = check_all_gates(
+            "TEST", self._iv(prev_close=100.0, current_price=102.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is True
+
+    def test_gap_up_skip_bypassed_when_prev_close_zero(self, monkeypatch):
+        """prev_close=0.0 → gate is skipped entirely (doesn't block)."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # prev_close=0 → gate check skipped, should allow entry
+        result = check_all_gates(
+            "TEST", self._iv(prev_close=0.0, current_price=100.0), {}, set(), None,
             self._now(), entries_this_cycle=0,
         )
         assert result.passed is True

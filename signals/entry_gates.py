@@ -104,6 +104,11 @@ def check_all_gates(
     if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
         return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
 
+    # 12. Gap-up skip — prev_close sourced from IndicatorValues.prev_close (daily T-1)
+    if iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
+        gap_pct = (iv.current_price / iv.prev_close - 1) * 100
+        return GateResult(False, f"gap-up skip ({gap_pct:.1f}% > {config.GAP_SKIP_PCT}%)")
+
     # ── Soft gates (pass through, flag for Claude) ────────────────────────────
 
     # 10. Relative strength
