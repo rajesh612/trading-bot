@@ -25,7 +25,8 @@ from trading.journal import (
     load_daily_closed,
     load_open_positions,
 )
-from trading.claude_caller import _ask_claude_batch
+from trading.claude_caller import _ask_claude_batch, _ask_claude_exit_batch
+from trading import risk_manager
 from trading.closer import close_position
 from trading.executor import execute_buy
 
@@ -151,6 +152,27 @@ class TradingPipeline:
                 )
 
         gates_elapsed = time.monotonic() - t_gates
+
+        # ── Phase 2.5: Thesis-break detection ────────────────────────────────
+        exit_candidates: list[tuple[str, IndicatorValues, dict]] = []
+        for symbol, iv, existing_pos, _ret5d in stock_data:
+            if existing_pos is not None:
+                try:
+                    if risk_manager.needs_exit_evaluation(iv, existing_pos, research):
+                        exit_candidates.append((symbol, iv, existing_pos))
+                except Exception as exc:
+                    logger.warning("needs_exit_evaluation failed for %s: %s", symbol, exc)
+
+        if exit_candidates:
+            exit_decisions = _ask_claude_exit_batch(exit_candidates, research, ai)
+            for sym, iv, existing_pos in exit_candidates:
+                decision = exit_decisions.get(sym, {})
+                if decision.get("action") == "CLOSE":
+                    try:
+                        close_position(sym, alpaca, open_positions, iv.current_price, iv, "thesis_break")
+                        result.closes += 1
+                    except Exception as exc:
+                        logger.error("Error closing thesis-break position %s: %s", sym, exc, exc_info=True)
 
         # ── Phase 3: Claude batch ─────────────────────────────────────────────
         t_claude = time.monotonic()
