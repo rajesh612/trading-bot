@@ -57,3 +57,4 @@ class IndicatorValues:
     squeeze_confidence: int = 0          # 0-100
     stop_hunt_zone: bool = False
     prev_close: float = 0.0
+    rsi_delta: float = 0.0           # RSI change over last 5 bars (positive = momentum building)

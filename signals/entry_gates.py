@@ -28,6 +28,25 @@ class GateResult:
     flags: tuple[str, ...] = ()
 
 
+def fast_gate(iv: IndicatorValues) -> GateResult:
+    """
+    Pure indicator-based hard vetos — no I/O, no external data.
+    Called in pipeline Phase 2 PRE-Claude to eliminate guaranteed HOLDs
+    without spending a single API token.
+    """
+    if iv.rsi > config.RSI_HARD_SKIP_THRESHOLD:
+        return GateResult(False, f"RSI hard skip (RSI={iv.rsi:.1f} > {config.RSI_HARD_SKIP_THRESHOLD})")
+    if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
+        return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
+    if iv.rsi_delta <= config.RSI_DELTA_HARD_BLOCK:
+        return GateResult(False, f"RSI delta hard block ({iv.rsi_delta:.1f} <= {config.RSI_DELTA_HARD_BLOCK})")
+    if config.PARABOLIC_ENTRY_BLOCK and iv.parabolic:
+        return GateResult(False, "parabolic move hard veto")
+    if iv.stop_hunt_zone:
+        return GateResult(False, "stop-hunt zone hard veto")
+    return GateResult(True)
+
+
 def check_all_gates(
     symbol: str,
     iv: IndicatorValues,
