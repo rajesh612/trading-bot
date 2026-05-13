@@ -1,14 +1,37 @@
 # Intraday News Monitoring + Auto-Execute Pipeline
 
 **Date:** 2026-05-13  
-**Status:** Approved
+**Status:** Approved — extended with root-cause bug fixes (May 13 zero-trade post-mortem)
 
 ---
 
 ## Goal
 
-1. Add a lightweight intraday news refresh (every 30 min) so the bot reacts to breaking news during the trading day — both to block bad trades and to enable opportunistic entries.
-2. Wire in a three-tier decision pipeline that replaces the current single-gate approach: hard-block → auto-execute → Claude. This saves 10–20% of Claude tokens while preserving Claude's judgment for every ambiguous setup.
+1. Fix 7 confirmed root-cause bugs that caused zero trades on May 8, May 12, and May 13 despite the bot running all day.
+2. Add a lightweight intraday news refresh (every 30 min) so the bot reacts to breaking news during the trading day — both to block bad trades and to enable opportunistic entries.
+3. Wire in a three-tier decision pipeline: hard-block → auto-execute → Claude. Eliminates 60–80% of wasteful Claude calls while preserving Claude's judgment for genuinely ambiguous setups.
+
+---
+
+## Root Cause Post-Mortem — May 13 (and May 8, May 12)
+
+### What Happened
+
+- **9:30–11:30 AM ET**: 12 cycles ran. Each cycle sent 10–15 stocks to Claude in 3 batch calls. All 36+ calls returned HOLD. $0.687 of $0.70 entry budget consumed.
+- **11:30 AM ET**: Entry budget ceiling hit. Five hours of trading day remained. Zero trades placed.
+- **11:30 AM–3:50 PM ET**: 22 more cycles ran. The pipeline STILL built `needs_claude` lists and fired 3 blocked calls per cycle (66 blocked call attempts doing wasted work — no trades possible but CPU and log spinning all afternoon).
+
+### Confirmed Bugs
+
+| # | Bug | Location | Impact |
+|---|-----|----------|--------|
+| **B1** | RSI/Stochastic hard vetos defined in `entry_gates.py` never prevent Claude calls — they run POST-Claude in `executor.py`, not PRE-Claude in `pipeline.py` Phase 2 | `trading/pipeline.py` Phase 2, `trading/executor.py` | ~50% wasted Claude tokens |
+| **B2** | `COMPOSITE_SCORE_THRESHOLD=15` sends stocks to Claude when composite is 15–40, but Claude applies a 40-point minimum gate — guaranteed HOLD for the entire 15–40 range | `config.py`, `trading/pipeline.py` | ~40% wasted Claude tokens |
+| **B3** | No time-of-day budget reservation — first 2 hours consume 100% of entry budget, leaving 0 for the prime 1–3 PM ET window | `trading/risk_manager.py` | Afternoon always dead |
+| **B4** | After budget exhaustion, the pipeline still builds `needs_claude` batches and fires blocked Claude calls every cycle for the rest of the day | `trading/pipeline.py` Phase 2 | Wasted CPU + log spam post-exhaustion |
+| **B5** | Watch list agent selects stocks with no technical pre-filter — today's full list had Stochastic >88 or RSI >70 at market open; all entered Claude and returned HOLD | `watch_list_agent.py` | 100% HOLD day when market opens overbought |
+| **B6** | Exit budget ($0.30) fully unused when no positions held; no rollover to entry pool | `trading/risk_manager.py` | 30% of daily budget stranded |
+| **B7** | Code comment in `entry_gates.py` explicitly states RSI/Stoch checks "save Claude tokens on conditions that will HOLD anyway" — design intent was pre-Claude; implementation placed them post-Claude | `signals/entry_gates.py`, `trading/executor.py` | Documented design intent never fulfilled |
 
 ---
 
@@ -17,6 +40,118 @@
 - Research runs **once at 9:15 AM**. Any breaking news during the day (FDA ruling, earnings shock, macro event) is invisible until the next morning.
 - `AUTO_BUY_COMPOSITE_THRESHOLD = 35` and `AUTO_BUY_MIN_SENTIMENT = -10` exist in `config.py` but are **not wired** — every stock above `composite_score > 15` still calls Claude unconditionally.
 - Claude is called every 10 min for all watch-list stocks above threshold (2–3 batch calls per cycle, ~18–27 entry calls/day plus separate exit evaluations).
+
+---
+
+## Bug Fixes
+
+### Fix B1 + B7: Pre-Claude Fast Gate (pipeline Phase 2)
+
+**Problem:** `check_all_gates()` is called only in `executor.py` after Claude says BUY. Deterministic hard-veto checks (RSI, Stochastic) never run before the Claude call.
+
+**Fix:** Add a `fast_gate(iv)` function in `signals/entry_gates.py` that runs only indicator-based hard-veto checks available from `IndicatorValues` (no disk I/O, no extra API calls). Pipeline Phase 2 calls `fast_gate()` on every candidate before adding to `needs_claude`. If it fails, the symbol is logged and skipped — no Claude call.
+
+```python
+def fast_gate(iv: IndicatorValues) -> GateResult:
+    """Deterministic pre-Claude check. No I/O. Called in pipeline Phase 2."""
+    if iv.rsi > config.RSI_HARD_SKIP_THRESHOLD:
+        return GateResult(False, f"RSI hard skip (RSI={iv.rsi:.1f})")
+    if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
+        return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f})")
+    if iv.parabolic and config.PARABOLIC_ENTRY_BLOCK:
+        return GateResult(False, "parabolic move")
+    if iv.stop_hunt_zone:
+        return GateResult(False, "stop-hunt zone")
+    return GateResult(True)
+```
+
+The full `check_all_gates()` in `executor.py` remains unchanged (it catches additional conditions after a BUY decision). This is additive — it does not replace the executor check.
+
+**Expected impact:** Eliminates ~50% of Claude calls on overbought-market days.
+
+---
+
+### Fix B2: Raise Pre-Claude Composite Threshold
+
+**Problem:** `COMPOSITE_SCORE_THRESHOLD=15` sends composite 15–40 stocks to Claude; Claude applies a 40-point minimum and always returns HOLD.
+
+**Fix:** Add a new config constant `PRE_CLAUDE_COMPOSITE_MIN = 40`. Pipeline Phase 2 uses this as the threshold for adding to `needs_claude`. The existing `COMPOSITE_SCORE_THRESHOLD = 15` stays — it controls whether a symbol is even worth computing indicators for (future use). Rationale: 40 matches Claude's observed effective gate; the 15–40 zone is pure token waste.
+
+```python
+PRE_CLAUDE_COMPOSITE_MIN = 40  # pipeline Phase 2 gate — below this never reaches Claude
+COMPOSITE_SCORE_THRESHOLD = 15  # existing: indicator-compute skip threshold (kept)
+```
+
+**Expected impact:** Eliminates ~40% of Claude calls when market opens flat/moderate.
+
+---
+
+### Fix B3: Time-of-Day Budget Reservation
+
+**Problem:** Entry budget is consumed uniformly; first 2 hours exhaust $0.70, afternoon window gets nothing.
+
+**Fix:** Add time-based budget caps in `risk_manager.check_entry_budget()`. The entry pool is split into three windows using ET time:
+
+| Window | Hours ET | Max cumulative spend |
+|--------|----------|----------------------|
+| Morning open | 9:30–11:30 AM | 35% of entry ceiling |
+| Midday | 11:30 AM–1:00 PM | 65% of entry ceiling |
+| Prime afternoon | 1:00–3:55 PM | 100% of entry ceiling |
+
+If `entry_spent_usd` already exceeds the window cap, `check_entry_budget()` returns False. The cap is only enforced during market hours. New config constants:
+
+```python
+BUDGET_MORNING_CAP_PCT  = 0.35   # max 35% of entry_ceiling by 11:30 AM ET
+BUDGET_MIDDAY_CAP_PCT   = 0.65   # max 65% of entry_ceiling by 1:00 PM ET
+```
+
+**Expected impact:** Preserves 35% of entry budget for the prime 1–3 PM ET window regardless of morning activity.
+
+---
+
+### Fix B4: Budget Pre-Check Before Building `needs_claude`
+
+**Problem:** Pipeline builds `needs_claude` batches and fires Claude calls even after budget is exhausted — wasting effort for 5+ hours post-exhaustion.
+
+**Fix:** Add a single budget pre-check at the start of Phase 2. If `risk_manager.is_entry_budget_exhausted()` returns True, skip Phase 2 and Phase 3 entirely and log once per cycle ("entry budget exhausted — skipping Claude phase"). Expose `is_entry_budget_exhausted()` as a cheap read-only check (no locking needed — reads `entry_exhausted` flag).
+
+**Expected impact:** Eliminates all wasted batch-building and blocked-call logs from 11:30 AM to market close on exhausted-budget days.
+
+---
+
+### Fix B5: Watch List Technical Pre-Filter
+
+**Problem:** Watch list agent at 9:00 AM selects stocks with no check on whether they're already technically overbought. On strong gap-up days the entire list is in hard-veto territory before the first trade cycle.
+
+**Fix:** In `watch_list_agent.py`, after building the candidate list and before writing `watch_list.txt`, fetch a quick snapshot of RSI and Stochastic for each candidate using the last available 5-min bar. Filter out any symbol where RSI > 70 OR Stochastic %D > 80 at 9:00 AM. If fewer than 6 symbols remain after filtering, relax to RSI > 74 / Stochastic > 85 to ensure a minimum viable list.
+
+New config constants:
+```python
+WATCH_LIST_RSI_FILTER      = 70   # exclude if RSI > this at 9:00 AM snapshot
+WATCH_LIST_STOCH_FILTER    = 80   # exclude if Stochastic %D > this at 9:00 AM snapshot
+WATCH_LIST_MIN_AFTER_FILTER = 6   # relax filter if fewer symbols would remain
+```
+
+**Expected impact:** On gap-up overbought days, eliminates an entire category of guaranteed-HOLD Claude calls. On normal days, has no effect.
+
+---
+
+### Fix B6: Exit Budget Rollover to Entry
+
+**Problem:** Exit budget ($0.30) is never used on days with no open positions. Entry budget exhausts at $0.70; the $0.30 is stranded.
+
+**Fix:** In `risk_manager`, add `try_rollover_exit_to_entry()`. At 12:30 PM ET, if `exit_spent_usd = 0` and no open positions exist, move the unused exit ceiling into the entry pool: `entry_ceiling_usd += exit_ceiling_usd * BUDGET_ROLLOVER_FRACTION`. Cap the rolled-over amount at `EXIT_ROLLOVER_MAX_USD`.
+
+```python
+BUDGET_ROLLOVER_FRACTION = 0.5       # roll over 50% of unused exit budget
+EXIT_ROLLOVER_MAX_USD    = 0.15      # cap rollover at $0.15
+BUDGET_ROLLOVER_HOUR     = 12        # ET hour at which rollover is evaluated
+BUDGET_ROLLOVER_MINUTE   = 30
+```
+
+This adds at most $0.15 to the entry pool on no-position midday days, extending the afternoon window.
+
+Scheduler addition: one-shot job at 12:30 PM ET, `max_instances=1, misfire_grace_time=300`.
 
 ---
 
@@ -109,17 +244,34 @@ Existing thesis-break logic is unchanged. One new trigger is added:
 
 ## Config Changes (`config.py`)
 
-Added under a new `# ── Intraday News + Auto-Execute ──` section:
+Added under `# ── Intraday News + Auto-Execute ──`:
 
 ```python
 INTRADAY_NEWS_REFRESH_MIN     = 30   # scheduler cadence (minutes)
 INTRADAY_NEWS_SHOCK_BLOCK     = 60   # shock_score >= this → hard-block new entries & add held positions to exit eval
 INTRADAY_NEWS_STALE_MIN       = 45   # cache older than this → fall back to research sentiment; disable auto-execute
-AUTO_EXECUTE_COMPOSITE_MIN    = 45   # composite must exceed this for auto-execute (replaces AUTO_BUY_COMPOSITE_THRESHOLD)
+AUTO_EXECUTE_COMPOSITE_MIN    = 45   # composite must exceed this for auto-execute
 AUTO_EXECUTE_SENTIMENT_MIN    = 15   # intraday sentiment_score must exceed this for auto-execute
 ```
 
-`AUTO_BUY_COMPOSITE_THRESHOLD` and `AUTO_BUY_MIN_SENTIMENT` are removed (were unwired; superseded by above).
+Added under `# ── Bug Fixes: Token Efficiency ──`:
+
+```python
+PRE_CLAUDE_COMPOSITE_MIN      = 40   # pipeline Phase 2 gate — below this, symbol never reaches Claude (Fix B2)
+BUDGET_MORNING_CAP_PCT        = 0.35  # max 35% of entry_ceiling by 11:30 AM ET (Fix B3)
+BUDGET_MIDDAY_CAP_PCT         = 0.65  # max 65% of entry_ceiling by 1:00 PM ET (Fix B3)
+BUDGET_ROLLOVER_FRACTION      = 0.5   # fraction of unused exit budget to roll into entry at 12:30 PM (Fix B6)
+EXIT_ROLLOVER_MAX_USD         = 0.15  # cap on rollover (Fix B6)
+BUDGET_ROLLOVER_HOUR          = 12    # ET hour for rollover evaluation (Fix B6)
+BUDGET_ROLLOVER_MINUTE        = 30
+WATCH_LIST_RSI_FILTER         = 70    # exclude from watch list if RSI > this at 9 AM snapshot (Fix B5)
+WATCH_LIST_STOCH_FILTER       = 80    # exclude from watch list if Stochastic %D > this at 9 AM snapshot (Fix B5)
+WATCH_LIST_MIN_AFTER_FILTER   = 6     # relax filter if fewer symbols would survive (Fix B5)
+```
+
+Removed (unwired, superseded):
+- `AUTO_BUY_COMPOSITE_THRESHOLD` → replaced by `PRE_CLAUDE_COMPOSITE_MIN` and `AUTO_EXECUTE_COMPOSITE_MIN`
+- `AUTO_BUY_MIN_SENTIMENT` → replaced by `AUTO_EXECUTE_SENTIMENT_MIN`
 
 ---
 
@@ -172,22 +324,32 @@ All new tests are `@pytest.mark.unit`. No network calls.
 
 | Path | Before | After |
 |---|---|---|
-| Clean textbook setup (composite > 45, good news) | 1 Claude call | 0 Claude calls |
-| News-hostile symbol (shock ≥ 60) | 1 Claude call (HOLD returned) | 0 Claude calls |
-| Ambiguous setup | 1 Claude call | 1 Claude call (unchanged) |
+| RSI > 72 or Stochastic > 88 (Fix B1) | 1 Claude call (HOLD) | 0 Claude calls |
+| Composite 15–40 (Fix B2) | 1 Claude call (HOLD) | 0 Claude calls |
+| Clean textbook setup (composite > 45, good news — auto-execute) | 1 Claude call | 0 Claude calls |
+| News-hostile symbol (shock ≥ 60) | 1 Claude call (HOLD) | 0 Claude calls |
+| Post-budget-exhaustion cycles (Fix B4) | 3 blocked batch attempts/cycle × 22 cycles | 0 (phase skipped) |
+| Ambiguous setup (composite 40–45, neutral news) | 1 Claude call | 1 Claude call (unchanged) |
 | Exit on held position with news shock | Only if composite dropped | Also triggered by shock score |
 
-Estimated token reduction: **15–25%** on active days (depends on how often composite > 45 setups occur).
+**Combined estimated reduction:**
+- May 13 scenario (overbought open, 42 calls, 0 trades): from 42 calls → estimated **6–10 calls** (only the genuinely ambiguous mid-composite setups reach Claude)
+- Budget remaining at 1 PM ET: from **$0** → estimated **$0.40+** (time-cap + rollover preserving afternoon window)
+- Probability of ≥1 trade on a day like today: from **0%** → depends on whether any setup clears all gates, but the afternoon window is no longer dead
 
 ---
 
 ## Files Touched
 
-| File | Change |
-|---|---|
-| `intraday_news.py` | New module |
-| `config.py` | 5 new constants; remove 2 stale ones |
-| `trading/pipeline.py` | Three-tier gate in Phase 2; shock-exit trigger in Phase 2.5 |
-| `trading/context_builder.py` | `build_stock_block()` gains optional intraday headline param |
-| `main.py` | Add 30-min scheduler job for `refresh_intraday_news` |
-| `tests/test_trading.py` | 8 new unit tests |
+| File | Change | Bug fixed |
+|---|---|---|
+| `intraday_news.py` | New module — 30-min RSS+StockTwits refresh | new feature |
+| `config.py` | 11 new constants; remove 2 stale ones | B2, B3, B5, B6 |
+| `signals/entry_gates.py` | Add `fast_gate(iv)` function | B1, B7 |
+| `trading/pipeline.py` | Pre-Claude fast gate + budget pre-check + three-tier decision + shock-exit trigger | B1, B2, B4 |
+| `trading/risk_manager.py` | Time-of-day budget caps + `is_entry_budget_exhausted()` + rollover logic | B3, B4, B6 |
+| `trading/context_builder.py` | `build_stock_block()` gains optional intraday headline param | new feature |
+| `watch_list_agent.py` | Technical pre-filter (RSI/Stoch) after candidate selection | B5 |
+| `main.py` | 30-min intraday news job + 12:30 PM rollover job | new feature, B6 |
+| `tests/test_trading.py` | 8 intraday news + auto-execute tests | new feature |
+| `tests/test_foundation.py` | 7 bug-fix regression tests (fast gate, budget caps, rollover, watch list filter) | B1–B6 |
