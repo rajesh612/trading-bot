@@ -1,7 +1,7 @@
 # Intraday News Monitoring + Auto-Execute Pipeline
 
 **Date:** 2026-05-13  
-**Status:** Approved — extended with root-cause bug fixes (May 13 zero-trade post-mortem)
+**Status:** Approved — extended with root-cause bug fixes (May 8 + May 13 zero-trade post-mortem)
 
 ---
 
@@ -13,7 +13,7 @@
 
 ---
 
-## Root Cause Post-Mortem — May 13 (and May 8, May 12)
+## Root Cause Post-Mortem — May 8 and May 13 (bot not run May 12)
 
 ### What Happened
 
