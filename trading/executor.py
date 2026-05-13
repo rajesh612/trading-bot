@@ -23,6 +23,7 @@ from trading.position_sizer import (
     apply_regime_multiplier,
     apply_sentiment_multiplier,
 )
+from trading import risk_manager
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -134,10 +135,21 @@ def execute_buy(
             return None
 
     order = alpaca.place_bracket_order(symbol=symbol, qty=qty, entry_price=iv.current_price, stop_loss_pct=sl_pct, take_profit_pct=tp_pct)
+
+    # Correct SL/TP if fill price slippage exceeds threshold
+    corrected = risk_manager.correct_bracket_after_fill(
+        alpaca._trading,
+        order["id"],
+        iv.current_price,
+        sl_pct,
+        tp_pct,
+    )
+
     position_data = {
         "entry_price": iv.current_price, "qty": qty,
         "stop_loss_pct": sl_pct, "take_profit_pct": tp_pct,
-        "stop_loss_price": order["stop_loss_price"], "take_profit_price": order["take_profit_price"],
+        "stop_loss_price": corrected["stop_loss_price"] if corrected else order["stop_loss_price"],
+        "take_profit_price": corrected["take_profit_price"] if corrected else order["take_profit_price"],
         "entry_time": now.isoformat(), "entry_composite_score": iv.composite_score,
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
@@ -158,18 +170,21 @@ def execute_buy(
         "claude_reasoning": decision.get("reasoning", ""), "claude_confidence": decision.get("confidence", 0),
         "indicator_signals": decision.get("indicator_signals", {}),
         "stop_loss_pct": sl_pct, "take_profit_pct": tp_pct,
-        "stop_loss_price": order["stop_loss_price"], "take_profit_price": order["take_profit_price"],
+        "stop_loss_price": corrected["stop_loss_price"] if corrected else order["stop_loss_price"],
+        "take_profit_price": corrected["take_profit_price"] if corrected else order["take_profit_price"],
         "vix_regime": regime, "mode_at_entry": mode, "vix_level": regime_info.get("vix_current"),
         "vwap_slope": iv.vwap_slope, "pnl_pct": None, "pnl_dollar": None,
     })
+    final_sl = corrected["stop_loss_price"] if corrected else order["stop_loss_price"]
+    final_tp = corrected["take_profit_price"] if corrected else order["take_profit_price"]
     logger.info(
         "BUY %.0fx %s @ ~$%.2f | mode=%s | SL=$%s TP=$%s | %s",
         qty, symbol, iv.current_price, mode,
-        order["stop_loss_price"], order["take_profit_price"], decision.get("reasoning", ""),
+        final_sl, final_tp, decision.get("reasoning", ""),
     )
     telegram_notify.notify_buy(
         symbol=symbol, qty=qty, price=iv.current_price,
-        sl=order["stop_loss_price"], tp=order["take_profit_price"],
+        sl=final_sl, tp=final_tp,
         mode=mode, score=iv.composite_score, confidence=decision.get("confidence", 0),
     )
     return position_data
