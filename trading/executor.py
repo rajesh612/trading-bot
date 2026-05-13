@@ -150,6 +150,7 @@ def execute_buy(
         "stop_loss_pct": sl_pct, "take_profit_pct": tp_pct,
         "stop_loss_price": corrected["stop_loss_price"] if corrected else order["stop_loss_price"],
         "take_profit_price": corrected["take_profit_price"] if corrected else order["take_profit_price"],
+        "fill_price": corrected["fill_price"] if corrected else iv.current_price,
         "entry_time": now.isoformat(), "entry_composite_score": iv.composite_score,
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
