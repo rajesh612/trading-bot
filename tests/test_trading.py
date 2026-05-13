@@ -1102,3 +1102,176 @@ class TestRiskManagerBudget:
 
         result = check_exit_budget(0.01, open_position_count=1, regime="NORMAL")
         assert result is True
+
+
+# ── trading/risk_manager: gap guard ──────────────────────────────────────────
+
+@pytest.mark.unit
+class TestRiskManagerGapGuard:
+    def test_is_gap_skip_true_when_gap_exceeds_threshold(self):
+        # prev_close=100.0, current_price=104.0 (4% gap > GAP_SKIP_PCT=3.0%)
+        from trading import risk_manager
+        assert risk_manager.is_gap_skip(104.0, 100.0) is True
+
+    def test_is_gap_skip_false_when_gap_within_threshold(self):
+        # prev_close=100.0, current_price=102.0 (2% gap < GAP_SKIP_PCT=3.0%)
+        from trading import risk_manager
+        assert risk_manager.is_gap_skip(102.0, 100.0) is False
+
+    def test_is_gap_skip_false_when_prev_close_zero(self):
+        # prev_close=0.0 means missing data — should not block
+        from trading import risk_manager
+        assert risk_manager.is_gap_skip(150.0, 0.0) is False
+
+
+# ── trading/risk_manager: thesis-break heuristic ─────────────────────────────
+
+@pytest.mark.unit
+class TestThesisBreakHeuristic:
+    def _make_position(self, entry_composite=50, entry_price=100.0, stop_loss_pct=4.0):
+        return {
+            "entry_composite_score": entry_composite,
+            "entry_price": entry_price,
+            "stop_loss_pct": stop_loss_pct,
+        }
+
+    def _make_iv(self, composite_score, current_price=100.0, symbol="AAPL"):
+        from indicators.values import IndicatorValues
+        return IndicatorValues(
+            symbol=symbol,
+            timestamp="2026-05-12T10:00:00",
+            current_price=current_price,
+            vwap=current_price,
+            vwap_std1_upper=current_price + 1,
+            vwap_std1_lower=current_price - 1,
+            vwap_std2_upper=current_price + 2,
+            vwap_std2_lower=current_price - 2,
+            rsi=50.0,
+            macd=0.0,
+            macd_signal=0.0,
+            macd_hist=0.0,
+            bb_upper=current_price + 3,
+            bb_mid=current_price,
+            bb_lower=current_price - 3,
+            ema9=current_price,
+            ema21=current_price,
+            atr=1.0,
+            volume_ratio=1.0,
+            stoch_k=50.0,
+            stoch_d=50.0,
+            obv=1000.0,
+            vwap_slope=0.0,
+            rsi_slope=0.0,
+            daily_volume_ratio=1.0,
+            daily_volume_trend=0.0,
+            daily_volume_mean=1_000_000.0,
+            composite_score=composite_score,
+            signal="HOLD",
+            confidence=0.5,
+        )
+
+    def test_flags_on_composite_drop(self):
+        import config
+        from trading import risk_manager
+        # composite well below entry threshold
+        entry_composite = 50
+        low_composite = entry_composite - config.EXIT_EVAL_COMPOSITE_DROP - 1
+        iv = self._make_iv(composite_score=low_composite)
+        pos = self._make_position(entry_composite=entry_composite)
+        assert risk_manager.needs_exit_evaluation(iv, pos, {}) is True
+
+    def test_flags_on_low_sentiment(self):
+        import config
+        from trading import risk_manager
+        # composite score healthy, but sentiment below floor
+        iv = self._make_iv(composite_score=50)
+        pos = self._make_position(entry_composite=50)
+        research = {"AAPL": {"sentiment_score": config.EXIT_EVAL_SENTIMENT_FLOOR - 10}}
+        assert risk_manager.needs_exit_evaluation(iv, pos, research) is True
+
+    def test_flags_when_pnl_near_stop_loss(self):
+        from trading import risk_manager
+        # entry_price=100, SL=4%, PnL=-3.5% which is < -(SL-1.0)=-3.0 → triggers
+        # current_price = 100 * (1 - 0.035) = 96.5
+        iv = self._make_iv(composite_score=50, current_price=96.5)
+        pos = self._make_position(entry_composite=50, entry_price=100.0, stop_loss_pct=4.0)
+        assert risk_manager.needs_exit_evaluation(iv, pos, {}) is True
+
+    def test_returns_false_for_healthy_position(self):
+        import config
+        from trading import risk_manager
+        # composite well above entry, good sentiment, price well above SL
+        iv = self._make_iv(composite_score=60, current_price=103.0)
+        pos = self._make_position(entry_composite=50, entry_price=100.0, stop_loss_pct=4.0)
+        # pnl_pct = +3%, -(sl-1) = -3.0 → 3.0 > -3.0 so no PnL trigger
+        # composite 60 > 50-10=40 so no drop trigger
+        research = {"AAPL": {"sentiment_score": config.EXIT_EVAL_SENTIMENT_FLOOR + 20}}
+        assert risk_manager.needs_exit_evaluation(iv, pos, research) is False
+
+
+# ── trading/risk_manager: fill correction ────────────────────────────────────
+
+@pytest.mark.unit
+class TestFillCorrection:
+    def _make_trading_client(self, fill_price, status="filled"):
+        import types
+        from unittest.mock import MagicMock
+        stop_leg = types.SimpleNamespace(type="stop", id="leg-stop-1")
+        limit_leg = types.SimpleNamespace(type="limit", id="leg-limit-1")
+        order = types.SimpleNamespace(
+            status=status,
+            filled_avg_price=str(fill_price) if status == "filled" else None,
+            legs=[stop_leg, limit_leg],
+        )
+        client = MagicMock()
+        client.get_order_by_id.return_value = order
+        return client
+
+    def test_corrects_sl_tp_when_slippage_exceeds_threshold(self):
+        import config
+        from trading import risk_manager
+        # estimated_price=100.0, fill_price=100.6 → slippage=0.6% > FILL_SLIPPAGE_THRESHOLD=0.5%
+        estimated_price = 100.0
+        fill_price = 100.6
+        sl_pct = 4.0
+        tp_pct = 5.0
+        client = self._make_trading_client(fill_price)
+
+        result = risk_manager.correct_bracket_after_fill(
+            client, "order-123", estimated_price, sl_pct, tp_pct
+        )
+
+        expected_sl = round(fill_price * (1 - sl_pct / 100), 2)
+        expected_tp = round(fill_price * (1 + tp_pct / 100), 2)
+        assert result is not None
+        assert result["fill_price"] == pytest.approx(fill_price)
+        assert result["stop_loss_price"] == pytest.approx(expected_sl)
+        assert result["take_profit_price"] == pytest.approx(expected_tp)
+        assert client.replace_order_by_id.call_count == 2
+
+    def test_skips_correction_when_fill_within_threshold(self):
+        from trading import risk_manager
+        # estimated_price=100.0, fill_price=100.3 → slippage=0.3% < 0.5% threshold
+        client = self._make_trading_client(fill_price=100.3)
+        result = risk_manager.correct_bracket_after_fill(
+            client, "order-456", 100.0, 4.0, 5.0
+        )
+        assert result is None
+        client.replace_order_by_id.assert_not_called()
+
+    def test_returns_none_on_poll_timeout(self):
+        import types
+        from unittest.mock import MagicMock
+        from trading import risk_manager
+        # Order never fills — always returns status="pending"
+        pending_order = types.SimpleNamespace(
+            status="pending",
+            filled_avg_price=None,
+            legs=[],
+        )
+        client = MagicMock()
+        client.get_order_by_id.return_value = pending_order
+        result = risk_manager.correct_bracket_after_fill(
+            client, "order-789", 100.0, 4.0, 5.0
+        )
+        assert result is None
