@@ -649,6 +649,25 @@ class TestTradingPipeline:
         result = _compute_symbol_5day_return(df)
         assert result == pytest.approx(-100.0 * 10 / 110, rel=1e-4)
 
+    def _snap(self, research=None, params=None):
+        from trading.cycle_context import CycleSnapshot
+        return CycleSnapshot(
+            regime_info={"regime": "NORMAL", "macro_health_score": 0},
+            regime="NORMAL",
+            fred_cache={},
+            research=research or {},
+            research_meta=(research or {}).get("__meta__", {}),
+            strategy_memory="",
+            weights={},
+            params=params or {
+                "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
+                "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
+                "entry_start_hour": 10, "entry_end_hour": 15,
+            },
+            portfolio_gain_pct=0.0,
+            intraday_news={},
+        )
+
     def test_research_staleness_skip_when_too_old(self, monkeypatch):
         """pipeline.run() returns skipped=True when research > RESEARCH_STALE_BLOCK_MIN."""
         from datetime import timedelta
@@ -660,14 +679,9 @@ class TestTradingPipeline:
 
         pipeline = TradingPipeline()
         result = pipeline.run(
-            symbols=[], research=research, strategy_memory="", weights={},
-            ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
-            fred_cache={}, alpaca=None, portfolio_value=10000.0,
-            buying_power=5000.0, params={
-                "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
-                "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
-            },
-            can_open=True,
+            symbols=[], snap=self._snap(research=research),
+            ai=None, now=datetime.now(ET), alpaca=None,
+            portfolio_value=10000.0, buying_power=5000.0, can_open=True,
         )
         assert result.skipped is True
         assert "stale" in result.reason
@@ -690,14 +704,9 @@ class TestTradingPipeline:
              patch("trading.pipeline.load_daily_closed", return_value=set()):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], research=research, strategy_memory="", weights={},
-                ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
-                fred_cache={}, alpaca=mock_alpaca, portfolio_value=10000.0,
-                buying_power=5000.0, params={
-                    "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
-                    "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
-                },
-                can_open=True,
+                symbols=[], snap=self._snap(research=research),
+                ai=None, now=datetime.now(ET), alpaca=mock_alpaca,
+                portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
         assert result.skipped is False
 
@@ -711,14 +720,9 @@ class TestTradingPipeline:
              patch("trading.pipeline.load_daily_closed", return_value=set()):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], research=research, strategy_memory="", weights={},
-                ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
-                fred_cache={}, alpaca=MagicMock(), portfolio_value=10000.0,
-                buying_power=5000.0, params={
-                    "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
-                    "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
-                },
-                can_open=True,
+                symbols=[], snap=self._snap(research=research),
+                ai=None, now=datetime.now(ET), alpaca=MagicMock(),
+                portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
         assert result.skipped is False
 
@@ -732,14 +736,9 @@ class TestTradingPipeline:
              patch("trading.pipeline.load_daily_closed", return_value=set()):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], research=research, strategy_memory="", weights={},
-                ai=None, now=datetime.now(ET), regime_info={"regime": "NORMAL"},
-                fred_cache={}, alpaca=MagicMock(), portfolio_value=10000.0,
-                buying_power=5000.0, params={
-                    "rsi_buy_max": 70, "rsi_buy_max_high_vol": 60,
-                    "high_vol_position_mult": 0.5, "vwap_slope_min": -0.5,
-                },
-                can_open=True,
+                symbols=[], snap=self._snap(research=research),
+                ai=None, now=datetime.now(ET), alpaca=MagicMock(),
+                portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
         assert result.skipped is False
 

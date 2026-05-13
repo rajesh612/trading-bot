@@ -29,6 +29,7 @@ from trading.journal import (
     flush_profit_lock_updates,
 )
 from trading.closer import close_position, force_close_all, _apply_profit_lock
+from trading.cycle_context import build_cycle_snapshot
 from trading.pipeline import TradingPipeline
 from signals.entry_gates import check_all_gates
 
@@ -261,30 +262,20 @@ def run_trading_cycle():
         logger.warning("Empty watch list — skipping cycle.")
         return
 
-    research       = load_research()
-    weights        = load_weights()
-    strategy_memory = (
-        config.STRATEGY_MEMORY_FILE.read_text() if config.STRATEGY_MEMORY_FILE.exists() else ""
-    )
-    if len(strategy_memory) > config.STRATEGY_MEMORY_MAX_CHARS:
-        strategy_memory = strategy_memory[-config.STRATEGY_MEMORY_MAX_CHARS:]
+    portfolio_gain_pct = (portfolio_value - last_equity) / last_equity * 100 if last_equity else 0.0
+    snap = build_cycle_snapshot(portfolio_gain_pct=portfolio_gain_pct)
 
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
     pipeline = TradingPipeline()
     pipeline.run(
         symbols=watch_list,
-        research=research,
-        strategy_memory=strategy_memory,
-        weights=weights,
+        snap=snap,
         ai=ai,
         now=now,
-        regime_info=regime_info,
-        fred_cache=fred_cache,
         alpaca=alpaca,
         portfolio_value=portfolio_value,
         buying_power=buying_power,
-        params=params,
         can_open=can_open,
     )
 
