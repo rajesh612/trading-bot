@@ -79,6 +79,14 @@ def notify_claude_disabled(reason: str) -> None:
     )
 
 
+def notify_budget_escalation(spent: float, new_ceiling: float) -> None:
+    _send(
+        f"<b>⚠️ API budget escalated — exit pool exhausted.</b>\n"
+        f"Spent: ${spent:.4f} | New ceiling: ${new_ceiling:.2f}\n"
+        f"Budget ceiling raised to ELEVATED mode to protect open positions."
+    )
+
+
 def notify_budget_warning(used_usd: float, ceiling_usd: float) -> None:
     pct = used_usd / ceiling_usd * 100 if ceiling_usd else 0
     _send(

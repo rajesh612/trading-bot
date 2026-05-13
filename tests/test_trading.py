@@ -944,3 +944,36 @@ class TestAgentBudgetRecording:
         assert recorded.get("input") == 400
         assert recorded.get("output") == 60
         assert recorded.get("cache_write") == 800
+
+
+# ── Budget escalation notification ───────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBudgetEscalationNotify:
+    def _patch_no_token(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "")
+        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "")
+
+    def _patch_fake_token(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "fake_token")
+        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "12345")
+
+    def test_notify_budget_escalation_calls_send(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_budget_escalation(0.25, 1.50)
+            mock_post.assert_called_once()
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "escalated" in text.lower()
+
+    def test_notify_budget_escalation_swallows_exceptions(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import telegram_notify
+        with patch("requests.post", side_effect=Exception("network error")):
+            telegram_notify.notify_budget_escalation(0.25, 1.50)
+            # Must not raise — function should return normally
