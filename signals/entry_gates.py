@@ -96,6 +96,14 @@ def check_all_gates(
         if iv.momentum_exhaustion and iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
             return GateResult(False, f"momentum exhaustion + herding ({iv.bot_herding_score})")
 
+    # 10. RSI overbought hard skip — saves Claude tokens on conditions that will HOLD anyway
+    if iv.rsi > config.RSI_HARD_SKIP_THRESHOLD:
+        return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {config.RSI_HARD_SKIP_THRESHOLD})")
+
+    # 11. Stochastic overbought hard veto
+    if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
+        return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
+
     # ── Soft gates (pass through, flag for Claude) ────────────────────────────
 
     # 10. Relative strength

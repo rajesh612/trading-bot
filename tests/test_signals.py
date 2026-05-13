@@ -315,6 +315,8 @@ class TestEntryGates:
             momentum_exhaustion=False,
             bot_herding_score=0,
             squeeze_setup=False,
+            rsi=50.0,       # below RSI_HARD_SKIP_THRESHOLD (72)
+            stoch_d=50.0,   # below STOCH_HARD_VETO_THRESHOLD (88)
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -469,6 +471,8 @@ class TestCheckAllGates:
             momentum_exhaustion=False,
             bot_herding_score=0,
             squeeze_setup=False,
+            rsi=50.0,
+            stoch_d=50.0,
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -608,3 +612,80 @@ class TestCheckAllGates:
         )
         assert result.passed is False
         assert len(result.reason) > 0
+
+
+class TestRsiStochGates:
+    """RSI and Stochastic hard gates in check_all_gates()."""
+
+    def _now(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    @staticmethod
+    def _iv(**overrides):
+        base = dict(
+            current_price=100.0,
+            vwap=99.0,
+            vwap_std2_upper=110.0,
+            stop_hunt_zone=False,
+            parabolic=False,
+            momentum_exhaustion=False,
+            bot_herding_score=0,
+            squeeze_setup=False,
+            rsi=50.0,
+            stoch_d=50.0,
+        )
+        base.update(overrides)
+        return types.SimpleNamespace(**base)
+
+    def _patch_calendars(self, monkeypatch):
+        import earnings_calendar as ec
+        import economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    @pytest.mark.unit
+    def test_rsi_above_threshold_blocks(self, monkeypatch):
+        """RSI > RSI_HARD_SKIP_THRESHOLD fires the gate."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "AAPL", self._iv(rsi=73.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is False
+        assert "RSI" in result.reason
+
+    @pytest.mark.unit
+    def test_rsi_at_threshold_passes(self, monkeypatch):
+        """RSI exactly at threshold passes — gate is strictly greater-than."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "AAPL", self._iv(rsi=72.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is True
+
+    @pytest.mark.unit
+    def test_stoch_above_threshold_blocks(self, monkeypatch):
+        """Stochastic %D > STOCH_HARD_VETO_THRESHOLD fires the gate."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "NVDA", self._iv(stoch_d=89.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is False
+        assert "Stochastic" in result.reason or "stoch" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_healthy_rsi_and_stoch_passes(self, monkeypatch):
+        """RSI=60, stoch_d=70 — both below thresholds — gate passes."""
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        result = check_all_gates(
+            "MSFT", self._iv(rsi=60.0, stoch_d=70.0), {}, set(), None,
+            self._now(), entries_this_cycle=0,
+        )
+        assert result.passed is True
