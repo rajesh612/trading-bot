@@ -155,17 +155,3 @@ def build_dynamic_user_context(now: datetime) -> str:
         f"{intraday_lines}\n"
         f"Event risk: {event_line}"
     )
-
-
-def build_market_context_block(
-    regime_info: dict,
-    fred_cache: dict,
-    research_meta: dict,
-    now: datetime,
-) -> str:
-    """Deprecated shim — use build_stable_system_context + build_dynamic_user_context."""
-    return (
-        build_stable_system_context(regime_info, fred_cache, research_meta)
-        + "\n"
-        + build_dynamic_user_context(now)
-    )

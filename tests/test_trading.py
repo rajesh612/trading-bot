@@ -200,11 +200,11 @@ class TestBuildMarketContextBlock:
 
     def test_contains_all_six_fields(self, monkeypatch):
         self._patch_context(monkeypatch)
-        from trading.context_builder import build_market_context_block
+        from trading.context_builder import build_stable_system_context, build_dynamic_user_context
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
-        block = build_market_context_block(self._regime(), self._fred(), self._meta(), now)
+        block = build_stable_system_context(self._regime(), self._fred(), self._meta()) + "\n" + build_dynamic_user_context(now)
         assert "BULL_TREND" in block
         assert "cutting" in block
         assert "falling" in block
@@ -214,23 +214,21 @@ class TestBuildMarketContextBlock:
 
     def test_shock_score_omitted_when_zero(self, monkeypatch):
         self._patch_context(monkeypatch)
-        from trading.context_builder import build_market_context_block
+        from trading.context_builder import build_stable_system_context, build_dynamic_user_context
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
-        block = build_market_context_block(self._regime(), self._fred(), self._meta(macro_shock_score=0), now)
+        block = build_stable_system_context(self._regime(), self._fred(), self._meta(macro_shock_score=0)) + "\n" + build_dynamic_user_context(now)
         assert "0/100" in block
         assert "elevated" not in block
 
     def test_shock_score_flagged_when_elevated(self, monkeypatch):
         self._patch_context(monkeypatch)
-        from trading.context_builder import build_market_context_block
+        from trading.context_builder import build_stable_system_context, build_dynamic_user_context
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
-        block = build_market_context_block(
-            self._regime(), self._fred(), self._meta(macro_shock_score=55), now
-        )
+        block = build_stable_system_context(self._regime(), self._fred(), self._meta(macro_shock_score=55)) + "\n" + build_dynamic_user_context(now)
         assert "55/100" in block
         assert "elevated" in block
 
@@ -238,23 +236,21 @@ class TestBuildMarketContextBlock:
         monkeypatch.setattr("economic_calendar.is_event_risk_window", lambda now: (True, "Non-Farm Payrolls"))
         monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda now: None)
         monkeypatch.setattr("macro.breadth_signals.build_breadth_context_line", lambda s: "Breadth: HYG=+0.3%")
-        from trading.context_builder import build_market_context_block
+        from trading.context_builder import build_stable_system_context, build_dynamic_user_context
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now = datetime(2026, 5, 5, 8, 35, tzinfo=ZoneInfo("America/New_York"))
-        block = build_market_context_block(self._regime(), self._fred(), self._meta(), now)
+        block = build_stable_system_context(self._regime(), self._fred(), self._meta()) + "\n" + build_dynamic_user_context(now)
         assert "Non-Farm Payrolls" in block
         assert "avoid" in block
 
     def test_capitulation_candidates_listed(self, monkeypatch):
         self._patch_context(monkeypatch)
-        from trading.context_builder import build_market_context_block
+        from trading.context_builder import build_stable_system_context, build_dynamic_user_context
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now = datetime(2026, 5, 5, 10, 30, tzinfo=ZoneInfo("America/New_York"))
-        block = build_market_context_block(
-            self._regime(), self._fred(), self._meta(capitulation_candidates=["SMCI", "PLTR"]), now
-        )
+        block = build_stable_system_context(self._regime(), self._fred(), self._meta(capitulation_candidates=["SMCI", "PLTR"])) + "\n" + build_dynamic_user_context(now)
         assert "SMCI" in block
         assert "PLTR" in block
 
