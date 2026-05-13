@@ -333,3 +333,51 @@ class TestRiskManagerAdditions:
 
         updated = json.loads(budget_file.read_text())
         assert updated["entry_ceiling_usd"] == pytest.approx(0.85, abs=0.01)
+
+
+# ─── watch list filter ────────────────────────────────────────────────────────
+
+class TestWatchListFilter:
+
+    @pytest.mark.unit
+    def test_filters_overbought_symbols(self):
+        from watch_list_agent import _apply_technical_filter
+        snapshots = {
+            "NVDA": {"rsi": 75.0, "stoch_d": 60.0},   # RSI too high → out
+            "AAPL": {"rsi": 55.0, "stoch_d": 85.0},   # Stoch too high → out
+            "MSFT": {"rsi": 55.0, "stoch_d": 55.0},   # clean → in
+            "AMZN": {"rsi": 60.0, "stoch_d": 65.0},   # clean → in
+            "GOOG": {"rsi": 50.0, "stoch_d": 50.0},   # clean → in
+            "META": {"rsi": 45.0, "stoch_d": 40.0},   # clean → in
+            "TSLA": {"rsi": 55.0, "stoch_d": 60.0},   # clean → in
+            "AMD":  {"rsi": 60.0, "stoch_d": 70.0},   # clean → in
+        }
+        result = _apply_technical_filter(
+            ["NVDA", "AAPL", "MSFT", "AMZN", "GOOG", "META", "TSLA", "AMD"], snapshots,
+            rsi_limit=70, stoch_limit=80,
+        )
+        assert "MSFT" in result
+        assert "AMZN" in result
+        assert "NVDA" not in result
+        assert "AAPL" not in result
+
+    @pytest.mark.unit
+    def test_relaxes_thresholds_if_too_few_pass(self):
+        """If < WATCH_LIST_MIN_AFTER_FILTER pass, retry with relaxed limits."""
+        from watch_list_agent import _apply_technical_filter
+        # All overbought at 70/80 but clean at 76/87
+        snapshots = {s: {"rsi": 72.0, "stoch_d": 83.0} for s in ["A", "B", "C", "D", "E", "F"]}
+        result = _apply_technical_filter(
+            list(snapshots.keys()), snapshots,
+            rsi_limit=70, stoch_limit=80,
+        )
+        # relaxed: rsi_limit=76, stoch_limit=87 → all pass
+        assert len(result) >= 6
+
+    @pytest.mark.unit
+    def test_missing_snapshot_treated_as_clean(self):
+        """Symbol with no snapshot data is not filtered out."""
+        from watch_list_agent import _apply_technical_filter
+        snapshots = {}  # no data
+        result = _apply_technical_filter(["NVDA"], snapshots, rsi_limit=70, stoch_limit=80)
+        assert "NVDA" in result

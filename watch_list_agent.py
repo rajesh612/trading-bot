@@ -53,6 +53,29 @@ def _score_stock(symbol: str, client: AlpacaClient) -> dict | None:
         return None
 
 
+def _apply_technical_filter(
+    symbols: list[str],
+    snapshots: dict[str, dict],
+    rsi_limit: float,
+    stoch_limit: float,
+) -> list[str]:
+    """
+    Remove symbols that are already technically exhausted at watch-list selection time.
+    If fewer than WATCH_LIST_MIN_AFTER_FILTER survive, retry with relaxed thresholds
+    (+6 RSI, +7 Stochastic) so the list is never catastrophically short.
+    """
+    def _passes(sym: str, rsi_lim: float, stoch_lim: float) -> bool:
+        snap = snapshots.get(sym, {})
+        if not snap:
+            return True  # no data → assume clean
+        return snap.get("rsi", 0) <= rsi_lim and snap.get("stoch_d", 0) <= stoch_lim
+
+    filtered = [s for s in symbols if _passes(s, rsi_limit, stoch_limit)]
+    if len(filtered) < config.WATCH_LIST_MIN_AFTER_FILTER:
+        filtered = [s for s in symbols if _passes(s, rsi_limit + 6, stoch_limit + 7)]
+    return filtered
+
+
 def run_watch_list_agent() -> list[str]:
     universe = _load_universe()
     logger.info(f"Scoring {len(universe)} stocks for today's watch list…")
@@ -130,6 +153,27 @@ def run_watch_list_agent() -> list[str]:
         ]
 
     watch_list = watch_list[: config.WATCH_LIST_MAX]
+
+    # Fetch quick RSI/Stoch snapshot per symbol for technical pre-filter
+    from indicators.engine import compute_indicators
+    _alpaca = AlpacaClient()
+    _snapshots: dict[str, dict] = {}
+    for _sym in watch_list:
+        try:
+            _bars = _alpaca.get_intraday_bars(_sym)
+            _iv = compute_indicators(_sym, _bars)
+            if _iv:
+                _snapshots[_sym] = {"rsi": _iv.rsi, "stoch_d": _iv.stoch_d}
+        except Exception:
+            pass  # missing snapshot → symbol kept
+
+    watch_list = _apply_technical_filter(
+        watch_list, _snapshots,
+        rsi_limit=config.WATCH_LIST_RSI_FILTER,
+        stoch_limit=config.WATCH_LIST_STOCH_FILTER,
+    )
+    logger.info("Watch list after technical filter (%d stocks): %s", len(watch_list), watch_list)
+
     config.WATCH_LIST_FILE.write_text("\n".join(watch_list))
     logger.info(f"Watch list ({len(watch_list)} stocks): {watch_list}")
     return watch_list
