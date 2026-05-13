@@ -60,15 +60,14 @@ def build_stock_block(
     )
 
 
-def build_market_context_block(
+def build_stable_system_context(
     regime_info: dict,
     fred_cache: dict,
     research_meta: dict,
-    now: datetime,
 ) -> str:
     """
-    Assemble market context for the Claude system prompt.
-    Includes intraday bias + breadth so Claude has a full picture.
+    Assemble the stable portion of market context for the Claude system prompt.
+    Contains no timestamps or live prices — safe for Anthropic prompt cache all day.
     Pure — callers pass dicts in; no file I/O here.
     """
     regime        = regime_info.get("regime", "NORMAL")
@@ -85,9 +84,6 @@ def build_market_context_block(
     fed   = fred_cache.get("fed_direction", "unknown")
     cpi   = fred_cache.get("cpi_trend", "unknown")
     unemp = "rising" if fred_cache.get("unemployment_rising") else "stable"
-
-    event_active, event_name = _ec_mod.is_event_risk_window(now)
-    event_line = f"⚠ ACTIVE: {event_name} — avoid new entries" if event_active else "None active"
 
     shock      = research_meta.get("macro_shock_score", 0)
     shock_line = f"{shock}/100" + (" — elevated macro stress" if shock >= 40 else "")
@@ -110,18 +106,45 @@ def build_market_context_block(
         "vix3m": regime_info.get("vix3m", 0.0),
     })
 
-    from macro.intraday_context import get_intraday_context
-    intraday = get_intraday_context(now)
-    intraday_lines = intraday.to_context_lines() if intraday else "Intraday bias: unavailable"
-
     return (
-        f"MARKET CONTEXT ({now.strftime('%H:%M')} ET):\n"
         f"Daily regime: {regime} | health={health:+d} | VIX={vix:.1f}{vix_note}\n"
         f"{weekly_line}\n"
         f"{breadth_line}\n"
         f"Sector scores: {sector_score_str}\n"
-        f"{intraday_lines}\n"
         f"FRED: Fed {fed} | CPI {cpi} | Unemployment {unemp}\n"
-        f"Event risk: {event_line}\n"
         f"Macro shock: {shock_line} | Capitulation watch: {cap_str}"
+    )
+
+
+def build_dynamic_user_context(now: datetime) -> str:
+    """
+    Assemble the dynamic (per-call) market snapshot for the Claude user message.
+    Contains live intraday bias, event risk, and current time.
+    Must NOT be placed in the system block — changes every few minutes.
+    """
+    from macro.intraday_context import get_intraday_context
+    intraday = get_intraday_context(now)
+    intraday_lines = intraday.to_context_lines() if intraday else "Intraday bias: unavailable"
+
+    event_active, event_name = _ec_mod.is_event_risk_window(now)
+    event_line = f"⚠ ACTIVE: {event_name} — avoid new entries" if event_active else "None active"
+
+    return (
+        f"MARKET SNAPSHOT ({now.strftime('%H:%M')} ET):\n"
+        f"{intraday_lines}\n"
+        f"Event risk: {event_line}"
+    )
+
+
+def build_market_context_block(
+    regime_info: dict,
+    fred_cache: dict,
+    research_meta: dict,
+    now: datetime,
+) -> str:
+    """Deprecated shim — use build_stable_system_context + build_dynamic_user_context."""
+    return (
+        build_stable_system_context(regime_info, fred_cache, research_meta)
+        + "\n"
+        + build_dynamic_user_context(now)
     )

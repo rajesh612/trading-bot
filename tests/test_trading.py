@@ -816,3 +816,41 @@ class TestPipelinePerCycleCap:
         assert r.entries == 2
 
 
+@pytest.mark.unit
+class TestContextSplit:
+    """Verify stable vs. dynamic context separation for prompt caching."""
+
+    _REGIME = {
+        "regime": "NORMAL", "macro_health_score": 5,
+        "vix_current": 18.0, "vix_90d_avg": 20.0, "vix_trend": "falling",
+        "spy_5day_return": 1.2, "consecutive_green_days": 3,
+        "consecutive_red_days": 0, "spy_5day_sign_changes": 1,
+        "sector_scores": {"XLK": 10, "XLF": -5},
+        "hyg_ret5d": 0.3, "iwm_ret5d": 0.8, "vix3m": 19.0,
+    }
+    _FRED = {"fed_direction": "paused", "cpi_trend": "stable", "unemployment_rising": False}
+    _META = {"macro_shock_score": 10, "capitulation_candidates": []}
+
+    def test_stable_context_contains_no_time(self):
+        """build_stable_system_context must not embed a clock time string."""
+        import re
+        from trading.context_builder import build_stable_system_context
+        text = build_stable_system_context(self._REGIME, self._FRED, self._META)
+        assert not re.search(r"\d{2}:\d{2}", text), (
+            "Stable context must not contain a time like '10:30' — it breaks prompt caching"
+        )
+
+    def test_stable_context_is_deterministic(self):
+        """Same inputs produce identical output — required for cache hits."""
+        from trading.context_builder import build_stable_system_context
+        a = build_stable_system_context(self._REGIME, self._FRED, self._META)
+        b = build_stable_system_context(self._REGIME, self._FRED, self._META)
+        assert a == b
+
+    def test_dynamic_context_contains_time(self):
+        """build_dynamic_user_context must include the current HH:MM marker."""
+        from trading.context_builder import build_dynamic_user_context
+        now = datetime(2024, 1, 15, 11, 30, 0, tzinfo=ET)
+        text = build_dynamic_user_context(now)
+        assert "11:30" in text
+

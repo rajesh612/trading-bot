@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -19,7 +20,7 @@ import telegram_notify
 from alpaca_client import AlpacaClient
 from indicator_engine import IndicatorValues
 from macro_regime import load_macro_regime
-from trading.context_builder import build_market_context_block, build_stock_block
+from trading.context_builder import build_stable_system_context, build_dynamic_user_context, build_stock_block
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -30,6 +31,26 @@ ET = ZoneInfo("America/New_York")
 _CLAUDE_DISABLED = threading.Event()
 _CLAUDE_DISABLED_REASON: str = ""
 _CLAUDE_LOCK = threading.Lock()
+
+# ── Stable context cache ───────────────────────────────────────────────────────
+# Keyed on fred+meta content; TTL 1 hour. The stable context string is identical
+# for every call within a trading day — caching avoids re-building the string.
+_stable_ctx_text: str = ""
+_stable_ctx_time: float = 0.0
+_STABLE_CTX_TTL: float = 3600.0
+_STABLE_CTX_LOCK = threading.Lock()
+
+
+def _get_cached_stable_context(fred_cache: dict, research_meta: dict) -> str:
+    global _stable_ctx_text, _stable_ctx_time
+    with _STABLE_CTX_LOCK:
+        if _stable_ctx_text and (time.monotonic() - _stable_ctx_time) < _STABLE_CTX_TTL:
+            return _stable_ctx_text
+        _stable_ctx_text = build_stable_system_context(
+            _get_current_regime_info(), fred_cache, research_meta
+        )
+        _stable_ctx_time = time.monotonic()
+        return _stable_ctx_text
 
 
 def is_claude_disabled() -> bool:
@@ -112,7 +133,33 @@ def _ask_claude_batch(
         for sym, iv, existing_pos in batch
     )
 
+    now = datetime.now(ET)
+    stable_ctx = _get_cached_stable_context(fred_cache, research_meta)
+    dynamic_ctx = build_dynamic_user_context(now)
+
+    # Stable system block — no timestamps or live prices, so Anthropic cache hits every call.
+    system_text = (
+        "You are an expert intraday day trader making final buy/sell decisions.\n"
+        "You receive technical indicators, news sentiment, and market context.\n"
+        "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
+        "Prioritise capital preservation. Never hold overnight.\n"
+        f"Current indicator weights: {json.dumps(weights)}\n\n"
+        f"{stable_ctx}"
+    )
+    if strategy_memory:
+        system_text += f"\n\nToday's strategy memory:\n{strategy_memory}"
+
+    system_blocks = [
+        {
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+    # Dynamic context (live prices/time) prepended to user message so system block stays stable.
     user_msg = (
+        f"{dynamic_ctx}\n\n"
         f"Decisions needed for {len(batch)} stock(s):\n\n"
         f"{stock_blocks}\n\n"
         "Rules: BUY only if no open position and signal clear. "
@@ -130,30 +177,6 @@ def _ask_claude_batch(
         '"Volume":"<correct|incorrect|neutral>"}\n'
         "  }\n}"
     )
-
-    now = datetime.now(ET)
-    market_ctx = build_market_context_block(
-        _get_current_regime_info(), fred_cache, research_meta, now
-    )
-    # Cache the full system block — stable within a cycle, improving hit rate to ~85%.
-    system_text = (
-        "You are an expert intraday day trader making final buy/sell decisions.\n"
-        "You receive technical indicators, news sentiment, and market context.\n"
-        "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
-        "Prioritise capital preservation. Never hold overnight.\n"
-        f"Current indicator weights: {json.dumps(weights)}\n\n"
-        f"{market_ctx}"
-    )
-    if strategy_memory:
-        system_text += f"\n\nToday's strategy memory:\n{strategy_memory}"
-
-    system_blocks = [
-        {
-            "type": "text",
-            "text": system_text,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
 
     try:
         response = ai.messages.create(
