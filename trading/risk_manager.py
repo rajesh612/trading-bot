@@ -59,7 +59,7 @@ def load_budget() -> dict:
     """Load today's budget from disk, resetting if stale or corrupt."""
     today = datetime.now(ET).strftime("%Y-%m-%d")
     data = load_json(config.API_BUDGET_FILE, {})
-    if data.get("date") == today and isinstance(data, dict):
+    if isinstance(data, dict) and data.get("date") == today:
         return data
     budget = _fresh_budget()
     _save_budget(budget)

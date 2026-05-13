@@ -1080,3 +1080,25 @@ class TestRiskManagerBudget:
         check_exit_budget(0.01, open_position_count=0, regime="NORMAL")  # marks exit_exhausted, no escalation
         b = load_budget()
         assert b["budget_exhausted"] is True
+
+    # 8. Exit allows when already escalated with room
+    def test_check_exit_allows_when_already_escalated_with_room(self, tmp_path, monkeypatch):
+        """After escalation, exit_ceiling_usd is elevated. A call with room should return True."""
+        import config
+        from trading.risk_manager import _fresh_budget, check_exit_budget
+
+        budget = {
+            **_fresh_budget(),
+            "escalated": True,
+            "ceiling_mode": "elevated",
+            "ceiling_usd": config.API_BUDGET_ELEVATED_CEILING,
+            "exit_ceiling_usd": round(config.API_BUDGET_ELEVATED_CEILING * config.EXIT_BUDGET_RATIO, 4),
+            "exit_spent_usd": 0.0,
+        }
+        budget_file = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", budget_file)
+        import json
+        budget_file.write_text(json.dumps(budget))
+
+        result = check_exit_budget(0.01, open_position_count=1, regime="NORMAL")
+        assert result is True
