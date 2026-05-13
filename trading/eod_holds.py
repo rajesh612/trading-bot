@@ -2,7 +2,7 @@
 EOD hold qualification and promotion logic for swing positions.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import config
@@ -84,7 +84,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
             pnl_pct = (current_price - entry) / entry * 100
 
             event_tomorrow, _ = is_event_risk_window(
-                now.replace(hour=9, minute=30, second=0) + __import__("datetime").timedelta(days=1)
+                now.replace(hour=9, minute=30, second=0) + timedelta(days=1)
             )
             earnings_soon = is_earnings_imminent(symbol, days=2)
             sector = get_sector(symbol)

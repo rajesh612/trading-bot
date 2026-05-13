@@ -238,7 +238,3 @@ def _execute_full_close(symbol: str, pos: dict, alpaca_client, reason: str) -> N
         _save_swing_positions(s)
     logger.info(f"SWING CLOSED {symbol}: {remaining} shares — {reason}")
 
-
-# backward-compat re-exports
-from trading.tiered_tp import _compute_tier_quantities, evaluate_tiered_tp_action  # noqa: E402,F811
-from trading.eod_holds import qualifies_for_eod_hold, _SWING_ELIGIBLE_REGIMES  # noqa: E402,F811
