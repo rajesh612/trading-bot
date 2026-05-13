@@ -38,14 +38,19 @@ def _job_guard(name: str, fn) -> None:
         raise
 
 
+def _read_watch_list() -> list[str]:
+    try:
+        return [s.strip() for s in config.WATCH_LIST_FILE.read_text().splitlines() if s.strip()]
+    except FileNotFoundError:
+        return []
+
+
 def job_earnings_calendar():
     logger.info("━━━ EARNINGS CALENDAR ━━━")
     def _run():
         from earnings_calendar import refresh_earnings_calendar
         from tier1_config import TIER1_NAMES
-        watch_list = []
-        if config.WATCH_LIST_FILE.exists():
-            watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
+        watch_list = _read_watch_list()
         symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))
         refresh_earnings_calendar(symbols)
     _job_guard("earnings_calendar", _run)
@@ -65,8 +70,12 @@ def job_macro_regime():
 
 def job_fred_cache():
     logger.info("━━━ FRED CACHE REFRESH ━━━")
-    from macro_regime import refresh_fred_cache
-    _job_guard("fred_cache", refresh_fred_cache)
+    def _run():
+        from macro_regime import refresh_fred_cache
+        from trading.cycle_context import invalidate_fred_cache
+        refresh_fred_cache()
+        invalidate_fred_cache()
+    _job_guard("fred_cache", _run)
 
 
 def job_volatility_screener():
@@ -89,9 +98,8 @@ def job_research():
     logger.info("━━━ RESEARCH AGENT ━━━")
     def _run():
         from research.agent import run_research_agent
-        if config.WATCH_LIST_FILE.exists():
-            watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
-        else:
+        watch_list = _read_watch_list()
+        if not watch_list:
             from watch_list_agent import _load_universe
             watch_list = _load_universe()[: config.WATCH_LIST_MAX]
         run_research_agent(watch_list)
@@ -179,6 +187,18 @@ def job_daily_report():
     logger.info("━━━ DAILY REPORT ━━━")
     from daily_report import send_daily_report
     _job_guard("daily_report", send_daily_report)
+
+
+def job_intraday_news():
+    logger.info("━━━ INTRADAY NEWS ━━━")
+    from intraday_news import refresh_intraday_news
+    _job_guard("intraday_news", lambda: refresh_intraday_news(_read_watch_list()))
+
+
+def job_budget_rollover():
+    logger.info("━━━ BUDGET ROLLOVER ━━━")
+    from trading.risk_manager import try_rollover_exit_to_entry
+    _job_guard("budget_rollover", lambda: try_rollover_exit_to_entry(datetime.now(ET)))
 
 
 def job_heartbeat():

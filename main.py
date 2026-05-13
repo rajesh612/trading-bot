@@ -37,6 +37,8 @@ from scheduler_jobs import (
     job_learning,
     job_daily_report,
     job_heartbeat,
+    job_intraday_news,
+    job_budget_rollover,
 )
 
 # Backward-compat aliases so existing tests that import `main._xxx` continue to work.
@@ -191,6 +193,24 @@ def setup_scheduler():
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=60,
+    )
+    # Intraday news refresh every 30 min during market hours
+    scheduler.add_job(
+        job_intraday_news,
+        CronTrigger(minute="*/30", hour="9-15", **kw),
+        id="intraday_news",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=30,
+    )
+    # Budget rollover at 12:30 PM ET
+    scheduler.add_job(
+        job_budget_rollover,
+        CronTrigger(hour=12, minute=30, **kw),
+        id="budget_rollover",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=300,
     )
     # Heartbeat every 30 min all day — confirms scheduler is alive
     scheduler.add_job(
