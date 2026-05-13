@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import config
 import telegram_notify
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger("main")
 ET = ZoneInfo("America/New_York")
@@ -37,7 +38,7 @@ def validate_state_files() -> None:
         except (json.JSONDecodeError, ValueError):
             backup = path.with_suffix(".corrupt.json")
             path.rename(backup)
-            path.write_text(json.dumps(default))
+            save_json(path, default)
             logger.error(f"CORRUPT state file reset: {path.name} → backup {backup.name}")
             telegram_notify.notify_file_corruption(path.name)
 
@@ -70,7 +71,7 @@ def cleanup_stale_files() -> None:
     # Prune research_report.json if it is from a prior trading day.
     try:
         if config.RESEARCH_REPORT_FILE.exists():
-            rr = json.loads(config.RESEARCH_REPORT_FILE.read_text())
+            rr = load_json(config.RESEARCH_REPORT_FILE, {})
             meta_ts = rr.get("__meta__", {}).get("timestamp", "")
             if meta_ts:
                 report_dt = datetime.fromisoformat(meta_ts)

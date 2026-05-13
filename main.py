@@ -148,8 +148,6 @@ def setup_scheduler():
     kw = dict(day_of_week="mon-fri", timezone=ET)
     # Pre-market jobs: can fire up to 5 min late (slow startup or network delay) and still run.
     PRE_MARKET_KW = dict(**kw, max_instances=1, misfire_grace_time=300)
-    # Intraday jobs: stale by >30s use bad data — drop them rather than run late.
-    INTRADAY_KW = dict(**kw, max_instances=1, misfire_grace_time=30)
 
     # economic_calendar at 8:20 to avoid race condition with 8:30 bot startup
     scheduler.add_job(job_earnings_calendar,   CronTrigger(hour=8,  minute=0,  **kw), id="earnings_calendar",   replace_existing=True, max_instances=1, misfire_grace_time=300)
