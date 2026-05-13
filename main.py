@@ -1,5 +1,3 @@
-import fcntl
-import json
 import logging
 import logging.handlers
 import os
@@ -7,7 +5,7 @@ import signal
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -15,10 +13,36 @@ from apscheduler.triggers.cron import CronTrigger
 
 import config
 import telegram_notify
+from utils.instance_lock import acquire_instance_lock, kill_existing_instance, write_pid, clear_pid
+from utils.startup import validate_state_files, cleanup_stale_files, exit_with_alert
+from utils.bot_health import reset_bot_health, check_crash_loop, reconcile_positions
+from utils.catchup import catchup_missed_agents, catchup_daily_report
+from scheduler_jobs import (
+    set_scheduler,
+    set_heartbeat_refs,
+    _job_guard,
+    job_earnings_calendar,
+    job_economic_calendar,
+    job_macro_regime,
+    job_fred_cache,
+    job_volatility_screener,
+    job_watch_list,
+    job_research,
+    job_trading,
+    job_position_monitor,
+    job_force_close,
+    job_evaluate_eod_holds,
+    job_swing_gap_check,
+    job_market_monitor,
+    job_learning,
+    job_daily_report,
+    job_heartbeat,
+)
 
-PID_FILE  = config.BASE_DIR / "trading_bot.pid"
-LOCK_FILE = config.BASE_DIR / "trading_bot.lock"
-_lock_fh  = None  # held open for the lifetime of this process to keep the lock
+# Backward-compat aliases so existing tests that import `main._xxx` continue to work.
+_check_crash_loop = check_crash_loop
+_reset_bot_health = reset_bot_health
+_exit_with_alert  = exit_with_alert
 
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
 
@@ -64,297 +88,61 @@ def _watchdog():
             os._exit(1)
 
 
-# ── Single-instance lock ─────────────────────────────────────────────────────
-
-def _acquire_instance_lock():
-    """Exit immediately if another bot process is already running.
-
-    Uses an exclusive flock so this is race-condition-free regardless of
-    whether the competing process was launched by launchd, start.sh, or
-    directly. The lock is held for the lifetime of this process via _lock_fh.
+def _log_capability_summary() -> list[str]:
     """
-    global _lock_fh
-    _lock_fh = open(LOCK_FILE, "w")
-    try:
-        fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _lock_fh.write(str(os.getpid()))
-        _lock_fh.flush()
-    except IOError:
-        print(
-            "[trading_bot] Another instance is already running — exiting.",
-            flush=True,
-        )
-        sys.exit(0)
-
-
-# ── PID management ───────────────────────────────────────────────────────────
-
-def _kill_existing_instance():
-    if not PID_FILE.exists():
-        return
-    try:
-        old_pid = int(PID_FILE.read_text().strip())
-        if old_pid == os.getpid():
-            return
-        os.kill(old_pid, 0)  # check if alive
-        logger.info(f"Killing existing instance PID {old_pid}…")
-        os.kill(old_pid, signal.SIGTERM)
-        time.sleep(3)
-        try:
-            os.kill(old_pid, signal.SIGKILL)  # force-kill if still alive
-        except ProcessLookupError:
-            pass
-        logger.info(f"Previous instance PID {old_pid} terminated.")
-    except (ValueError, ProcessLookupError):
-        pass  # pid file stale or process already gone
-
-
-def _write_pid():
-    PID_FILE.write_text(str(os.getpid()))
-
-
-def _clear_pid():
-    try:
-        PID_FILE.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-# ── Job wrappers ─────────────────────────────────────────────────────────────
-
-def _job_guard(name: str, fn) -> None:
-    """Run fn(); send a Telegram alert on exception, then re-raise so APScheduler logs it."""
-    try:
-        fn()
-    except Exception as exc:
-        telegram_notify.notify_job_failure(name, f"{type(exc).__name__}: {exc}")
-        raise
-
-
-def _validate_state_files() -> None:
-    """Check JSON state files on startup; reset corrupt ones and alert via Telegram."""
-    candidates = [
-        (config.TRADE_JOURNAL_FILE,      []),
-        (config.OPEN_POSITIONS_FILE,     {}),
-        (config.SWING_POSITIONS_FILE,    {}),
-        (config.INDICATOR_WEIGHTS_FILE,  {}),
-    ]
-    for path, default in candidates:
-        if not path.exists():
-            continue
-        try:
-            json.loads(path.read_text())
-        except (json.JSONDecodeError, ValueError):
-            backup = path.with_suffix(".corrupt.json")
-            path.rename(backup)
-            path.write_text(json.dumps(default))
-            logger.error(f"CORRUPT state file reset: {path.name} → backup {backup.name}")
-            telegram_notify.notify_file_corruption(path.name)
-
-
-def _cleanup_stale_files() -> None:
+    Log one line per integration at startup. Returns degraded item descriptions
+    for Telegram alert. Called once after hard key validation.
     """
-    Housekeeping on startup:
-    - Delete .corrupt.json backups older than CORRUPT_BACKUP_MAX_DAYS
-    - Archive trade_journal.json entries older than TRADE_JOURNAL_MAX_DAYS
-    - Delete leftover .tmp files from crashed writes
-    - Delete stale research_report.json from a prior trading day
-    """
-    cutoff = datetime.now(ET) - timedelta(days=config.CORRUPT_BACKUP_MAX_DAYS)
-    for f in config.BASE_DIR.glob("*.corrupt.json"):
+    import json
+    degraded: list[str] = []
+
+    # FRED
+    if config.FRED_API_KEY:
         try:
-            mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=ET)
-            if mtime < cutoff:
-                f.unlink()
-                logger.info(f"Deleted stale backup: {f.name}")
+            fred_data = json.loads(config.FRED_CACHE_FILE.read_text()) if config.FRED_CACHE_FILE.exists() else {}
+            fed = fred_data.get("fed_direction", "unknown")
+            cpi = fred_data.get("cpi_trend", "unknown")
+            logger.info(f"[✓] FRED         — macro modifier active (Fed {fed}, CPI {cpi})")
         except Exception as exc:
-            logger.warning(f"Could not delete {f.name}: {exc}")
+            logger.warning("[~] FRED         — key set, cache unreadable: %s", exc)
+    else:
+        logger.info("[✗] FRED         — macro regime modifier = 0 (key not set)")
+        degraded.append("FRED key missing — macro regime modifier = 0 (neutral)")
 
-    for f in config.BASE_DIR.glob("*.tmp"):
-        try:
-            f.unlink()
-            logger.info(f"Deleted leftover tmp file: {f.name}")
-        except Exception as exc:
-            logger.warning(f"Could not delete {f.name}: {exc}")
+    # Polygon
+    if config.POLYGON_API_KEY:
+        logger.info("[✓] Polygon      — flash-crash dual-source verification active")
+    else:
+        logger.info("[✗] Polygon      — flash-crash single-source only (SPY two-reading fallback)")
+        degraded.append("Polygon key missing — flash-crash confirmation is single-source only")
 
-    # Prune research_report.json if it is from a prior trading day.
-    try:
-        if config.RESEARCH_REPORT_FILE.exists():
-            rr = json.loads(config.RESEARCH_REPORT_FILE.read_text())
-            meta_ts = rr.get("__meta__", {}).get("timestamp", "")
-            if meta_ts:
-                report_dt = datetime.fromisoformat(meta_ts)
-                if report_dt.tzinfo is None:
-                    report_dt = report_dt.replace(tzinfo=ET)
-                today_start = datetime.now(ET).replace(hour=0, minute=0, second=0, microsecond=0)
-                if report_dt < today_start:
-                    config.RESEARCH_REPORT_FILE.unlink()
-                    logger.info("Deleted stale research_report.json (from prior trading day)")
-    except Exception as exc:
-        logger.debug(f"research_report.json prune skipped: {exc}")
+    # Reddit
+    logger.info("[✓] Reddit       — public JSON API, no credentials needed")
 
-    try:
-        from trading_agent import archive_old_journal_entries
-        archive_old_journal_entries()
-    except Exception as exc:
-        logger.warning(f"Journal archival failed: {exc}")
+    # X / Twitter
+    if config.X_BEARER_TOKEN:
+        logger.info("[✓] X/Twitter    — tweet sentiment active")
+    else:
+        logger.info("[~] X/Twitter    — disabled (X_BEARER_TOKEN not set; $100/mo optional)")
 
+    # Email
+    if config.EMAIL_SENDER and config.EMAIL_APP_PASSWORD:
+        logger.info(f"[✓] Email        — daily report → {config.EMAIL_RECIPIENT or config.EMAIL_SENDER}")
+    else:
+        logger.info("[✗] Email        — daily report will not be sent (EMAIL_SENDER not configured)")
+        degraded.append("Email not configured — daily P&L report will not be sent")
 
-def job_earnings_calendar():
-    logger.info("━━━ EARNINGS CALENDAR ━━━")
-    def _run():
-        from earnings_calendar import refresh_earnings_calendar
-        from tier1_config import TIER1_NAMES
-        watch_list = []
-        if config.WATCH_LIST_FILE.exists():
-            watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
-        symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))
-        refresh_earnings_calendar(symbols)
-    _job_guard("earnings_calendar", _run)
+    # Telegram
+    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+        logger.info("[✓] Telegram     — notifications active")
+    else:
+        logger.info("[~] Telegram     — disabled (TELEGRAM_BOT_TOKEN not set)")
 
+    # Market data provider
+    logger.info(f"[~] Market data  — provider={config.MARKET_DATA_PROVIDER}")
 
-def job_economic_calendar():
-    logger.info("━━━ ECONOMIC CALENDAR ━━━")
-    from economic_calendar import refresh_economic_calendar
-    _job_guard("economic_calendar", refresh_economic_calendar)
+    return degraded
 
-
-def job_macro_regime():
-    logger.info("━━━ MACRO REGIME ━━━")
-    from macro_regime import fetch_macro_regime
-    _job_guard("macro_regime", fetch_macro_regime)
-
-
-def job_fred_cache():
-    logger.info("━━━ FRED CACHE REFRESH ━━━")
-    from macro_regime import refresh_fred_cache
-    _job_guard("fred_cache", refresh_fred_cache)
-
-
-def job_volatility_screener():
-    logger.info("━━━ VOLATILITY SCREENER ━━━")
-    from volatility_screener import run_volatility_screener
-    _job_guard("volatility_screener", run_volatility_screener)
-
-
-def job_watch_list():
-    logger.info("━━━ WATCH LIST AGENT ━━━")
-    def _run():
-        from trading_agent import reset_daily_closed
-        reset_daily_closed()
-        from watch_list_agent import run_watch_list_agent
-        run_watch_list_agent()
-    _job_guard("watch_list", _run)
-
-
-def job_research():
-    logger.info("━━━ RESEARCH AGENT ━━━")
-    def _run():
-        from research_agent import run_research_agent
-        if config.WATCH_LIST_FILE.exists():
-            watch_list = [t.strip() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
-        else:
-            from watch_list_agent import _load_universe
-            watch_list = _load_universe()[: config.WATCH_LIST_MAX]
-        run_research_agent(watch_list)
-    _job_guard("research", _run)
-
-
-def job_trading():
-    now = datetime.now(ET)
-    if now.weekday() >= 5:
-        return
-    if now.hour < 9 or (now.hour == 9 and now.minute < 30):
-        return
-    if now.hour > 15 or (now.hour == 15 and now.minute >= 55):
-        return
-    logger.info("━━━ TRADING CYCLE ━━━")
-    from trading_agent import run_trading_cycle
-    _job_guard("trading_cycle", run_trading_cycle)
-
-
-def job_position_monitor():
-    now = datetime.now(ET)
-    if now.weekday() >= 5:
-        return
-    if now.hour < 9 or (now.hour == 9 and now.minute < 30):
-        return
-    if now.hour > 15 or (now.hour == 15 and now.minute >= 55):
-        return
-    from trading_agent import run_position_monitor
-    _job_guard("position_monitor", run_position_monitor)
-
-
-def job_force_close():
-    logger.info("━━━ FORCE CLOSE ALL POSITIONS ━━━")
-    from trading_agent import force_close_all
-    # Pause position_monitor to prevent double-close / double-journal during EOD sweep (RC-4)
-    try:
-        scheduler.pause_job("position_monitor")
-    except Exception:
-        pass
-    try:
-        _job_guard("force_close", force_close_all)
-    finally:
-        try:
-            scheduler.resume_job("position_monitor")
-        except Exception:
-            pass
-
-
-def job_evaluate_eod_holds():
-    logger.info("━━━ SWING EOD EVALUATION ━━━")
-    from swing_manager import evaluate_eod_holds
-    _job_guard("evaluate_eod_holds", evaluate_eod_holds)
-
-
-def job_swing_gap_check():
-    logger.info("━━━ SWING GAP CHECK ━━━")
-    def _run():
-        from swing_manager import run_gap_check
-        from alpaca_client import AlpacaClient
-        run_gap_check(AlpacaClient())
-    _job_guard("swing_gap_check", _run)
-
-
-def job_market_monitor():
-    now = datetime.now(ET)
-    if now.weekday() >= 5:
-        return
-    if now.hour < 9 or (now.hour == 9 and now.minute < 30):
-        return
-    if now.hour >= 16:
-        return
-    from utils.market_monitor import run_market_monitor
-    _job_guard("market_monitor", run_market_monitor)
-
-
-def job_learning():
-    logger.info("━━━ LEARNING AGENT ━━━")
-    from learning_agent import run_learning_agent
-    _job_guard("learning_agent", run_learning_agent)
-
-
-def job_daily_report():
-    logger.info("━━━ DAILY REPORT ━━━")
-    from daily_report import send_daily_report
-    _job_guard("daily_report", send_daily_report)
-
-
-def job_heartbeat():
-    now = datetime.now(ET)
-    try:
-        from trading_agent import load_open_positions
-        open_pos = load_open_positions()
-        n_pos = len(open_pos)
-    except Exception:
-        n_pos = "?"
-    logger.info(f"♥ HEARTBEAT — bot alive | {now.strftime('%H:%M ET')} | open positions: {n_pos}")
-    _file_handler.stream.flush()
-    _last_heartbeat_ts[0] = time.time()
-
-
-# ── Scheduler setup ──────────────────────────────────────────────────────────
 
 def setup_scheduler():
     kw = dict(day_of_week="mon-fri", timezone=ET)
@@ -416,369 +204,11 @@ def setup_scheduler():
     )
 
 
-def _reset_bot_health() -> None:
-    """Write crash_count=0 to bot_health.json. Called on clean shutdown."""
-    try:
-        data = {
-            "crash_count": 0,
-            "window_start": datetime.now(ET).isoformat(),
-            "backoff_until": None,
-        }
-        config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
-    except Exception as exc:
-        logger.warning(f"Could not reset bot_health.json: {exc}")
-
-
-def _check_crash_loop() -> None:
-    """Increment crash counter and sleep CRASH_BACKOFF_MINUTES if loop detected."""
-    now = datetime.now(ET)
-    try:
-        if config.BOT_HEALTH_FILE.exists():
-            data = json.loads(config.BOT_HEALTH_FILE.read_text())
-        else:
-            data = {"crash_count": 0, "window_start": now.isoformat(), "backoff_until": None}
-
-        window_start = datetime.fromisoformat(data.get("window_start", now.isoformat()))
-        if (now - window_start).total_seconds() / 60 > config.CRASH_LOOP_WINDOW_MINUTES:
-            data["crash_count"] = 0
-            data["window_start"] = now.isoformat()
-
-        crash_count = data.get("crash_count", 0)
-        if crash_count == 0:
-            data["window_start"] = now.isoformat()
-        crash_count += 1
-        data["crash_count"] = crash_count
-        config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
-
-        if crash_count >= config.CRASH_LOOP_THRESHOLD:
-            backoff_until = now + timedelta(minutes=config.CRASH_BACKOFF_MINUTES)
-            data["backoff_until"] = backoff_until.isoformat()
-            config.BOT_HEALTH_FILE.write_text(json.dumps(data, indent=2))
-            logger.critical(
-                f"CRASH LOOP: {crash_count} crashes in {config.CRASH_LOOP_WINDOW_MINUTES} min "
-                f"— pausing {config.CRASH_BACKOFF_MINUTES} min until "
-                f"{backoff_until.strftime('%H:%M ET')}"
-            )
-            time.sleep((backoff_until - datetime.now(ET)).total_seconds())
-            _reset_bot_health()
-    except Exception as exc:
-        logger.warning(f"Crash loop check failed: {exc}")
-
-
-def _reconcile_positions():
-    """Sync local open_positions.json with Alpaca's actual open positions at startup.
-
-    Three discrepancies can occur while the bot is offline:
-    1. Bracket SL/TP fired → position closed in Alpaca but still in local state.
-    2. Bot crashed mid-entry → position open in Alpaca but absent from local state.
-    3. Bot starts after 3:55 PM with positions still open → force-close immediately.
-    Swing positions (swing_positions.json) are intentional overnight holds and are
-    always skipped — swing_manager owns them.
-    """
-    from trading_agent import load_open_positions, save_open_positions, append_trade
-    from alpaca_client import AlpacaClient
-
-    logger.info("RECONCILE: Checking Alpaca positions against local state…")
-    try:
-        alpaca = AlpacaClient()
-        alpaca_positions = alpaca.get_positions()        # {symbol: AlpacaPosition}
-        local_positions  = load_open_positions()         # {symbol: dict}
-        now   = datetime.now(ET)
-        changed = False
-
-        # Swing positions are held overnight intentionally — skip them in all checks
-        try:
-            from swing_manager import load_swing_positions
-            swing_symbols = set(load_swing_positions().keys())
-        except Exception:
-            swing_symbols = set()
-        if swing_symbols:
-            logger.info(f"RECONCILE: {len(swing_symbols)} swing position(s) active — skipping: {sorted(swing_symbols)}")
-
-        # ── 1. In Alpaca but not locally ──────────────────────────────────
-        # Bot crashed between placing the order and writing open_positions.json,
-        # or the entry was placed but the bot never wrote local state.
-        for symbol, ap in alpaca_positions.items():
-            if symbol not in local_positions:
-                if symbol in swing_symbols:
-                    continue  # swing hold — swing_manager owns it, not a crash
-                entry_price = float(ap.avg_entry_price)
-                qty         = int(float(ap.qty))
-                logger.warning(
-                    f"RECONCILE: {symbol} open in Alpaca ({qty}@${entry_price:.2f}) "
-                    "but missing from local state — restoring with default SL/TP"
-                )
-                local_positions[symbol] = {
-                    "symbol":               symbol,
-                    "qty":                  qty,
-                    "entry_price":          entry_price,
-                    "stop_loss_pct":        config.STOP_LOSS_PCT,
-                    "take_profit_pct":      config.TAKE_PROFIT_PCT,
-                    "stop_loss_price":      round(entry_price * (1 - config.STOP_LOSS_PCT  / 100), 2),
-                    "take_profit_price":    round(entry_price * (1 + config.TAKE_PROFIT_PCT / 100), 2),
-                    "bracket_order_id":     None,
-                    "timestamp":            now.isoformat(),
-                    "entry_composite_score": None,
-                    "entry_sentiment_score": None,
-                    "claude_reasoning":     "Restored at startup — original entry data unavailable.",
-                    "indicator_signals":    {},
-                    "entry_indicators":     {},
-                }
-                changed = True
-
-        # ── 2. In local state but gone from Alpaca ────────────────────────
-        # A bracket SL or TP order fired while the bot was offline.
-        for symbol in list(local_positions.keys()):
-            if symbol not in alpaca_positions:
-                pos = local_positions[symbol]
-                try:
-                    exit_price = alpaca.get_latest_price(symbol)
-                except Exception:
-                    exit_price = pos["entry_price"]
-                    logger.warning(f"RECONCILE: Cannot fetch last price for {symbol} — using entry price for P&L")
-
-                pnl_pct    = (exit_price - pos["entry_price"]) / pos["entry_price"] * 100
-                pnl_dollar = (exit_price - pos["entry_price"]) * pos["qty"]
-                logger.warning(
-                    f"RECONCILE: {symbol} in local state but gone from Alpaca — "
-                    f"bracket fired while offline. P&L≈{pnl_pct:+.2f}% (${pnl_dollar:+.2f})"
-                )
-                append_trade({
-                    "type":                      "CLOSE",
-                    "symbol":                    symbol,
-                    "timestamp":                 now.isoformat(),
-                    "exit_price":                round(exit_price, 4),
-                    "entry_price":               round(pos["entry_price"], 4),
-                    "qty":                       pos["qty"],
-                    "pnl_pct":                   round(pnl_pct, 2),
-                    "pnl_dollar":                round(pnl_dollar, 2),
-                    "close_reason":              "bracket_filled_while_bot_offline",
-                    "entry_composite_score":     pos.get("entry_composite_score"),
-                    "exit_composite_score":      None,
-                    "exit_indicators":           {},
-                    "entry_indicators":          pos.get("entry_indicators", {}),
-                    "entry_sentiment_score":     pos.get("entry_sentiment_score"),
-                    "claude_reasoning":          pos.get("claude_reasoning", ""),
-                    "indicator_signals_at_entry": pos.get("indicator_signals", {}),
-                })
-                del local_positions[symbol]
-                changed = True
-
-        if changed:
-            save_open_positions(local_positions)
-
-        n = len(local_positions)
-        if not changed:
-            logger.info(f"RECONCILE: Positions in sync — {n} open, no discrepancies.")
-        else:
-            logger.info(f"RECONCILE: State updated — {n} position(s) now active.")
-
-        # ── 4. Orphan BUY order drain ─────────────────────────────────────────
-        # Cancel any open BUY orders left in Alpaca from a crashed trading cycle.
-        # Filled bracket BUY legs have status=filled (not open) — safe to cancel all open BUYs.
-        try:
-            open_buys = alpaca.get_open_buy_orders()
-            cancelled = 0
-            for order in open_buys:
-                try:
-                    alpaca.cancel_order(order["id"])
-                    logger.warning(
-                        f"RECONCILE: Cancelled orphan BUY order {order['id']} for {order['symbol']}"
-                    )
-                    cancelled += 1
-                except Exception as exc:
-                    logger.warning(f"RECONCILE: Could not cancel order {order['id']}: {exc}")
-            if cancelled:
-                logger.info(f"RECONCILE: Drained {cancelled} orphan BUY order(s).")
-            else:
-                logger.info("RECONCILE: No orphan BUY orders found.")
-        except Exception as exc:
-            logger.error(f"RECONCILE: Orphan drain failed — {exc}")
-
-        # ── 3. Starting after 3:55 PM ET with open day-trade positions ──────
-        # The scheduled force_close never ran (bot crashed or laptop closed).
-        # Close non-swing positions now so we don't hold day-trades overnight.
-        # Swing positions are intentional holds — job_force_close already skips them.
-        past_force_close = now.hour > 15 or (now.hour == 15 and now.minute >= 55)
-        day_trade_open = {s: p for s, p in local_positions.items() if s not in swing_symbols}
-        if past_force_close and day_trade_open:
-            logger.warning(
-                f"RECONCILE: Starting after 3:55 PM with {len(day_trade_open)} open "
-                "day-trade position(s) — force-closing now to avoid overnight hold"
-            )
-            job_force_close()
-
-    except Exception as exc:
-        logger.error(f"RECONCILE: Failed — {exc}", exc_info=True)
-        logger.error("RECONCILE: Local state may be stale — check Alpaca dashboard manually.")
-
-
-def _file_is_from_today(path) -> bool:
-    """Return True if the file exists and was last modified on today's ET date."""
-    try:
-        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=ET)
-        return mtime.date() == datetime.now(ET).date()
-    except FileNotFoundError:
-        return False
-
-
-def _catchup_missed_agents():
-    """Run any pre-market agents whose output files are missing or stale for today.
-
-    Called once at startup, before the scheduler takes over. Only runs on weekdays
-    after 8:45 AM ET. Agents run in dependency order so downstream agents always
-    have fresh upstream data.
-    """
-    now = datetime.now(ET)
-    if now.weekday() >= 5:
-        return  # weekend — nothing to do
-
-    market_already_closed = now.hour > 16 or (now.hour == 16 and now.minute >= 15)
-    if market_already_closed:
-        logger.info("CATCHUP: post-market start — skipping agent catch-up.")
-        return
-
-    pre_market_started = now.hour > 8 or (now.hour == 8 and now.minute >= 45)
-    if not pre_market_started:
-        logger.info("CATCHUP: too early (before 8:45 AM) — no catch-up needed yet.")
-        return
-
-    logger.info("CATCHUP: checking for missed pre-market agents…")
-
-    # 1. Earnings calendar (needed for swing manager EOD hold qualification)
-    if not _file_is_from_today(config.EARNINGS_CALENDAR_FILE):
-        logger.info("CATCHUP: running earnings calendar (earnings_calendar.json is stale)…")
-        job_earnings_calendar()
-    else:
-        logger.info("CATCHUP: earnings calendar already ran today — skipping.")
-
-    # 2. Volatility screener (needed by watch list agent)
-    if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
-        logger.info("CATCHUP: running volatility screener (daily_tradeable.txt is stale)…")
-        job_volatility_screener()
-    else:
-        logger.info("CATCHUP: volatility screener already ran today — skipping.")
-
-    # 2. Economic calendar (needed for event-risk gate)
-    if not _file_is_from_today(config.ECONOMIC_CALENDAR_FILE):
-        logger.info("CATCHUP: running economic calendar (economic_calendar.json is stale)…")
-        job_economic_calendar()
-    else:
-        logger.info("CATCHUP: economic calendar already ran today — skipping.")
-
-    # 3. Macro regime (replaces VIX regime — needed by trading agent for position sizing)
-    if not _file_is_from_today(config.MACRO_REGIME_FILE):
-        logger.info("CATCHUP: running macro regime (macro_regime.json is stale)…")
-        job_macro_regime()
-    else:
-        logger.info("CATCHUP: macro regime already ran today — skipping.")
-
-    # 4. Watch list agent (needed by research + trading agents)
-    if not _file_is_from_today(config.WATCH_LIST_FILE):
-        logger.info("CATCHUP: running watch list agent (watch_list.txt is stale)…")
-        job_watch_list()
-    else:
-        logger.info("CATCHUP: watch list already built today — skipping.")
-
-    # 5. Research agent — run in background thread so it doesn't block the scheduler.
-    # Fetching news + 15 Claude calls can take 3-5 minutes; the scheduler must start
-    # first so trading cycles don't miss their windows while research is running.
-    market_still_open = now.hour < 15 or (now.hour == 15 and now.minute < 50)
-    if market_still_open:
-        if not _file_is_from_today(config.RESEARCH_REPORT_FILE):
-            logger.info("CATCHUP: research report stale — launching in background thread (will not block scheduler)…")
-            threading.Thread(target=job_research, daemon=True, name="catchup-research").start()
-        else:
-            logger.info("CATCHUP: research report already built today — skipping.")
-    else:
-        logger.info("CATCHUP: market closing soon — skipping research catch-up.")
-
-    logger.info("CATCHUP: done (research may still be running in background).")
-
-
-def _catchup_daily_report():
-    """Send the daily report on startup if it was missed (bot offline at 4:20 PM ET)."""
-    now = datetime.now(ET)
-    if now.weekday() >= 5:
-        return  # weekend
-    report_due = now.hour > 16 or (now.hour == 16 and now.minute >= 20)
-    if not report_due:
-        return
-    from daily_report import send_daily_report
-    logger.info("CATCHUP: checking if daily report needs to be sent…")
-    send_daily_report()
-
-
-def _exit_with_alert(msg: str, code: int = 1) -> None:
-    """Exit with a Telegram alert. Logs error, sends Telegram, then exits."""
-    logger.error(msg)
-    try:
-        telegram_notify._send(f"🚨 Bot failed to start: {msg}")
-    except Exception:
-        pass
-    sys.exit(code)
-
-
-def _log_capability_summary() -> list[str]:
-    """
-    Log one line per integration at startup. Returns degraded item descriptions
-    for Telegram alert. Called once after hard key validation.
-    """
-    degraded: list[str] = []
-
-    # FRED
-    if config.FRED_API_KEY:
-        try:
-            fred_data = json.loads(config.FRED_CACHE_FILE.read_text()) if config.FRED_CACHE_FILE.exists() else {}
-            fed = fred_data.get("fed_direction", "unknown")
-            cpi = fred_data.get("cpi_trend", "unknown")
-            logger.info(f"[✓] FRED         — macro modifier active (Fed {fed}, CPI {cpi})")
-        except Exception as exc:
-            logger.warning("[~] FRED         — key set, cache unreadable: %s", exc)
-    else:
-        logger.info("[✗] FRED         — macro regime modifier = 0 (key not set)")
-        degraded.append("FRED key missing — macro regime modifier = 0 (neutral)")
-
-    # Polygon
-    if config.POLYGON_API_KEY:
-        logger.info("[✓] Polygon      — flash-crash dual-source verification active")
-    else:
-        logger.info("[✗] Polygon      — flash-crash single-source only (SPY two-reading fallback)")
-        degraded.append("Polygon key missing — flash-crash confirmation is single-source only")
-
-    # Reddit
-    logger.info("[✓] Reddit       — public JSON API, no credentials needed")
-
-    # X / Twitter
-    if config.X_BEARER_TOKEN:
-        logger.info("[✓] X/Twitter    — tweet sentiment active")
-    else:
-        logger.info("[~] X/Twitter    — disabled (X_BEARER_TOKEN not set; $100/mo optional)")
-
-    # Email
-    if config.EMAIL_SENDER and config.EMAIL_APP_PASSWORD:
-        logger.info(f"[✓] Email        — daily report → {config.EMAIL_RECIPIENT or config.EMAIL_SENDER}")
-    else:
-        logger.info("[✗] Email        — daily report will not be sent (EMAIL_SENDER not configured)")
-        degraded.append("Email not configured — daily P&L report will not be sent")
-
-    # Telegram
-    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
-        logger.info("[✓] Telegram     — notifications active")
-    else:
-        logger.info("[~] Telegram     — disabled (TELEGRAM_BOT_TOKEN not set)")
-
-    # Market data provider
-    logger.info(f"[~] Market data  — provider={config.MARKET_DATA_PROVIDER}")
-
-    return degraded
-
-
 def _handle_shutdown(signum, frame):
     logger.info("Shutdown signal received — stopping.")
-    _clear_pid()
+    clear_pid()
     scheduler.shutdown(wait=False)
-    _reset_bot_health()
+    reset_bot_health()
     telegram_notify.notify_shutdown()
     sys.exit(0)
 
@@ -786,31 +216,37 @@ def _handle_shutdown(signum, frame):
 def main():
     # Acquire exclusive lock first — exits immediately if another instance is live.
     # This prevents launchd + start.sh races from spawning two bots simultaneously.
-    _acquire_instance_lock()
-    _check_crash_loop()
+    acquire_instance_lock()
+    check_crash_loop()
 
     logger.info("Trading Bot initialising…")
 
     if not config.ALPACA_API_KEY or not config.ALPACA_SECRET_KEY:
-        _exit_with_alert("Missing ALPACA_API_KEY / ALPACA_SECRET_KEY in .env")
+        exit_with_alert("Missing ALPACA_API_KEY / ALPACA_SECRET_KEY in .env")
     if not config.ANTHROPIC_API_KEY:
-        _exit_with_alert("Missing ANTHROPIC_API_KEY in .env")
+        exit_with_alert("Missing ANTHROPIC_API_KEY in .env")
 
     degraded_integrations = _log_capability_summary()
     if degraded_integrations:
         telegram_notify.notify_degraded_integrations(degraded_integrations)
 
-    _kill_existing_instance()
-    _write_pid()
+    kill_existing_instance()
+    write_pid()
 
     signal.signal(signal.SIGTERM, _handle_shutdown)
     signal.signal(signal.SIGINT,  _handle_shutdown)
 
-    _validate_state_files()
-    _cleanup_stale_files()
-    _reconcile_positions()
-    _catchup_missed_agents()
-    _catchup_daily_report()
+    validate_state_files()
+    cleanup_stale_files()
+
+    # Wire scheduler and heartbeat refs into scheduler_jobs before reconcile
+    # (reconcile may call job_force_close which needs _scheduler)
+    set_scheduler(scheduler)
+    set_heartbeat_refs(_file_handler, _last_heartbeat_ts)
+
+    reconcile_positions()
+    catchup_missed_agents()
+    catchup_daily_report()
 
     setup_scheduler()
 
