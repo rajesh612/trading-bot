@@ -195,3 +195,95 @@ class TestPreClaudeFilter:
         # composite=45 passes NORMAL (>=40) but fails HIGH_VOL (>=50)
         result = pre_claude_filter("TEST", self._iv(composite=45.0), snap)
         assert result.decision == "SKIP"
+
+
+# ─── budget_guard ────────────────────────────────────────────────────────────
+
+class TestBudgetGuard:
+
+    def _now_et(self, hour, minute=0):
+        return datetime(2026, 5, 13, hour, minute, tzinfo=ET)
+
+    @pytest.mark.unit
+    def test_morning_cap_blocks_at_35pct_during_morning(self):
+        from trading.budget_guard import morning_cap_exceeded
+        result = morning_cap_exceeded(
+            entry_spent=0.36, entry_ceiling=1.0, now=self._now_et(10, 0)
+        )
+        assert result is True
+
+    @pytest.mark.unit
+    def test_morning_cap_allows_under_35pct(self):
+        from trading.budget_guard import morning_cap_exceeded
+        result = morning_cap_exceeded(
+            entry_spent=0.34, entry_ceiling=1.0, now=self._now_et(10, 0)
+        )
+        assert result is False
+
+    @pytest.mark.unit
+    def test_morning_cap_inactive_after_1130(self):
+        from trading.budget_guard import morning_cap_exceeded
+        result = morning_cap_exceeded(
+            entry_spent=0.99, entry_ceiling=1.0, now=self._now_et(11, 45)
+        )
+        assert result is False
+
+    @pytest.mark.unit
+    def test_midday_cap_blocks_at_65pct(self):
+        from trading.budget_guard import midday_cap_exceeded
+        result = midday_cap_exceeded(
+            entry_spent=0.66, entry_ceiling=1.0, now=self._now_et(12, 0)
+        )
+        assert result is True
+
+    @pytest.mark.unit
+    def test_midday_cap_inactive_after_1pm(self):
+        from trading.budget_guard import midday_cap_exceeded
+        result = midday_cap_exceeded(
+            entry_spent=0.99, entry_ceiling=1.0, now=self._now_et(13, 30)
+        )
+        assert result is False
+
+    @pytest.mark.unit
+    def test_rollover_applied_at_1230(self):
+        from trading.budget_guard import apply_exit_rollover
+        b = {
+            "entry_ceiling_usd": 0.70,
+            "exit_ceiling_usd": 0.30,
+            "exit_spent_usd": 0.0,
+        }
+        result = apply_exit_rollover(b, self._now_et(12, 30))
+        assert result is True
+        assert b["entry_ceiling_usd"] == pytest.approx(0.85, abs=0.01)
+        assert b["_rollover_applied"] is True
+
+    @pytest.mark.unit
+    def test_rollover_not_applied_twice(self):
+        from trading.budget_guard import apply_exit_rollover
+        b = {
+            "entry_ceiling_usd": 0.70,
+            "exit_ceiling_usd": 0.30,
+            "exit_spent_usd": 0.0,
+            "_rollover_applied": True,
+        }
+        result = apply_exit_rollover(b, self._now_et(12, 30))
+        assert result is False
+        assert b["entry_ceiling_usd"] == 0.70
+
+    @pytest.mark.unit
+    def test_rollover_not_applied_wrong_time(self):
+        from trading.budget_guard import apply_exit_rollover
+        b = {"entry_ceiling_usd": 0.70, "exit_ceiling_usd": 0.30, "exit_spent_usd": 0.0}
+        result = apply_exit_rollover(b, self._now_et(11, 0))
+        assert result is False
+
+    @pytest.mark.unit
+    def test_rollover_skipped_if_exit_already_spent(self):
+        from trading.budget_guard import apply_exit_rollover
+        b = {
+            "entry_ceiling_usd": 0.70,
+            "exit_ceiling_usd": 0.30,
+            "exit_spent_usd": 0.30,
+        }
+        result = apply_exit_rollover(b, self._now_et(12, 30))
+        assert result is False
