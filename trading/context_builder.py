@@ -60,6 +60,27 @@ def build_stock_block(
     )
 
 
+def build_exit_stock_block(
+    symbol: str,
+    iv: IndicatorValues,
+    position: dict,
+    research: dict,
+) -> str:
+    """Compact ~100-token block for thesis-break exit evaluation."""
+    entry_price = position.get("entry_price", 0)
+    pnl_pct = (iv.current_price - entry_price) / entry_price * 100 if entry_price > 0 else 0.0
+    entry_composite = position.get("entry_composite_score", 0)
+    composite_delta = iv.composite_score - entry_composite
+    sentiment_score = research.get(symbol, {}).get("sentiment_score", 0)
+    sl_pct = position.get("stop_loss_pct", config.STOP_LOSS_PCT)
+    return (
+        f"=={symbol}== P=${iv.current_price:.2f} entry=${entry_price:.2f}"
+        f" PnL={pnl_pct:+.2f}% SL={sl_pct:.1f}%\n"
+        f"  composite={iv.composite_score:+.1f} (Δ{composite_delta:+.1f} from entry)"
+        f" sentiment={sentiment_score:+d}"
+    )
+
+
 def build_stable_system_context(
     regime_info: dict,
     fred_cache: dict,
