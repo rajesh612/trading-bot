@@ -155,13 +155,7 @@ QUICK_SENTIMENT_BEAR_PCT   = 30   # bullish_pct ≤ this → rule-based BEARISH,
 QUICK_SENTIMENT_SCORE_BULL =  55  # combined_sentiment_score assigned to rule-based BULLISH
 QUICK_SENTIMENT_SCORE_BEAR = -55  # combined_sentiment_score assigned to rule-based BEARISH
 
-# Trading agent: auto-approve pre-filter
-# composite > this threshold + VWAP↑ + RSI 50–72 + MACD positive → auto-BUY, skip Claude
-AUTO_BUY_COMPOSITE_THRESHOLD = 35
-# Minimum sentiment score to allow AUTO-BUY (blocks bearish news from bypassing Claude)
-AUTO_BUY_MIN_SENTIMENT = -10
-
-# ── Crash Recovery ────────────────────────────────────────────────────────────
+# ── Crash Recovery ────────────────────────────────────────────────────────
 BOT_HEALTH_FILE              = BASE_DIR / "bot_health.json"
 CRASH_LOOP_THRESHOLD         = 3      # restarts within window before backoff triggers
 CRASH_LOOP_WINDOW_MINUTES    = 10     # rolling window for crash counting
@@ -241,3 +235,38 @@ MACRO_BREADTH_TICKERS: dict[str, str] = {
 PEAD_EPS_BEAT_STRONG        = 20.0    # blowout beat threshold (30 pts)
 PEAD_EPS_BEAT_SOLID         = 10.0    # strong beat threshold (25 pts)
 PEAD_FWD_REVISION_MIN       = 3.0     # forward EPS revision % to qualify as 6th condition
+
+# ── Pre-Claude Filter + Token Efficiency ──────────────────────────────────────
+PRE_CLAUDE_COMPOSITE_MIN      = 40    # pipeline Phase 2: below this never reaches Claude
+HIGH_VOL_COMPOSITE_MIN        = 50    # raised bar in HIGH_VOL / DEFENSIVE regime
+MACRO_HEALTH_SKIP_THRESHOLD   = -20   # skip if macro_health_score < this
+MACRO_SHOCK_SKIP_THRESHOLD    = 50    # skip if research macro_shock_score > this
+SENTIMENT_HARD_BLOCK          = -15   # combined_sentiment_score below this = hard block
+SENTIMENT_WEAK_COMPOSITE_MIN  = 45    # if sentiment < 0, require composite >= this
+INTRADAY_SENTIMENT_BLOCK      = -10   # intraday sentiment_score below this = skip
+
+# ── Auto-Execute (skip Claude for textbook setups) ────────────────────────────
+AUTO_EXECUTE_COMPOSITE_MIN    = 45    # composite must exceed this for auto-execute
+AUTO_EXECUTE_SENTIMENT_MIN    = 15    # intraday sentiment_score must exceed this
+
+# ── Budget Time-of-Day Caps ───────────────────────────────────────────────────
+BUDGET_MORNING_CAP_PCT        = 0.35  # max 35% of entry_ceiling by 11:30 AM ET
+BUDGET_MIDDAY_CAP_PCT         = 0.65  # max 65% of entry_ceiling by 1:00 PM ET
+BUDGET_ROLLOVER_FRACTION      = 0.5   # fraction of unused exit budget to roll into entry
+EXIT_ROLLOVER_MAX_USD         = 0.15  # cap on a single rollover
+BUDGET_ROLLOVER_HOUR          = 12    # ET hour to evaluate rollover
+BUDGET_ROLLOVER_MINUTE        = 30    # ET minute to evaluate rollover
+
+# ── Intraday News ─────────────────────────────────────────────────────────────
+INTRADAY_NEWS_REFRESH_MIN     = 30    # scheduler cadence in minutes
+INTRADAY_NEWS_SHOCK_BLOCK     = 60    # shock_score >= this → hard-block entry
+INTRADAY_NEWS_STALE_MIN       = 45    # cache older than this → treat as missing
+
+# ── Watch List Technical Pre-Filter ──────────────────────────────────────────
+WATCH_LIST_RSI_FILTER         = 70    # exclude if RSI > this at 9 AM snapshot
+WATCH_LIST_STOCH_FILTER       = 80    # exclude if Stochastic %D > this at 9 AM snapshot
+WATCH_LIST_MIN_AFTER_FILTER   = 6     # relax filter thresholds if fewer symbols remain
+
+# ── Fast-Gate Thresholds (pre-Claude technical vetos) ────────────────────────
+RSI_DELTA_HARD_BLOCK          = -7    # fast_gate: block if RSI declining this fast
+INTRADAY_NEWS_CACHE_FILE      = BASE_DIR / "intraday_news_cache.json"
