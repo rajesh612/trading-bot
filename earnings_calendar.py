@@ -2,13 +2,13 @@
 Earnings calendar: daily refresh at 8:00 AM ET.
 Provides next-earnings-date lookups and PEAD (post-earnings drift) detection.
 """
-import json
 import logging
 from datetime import datetime, timedelta
 
 import config
 from utils.constants import ET
 from utils.http import yahoo_get
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 
@@ -149,25 +149,17 @@ def refresh_earnings_calendar(symbols: list[str]) -> None:
             logger.debug(f"earnings refresh skipped {symbol}: {exc}")
             cache[symbol] = {"next_earnings_date": None}
 
-    payload = {"date": today, "symbols": cache}
-    with open(config.EARNINGS_CALENDAR_FILE, "w") as f:
-        json.dump(payload, f, indent=2)
+    save_json(config.EARNINGS_CALENDAR_FILE, {"date": today, "symbols": cache})
     logger.info(f"Earnings calendar refreshed for {len(symbols)} symbols.")
 
 
 def _load_cache() -> dict:
     """Load today's earnings cache; return {} on error or stale file."""
-    try:
-        if not config.EARNINGS_CALENDAR_FILE.exists():
-            return {}
-        with open(config.EARNINGS_CALENDAR_FILE) as f:
-            data = json.load(f)
-        today = datetime.now(ET).strftime("%Y-%m-%d")
-        if data.get("date") != today:
-            return {}
-        return data.get("symbols", {})
-    except Exception:
+    data = load_json(config.EARNINGS_CALENDAR_FILE, {})
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+    if data.get("date") != today:
         return {}
+    return data.get("symbols", {})
 
 
 def days_until_earnings(symbol: str) -> int | None:

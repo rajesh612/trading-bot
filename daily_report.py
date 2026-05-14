@@ -1,4 +1,3 @@
-import json
 import logging
 import smtplib
 import ssl
@@ -9,6 +8,7 @@ import certifi
 import config
 import telegram_notify
 from utils.constants import ET
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +16,12 @@ DAILY_REPORT_SENT_FILE = config.DAILY_REPORT_SENT_FILE
 
 
 def _already_sent_today() -> bool:
-    try:
-        data = json.loads(DAILY_REPORT_SENT_FILE.read_text())
-        return data.get("date") == datetime.now(ET).date().isoformat()
-    except (FileNotFoundError, json.JSONDecodeError):
-        return False
+    data = load_json(DAILY_REPORT_SENT_FILE, {})
+    return data.get("date") == datetime.now(ET).date().isoformat()
 
 
 def _mark_sent() -> None:
-    DAILY_REPORT_SENT_FILE.write_text(
-        json.dumps({"date": datetime.now(ET).date().isoformat()})
-    )
+    save_json(DAILY_REPORT_SENT_FILE, {"date": datetime.now(ET).date().isoformat()})
 
 
 def build_report_body(
@@ -150,20 +145,12 @@ def send_daily_report() -> None:
     except Exception as exc:
         logger.warning(f"DAILY REPORT: Could not fetch Alpaca account — {exc}")
 
-    trades = []
-    try:
-        trades = json.loads(config.TRADE_JOURNAL_FILE.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    trades = load_json(config.TRADE_JOURNAL_FILE, [])
 
     today         = datetime.now(ET).date().isoformat()
     todays_trades = [t for t in trades if t.get("timestamp", "").startswith(today)]
 
-    regime = "UNKNOWN"
-    try:
-        regime = json.loads(config.MACRO_REGIME_FILE.read_text()).get("regime", "UNKNOWN")
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
+    regime = load_json(config.MACRO_REGIME_FILE, {}).get("regime", "UNKNOWN")
 
     watch_list = ""
     try:
@@ -171,11 +158,7 @@ def send_daily_report() -> None:
     except FileNotFoundError:
         pass
 
-    weights = {}
-    try:
-        weights = json.loads(config.INDICATOR_WEIGHTS_FILE.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    weights = load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
     subject, body = build_report_body(todays_trades, account, regime, watch_list, weights)
 

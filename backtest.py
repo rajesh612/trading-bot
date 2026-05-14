@@ -8,7 +8,6 @@ SL = -2%, TP = +5%, max 5 concurrent positions, max 5% of portfolio per position
 Force-close at first bar whose timestamp >= 15:55 ET.
 """
 
-import json
 import logging
 import sys
 from dataclasses import dataclass, field, asdict
@@ -25,6 +24,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 import config
 from indicators.engine import compute_indicators
 from utils.constants import ET
+from utils.io_utils import save_json
 
 logging.basicConfig(
     level=logging.INFO,
@@ -540,8 +540,7 @@ def _print_report(state: SimState) -> None:
     print(f"\n  Trade log saved to: {out_path}")
 
     equity_path = config.BASE_DIR / "backtest_equity.json"
-    with open(equity_path, "w") as f:
-        json.dump(state.equity_curve, f, indent=2)
+    save_json(equity_path, state.equity_curve)
     print(f"  Equity curve saved to: {equity_path}")
 
 

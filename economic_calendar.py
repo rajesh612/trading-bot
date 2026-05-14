@@ -2,7 +2,6 @@
 Economic calendar: daily refresh at 8:30 AM ET.
 Gates new entries in the 45-minute window before/after high-impact events.
 """
-import json
 import logging
 from calendar import monthcalendar
 from datetime import datetime, timedelta, time as dt_time
@@ -10,6 +9,7 @@ import requests
 
 import config
 from utils.constants import ET
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +122,8 @@ def refresh_economic_calendar() -> None:
     todays = [e for e in events if e.get("date") == today_str]
 
     # Carry forward previous events for post-event-day detection
-    try:
-        from utils.io_utils import load_json
-        prev_cache = load_json(config.ECONOMIC_CALENDAR_FILE, {})
-        prior_events = prev_cache.get("events", [])
-    except Exception:
-        prior_events = []
+    prev_cache = load_json(config.ECONOMIC_CALENDAR_FILE, {})
+    prior_events = prev_cache.get("events", [])
 
     payload = {
         "date":         today_str,
@@ -135,20 +131,15 @@ def refresh_economic_calendar() -> None:
         "prior_events": prior_events,
         "source":       source,
     }
-    with open(config.ECONOMIC_CALENDAR_FILE, "w") as f:
-        json.dump(payload, f, indent=2)
+    save_json(config.ECONOMIC_CALENDAR_FILE, payload)
 
     logger.info(f"Economic calendar: {len(todays)} high-impact events today (source={source})")
 
 
 def is_post_major_event_day(now: datetime) -> tuple[bool, str]:
     """Returns (True, event_name) if yesterday had a FOMC/NFP/CPI/PCE/JOLTS event."""
-    try:
-        with open(config.ECONOMIC_CALENDAR_FILE) as f:
-            data = json.load(f)
-        prior = data.get("prior_events", [])
-    except Exception:
-        return False, ""
+    data = load_json(config.ECONOMIC_CALENDAR_FILE, {})
+    prior = data.get("prior_events", [])
 
     high_impact = ["FOMC", "NFP", "CPI", "PCE", "JOLTS"]
     for evt in prior:
@@ -159,18 +150,12 @@ def is_post_major_event_day(now: datetime) -> tuple[bool, str]:
 
 
 def _load_todays_events() -> list[dict]:
-    """Load today's events; return [] on any error or if file is stale."""
-    try:
-        if not config.ECONOMIC_CALENDAR_FILE.exists():
-            return []
-        with open(config.ECONOMIC_CALENDAR_FILE) as f:
-            data = json.load(f)
-        today_str = datetime.now(ET).strftime("%Y-%m-%d")
-        if data.get("date") != today_str:
-            return []
-        return data.get("events", [])
-    except Exception:
+    """Load today's events; return [] if file is stale or missing."""
+    data = load_json(config.ECONOMIC_CALENDAR_FILE, {})
+    today_str = datetime.now(ET).strftime("%Y-%m-%d")
+    if data.get("date") != today_str:
         return []
+    return data.get("events", [])
 
 
 def get_todays_events() -> list[dict]:
