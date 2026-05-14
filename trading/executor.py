@@ -104,6 +104,9 @@ def execute_buy(
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)
         return None
+    if gate.flags and decision.get("source") == "auto_execute":
+        logger.info("SKIP %s — auto-execute blocked by soft flags: %s", symbol, ", ".join(gate.flags))
+        return None
     if gate.flags:
         logger.info("ENTRY %s flagged: %s", symbol, ", ".join(gate.flags))
 

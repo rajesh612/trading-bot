@@ -162,9 +162,26 @@ class TestPreClaudeFilter:
     @pytest.mark.unit
     def test_auto_execute_strong_signal(self):
         from trading.pre_claude_filter import pre_claude_filter
-        snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 20}})
-        result = pre_claude_filter("TEST", self._iv(composite=50.0), snap)
+        # composite=56 (> raised threshold 55), sentiment=25 (> raised threshold 20)
+        snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
+        result = pre_claude_filter("TEST", self._iv(composite=56.0), snap)
         assert result.decision == "AUTO_EXECUTE"
+
+    @pytest.mark.unit
+    def test_auto_execute_not_triggered_below_new_composite_threshold(self):
+        """composite=54 (below raised threshold 55) routes to CLAUDE, not AUTO_EXECUTE."""
+        from trading.pre_claude_filter import pre_claude_filter
+        snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
+        result = pre_claude_filter("TEST", self._iv(composite=54.0), snap)
+        assert result.decision == "CLAUDE"
+
+    @pytest.mark.unit
+    def test_auto_execute_not_triggered_below_new_sentiment_threshold(self):
+        """sentiment=19 (below raised threshold 20) routes to CLAUDE even with strong composite."""
+        from trading.pre_claude_filter import pre_claude_filter
+        snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 19}})
+        result = pre_claude_filter("TEST", self._iv(composite=56.0), snap)
+        assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
     def test_claude_path_moderate_signal(self):

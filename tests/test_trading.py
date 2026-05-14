@@ -1269,3 +1269,103 @@ class TestFillCorrection:
             client, "order-789", 100.0, 4.0, 5.0
         )
         assert result is None
+
+
+# ── executor: auto-execute soft-flag guard ────────────────────────────────────
+
+@pytest.mark.unit
+class TestAutoExecuteSoftFlagGuard:
+    """execute_buy must block auto-execute trades when check_all_gates returns soft flags."""
+
+    def _iv(self, composite=60.0, current_price=100.0):
+        from tests.test_signals import TestFastGate
+        return TestFastGate()._iv(
+            symbol="TEST", composite_score=composite, rsi=55.0,
+            stoch_d=50.0, current_price=current_price,
+        )
+
+    def _base_kwargs(self, iv, decision):
+        from unittest.mock import MagicMock
+        return dict(
+            symbol="TEST", iv=iv, decision=decision,
+            regime="NORMAL",
+            regime_info={"regime": "NORMAL", "spy_5day_return": 0.0},
+            research={"TEST": {"sentiment_score": 25}},
+            open_positions={},
+            alpaca=MagicMock(),
+            portfolio_value=10_000.0,
+            pos_mult=1.0,
+            spy_ret5d=0.0,
+            symbol_ret5d=0.0,
+            rsi_max=72.0,
+            params={"vwap_slope_min": -0.5},
+            now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+            entries_this_cycle=0,
+        )
+
+    @pytest.mark.unit
+    def test_auto_execute_blocked_when_gate_returns_soft_flags(self):
+        """execute_buy returns None for auto-execute trades when gate has soft flags (e.g. mtf_not_confirmed)."""
+        from unittest.mock import patch
+        from signals.entry_gates import GateResult
+        from trading.executor import execute_buy
+
+        iv = self._iv()
+        decision = {
+            "action": "BUY", "confidence": 90,
+            "reasoning": "auto-execute: composite+sentiment threshold met",
+            "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+            "source": "auto_execute",
+        }
+
+        soft_flag_gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
+
+        with patch("trading.executor.check_all_gates", return_value=soft_flag_gate), \
+             patch("trading.executor.get_intraday_bars", return_value=None), \
+             patch("trading.executor.load_json", return_value={}), \
+             patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
+             patch("trading.executor._MODE_POSITION_LIMITS", {}):
+            result = execute_buy(**self._base_kwargs(iv, decision))
+
+        assert result is None
+
+    @pytest.mark.unit
+    def test_claude_buy_proceeds_with_soft_flags(self):
+        """execute_buy does NOT block Claude-reviewed BUY when gate has soft flags — only auto-execute is strict."""
+        from unittest.mock import patch, MagicMock
+        from signals.entry_gates import GateResult
+        from trading.executor import execute_buy
+
+        iv = self._iv()
+        decision = {
+            "action": "BUY", "confidence": 75,
+            "reasoning": "claude decision",
+            "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+            # no "source" key → not auto_execute
+        }
+
+        soft_flag_gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
+
+        with patch("trading.executor.check_all_gates", return_value=soft_flag_gate), \
+             patch("trading.executor.get_intraday_bars", return_value=None), \
+             patch("trading.executor.load_json", return_value={}), \
+             patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
+             patch("trading.executor._MODE_POSITION_LIMITS", {}), \
+             patch("trading.executor.compute_position_size_for_mode", return_value=10), \
+             patch("trading.executor.apply_regime_multiplier", return_value=10), \
+             patch("trading.executor.apply_sentiment_multiplier", return_value=10), \
+             patch("trading.executor.get_sl_tp_for_mode_and_regime", return_value=(4.0, 5.0)), \
+             patch("trading.executor.append_trade"), \
+             patch("trading.executor.save_json"), \
+             patch("trading.executor.risk_manager.correct_bracket_after_fill", return_value=None), \
+             patch("trading.executor.telegram_notify"), \
+             patch("trading.executor._POSITIONS_LOCK"):
+            mock_alpaca = MagicMock()
+            mock_alpaca.place_bracket_order.return_value = MagicMock(id="order-123")
+            mock_alpaca.get_latest_price.return_value = 100.0
+            kwargs = self._base_kwargs(iv, decision)
+            kwargs["alpaca"] = mock_alpaca
+            result = execute_buy(**kwargs)
+
+        # Result is not None — the trade proceeded (soft flags don't block Claude-reviewed trades)
+        assert result is not None
