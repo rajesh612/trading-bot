@@ -392,3 +392,26 @@ def test_run_position_monitor_noop_when_no_positions(tmp_path):
     with patch("trading.monitor.load_open_positions", return_value={}):
         from trading.monitor import run_position_monitor
         run_position_monitor()  # should not raise
+
+
+# ── trading/cycle: run_trading_cycle ─────────────────────────────────────────
+
+@pytest.mark.unit
+def test_run_trading_cycle_skips_empty_watch_list(tmp_path):
+    """Cycle returns immediately when watch list is empty."""
+    from unittest.mock import patch, MagicMock
+    mock_account = MagicMock()
+    mock_account.portfolio_value = "10000"
+    mock_account.buying_power = "5000"
+    mock_account.last_equity = "10000"
+    with patch("trading.cycle.AlpacaClient") as mock_alpaca_cls, \
+         patch("trading.cycle.load_watch_list", return_value=[]), \
+         patch("trading.cycle.load_macro_regime", return_value={"regime": "NORMAL"}), \
+         patch("trading.cycle.load_trading_params", return_value={
+             "entry_start_hour": 10, "entry_end_hour": 15,
+             "rsi_buy_max": 72, "rsi_buy_max_high_vol": 65,
+             "high_vol_position_mult": 0.5,
+         }):
+        mock_alpaca_cls.return_value.get_account.return_value = mock_account
+        from trading.cycle import run_trading_cycle
+        run_trading_cycle()  # should not raise
