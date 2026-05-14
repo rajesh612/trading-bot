@@ -14,30 +14,30 @@ class TestClampThreshold:
     """learning_agent._clamp_threshold hard-bound clamping."""
 
     def test_within_bounds_unchanged(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         assert _clamp_threshold("stop_loss_pct", 4.0) == 4.0
 
     def test_below_lower_bound_clamped_up(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         # stop_loss_pct lower bound is 1.5
         result = _clamp_threshold("stop_loss_pct", 0.5)
         assert result == 1.5
 
     def test_above_upper_bound_clamped_down(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         # stop_loss_pct upper bound is 12.0
         result = _clamp_threshold("stop_loss_pct", 20.0)
         assert result == 12.0
 
     def test_integer_key_returns_int(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         # rsi_buy_max bounds: (30, 80) — both int
         result = _clamp_threshold("rsi_buy_max", 45)
         assert isinstance(result, int)
         assert result == 45
 
     def test_unknown_key_returns_value_unchanged(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         assert _clamp_threshold("nonexistent_key", 99.9) == 99.9
 
 
@@ -60,7 +60,7 @@ class TestAggregateByRegime:
         }
 
     def test_groups_by_regime(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         trades = [
             self._make_trade("A", 2.0, 20.0, regime="NORMAL"),
             self._make_trade("B", -1.0, -10.0, regime="NORMAL"),
@@ -73,7 +73,7 @@ class TestAggregateByRegime:
         assert result["by_regime"]["CHOPPY"]["count"] == 1
 
     def test_win_rate_calculation(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         trades = [
             self._make_trade("A",  2.0,  20.0, regime="NORMAL"),
             self._make_trade("B",  1.0,  10.0, regime="NORMAL"),
@@ -86,7 +86,7 @@ class TestAggregateByRegime:
         assert nr["win_rate_pct"] == pytest.approx(66.7, abs=0.1)
 
     def test_groups_by_mode(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         trades = [
             self._make_trade("A", 1.0, 10.0, mode="DAY_TRADE"),
             self._make_trade("B", 2.0, 20.0, mode="HYBRID"),
@@ -96,7 +96,7 @@ class TestAggregateByRegime:
         assert result["by_mode"]["HYBRID"]["count"] == 1
 
     def test_missing_regime_falls_back_to_unknown(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         trades = [{"symbol": "X", "pnl_pct": 1.0, "pnl_dollar": 10.0}]
         result = _aggregate_by_regime(trades)
         assert "UNKNOWN" in result["by_regime"]
@@ -109,23 +109,23 @@ class TestClassifyLossSource:
     """learning_agent._classify_loss_source classification priority."""
 
     def test_earnings_close_reason(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = {"close_reason": "earnings_gap_down", "pnl_pct": -5.0, "entry_indicators": {}}
         assert _classify_loss_source(trade) == "earnings_surprise"
 
     def test_crisis_regime_at_entry(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = {"close_reason": "monitor_stop_loss", "regime_at_entry": "CRISIS",
                  "pnl_pct": -3.0, "entry_indicators": {}}
         assert _classify_loss_source(trade) == "market_structure"
 
     def test_flash_crash_close_reason(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = {"close_reason": "flash_crash", "pnl_pct": -4.0, "entry_indicators": {}}
         assert _classify_loss_source(trade) == "market_structure"
 
     def test_momentum_exhaustion_at_entry(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = {
             "close_reason": "monitor_stop_loss",
             "regime_at_entry": "NORMAL",
@@ -135,7 +135,7 @@ class TestClassifyLossSource:
         assert _classify_loss_source(trade) == "momentum_exhaustion"
 
     def test_negative_sentiment_sector_narrative(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = {
             "close_reason": "monitor_stop_loss",
             "regime_at_entry": "NORMAL",
@@ -146,7 +146,7 @@ class TestClassifyLossSource:
         assert _classify_loss_source(trade) == "sector_narrative"
 
     def test_unknown_when_no_signal(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = {
             "close_reason": "monitor_stop_loss",
             "regime_at_entry": "NORMAL",
@@ -164,7 +164,7 @@ class TestLearningAgentHelpers:
     def test_load_todays_closed_trades_missing_file(self, tmp_path):
         import config
         config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
-        from learning_agent import _load_todays_closed_trades
+        from learning.data import _load_todays_closed_trades
         assert _load_todays_closed_trades() == []
 
     def test_load_todays_closed_trades_filters_by_today(self, tmp_path):
@@ -180,7 +180,7 @@ class TestLearningAgentHelpers:
             {"type": "BUY", "timestamp": f"{today}T09:30:00", "symbol": "AMD"},
         ]
         config.TRADE_JOURNAL_FILE.write_text(json.dumps(journal))
-        from learning_agent import _load_todays_closed_trades
+        from learning.data import _load_todays_closed_trades
         result = _load_todays_closed_trades()
         assert len(result) == 1
         assert result[0]["symbol"] == "NVDA"
@@ -188,7 +188,7 @@ class TestLearningAgentHelpers:
     def test_save_and_load_weights(self, tmp_path):
         import config
         config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
-        from learning_agent import _save_weights, _load_weights
+        from learning.data import _save_weights, _load_weights
         weights = {"RSI": 20.0, "MACD": 15.0}
         _save_weights(weights)
         loaded = _load_weights()
@@ -198,7 +198,7 @@ class TestLearningAgentHelpers:
         import config, json
         from datetime import date
         config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
-        from learning_agent import _save_trading_params
+        from learning.data import _save_trading_params
         _save_trading_params({"stop_loss_pct": 4.0})
         saved = json.loads(config.TRADING_PARAMS_FILE.read_text())
         assert saved["last_updated"] == date.today().isoformat()
@@ -356,24 +356,24 @@ class TestRegimeWinRate:
 
     def test_empty_trades_returns_empty(self):
         """Empty trade list should return empty dict."""
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         assert _compute_regime_winrate([]) == {}
 
     def test_single_win(self):
         """Single winning trade should have 100% win rate."""
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         result = _compute_regime_winrate([self._trade("BULL_TREND", 2.0)])
         assert result == {"BULL_TREND": pytest.approx(1.0)}
 
     def test_single_loss(self):
         """Single losing trade should have 0% win rate."""
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         result = _compute_regime_winrate([self._trade("CHOPPY", -1.5)])
         assert result == {"CHOPPY": pytest.approx(0.0)}
 
     def test_mixed_regime_winrate(self):
         """Multiple trades across regimes should compute per-regime rates."""
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         trades = [
             self._trade("BULL_TREND", 2.0),      # win
             self._trade("BULL_TREND", -1.0),     # loss
@@ -385,7 +385,7 @@ class TestRegimeWinRate:
 
     def test_ignores_buy_entries(self):
         """Only CLOSE entries should be counted; BUY entries ignored."""
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         trades = [
             self._trade("BULL_TREND", 2.0, action="BUY"),   # ignored
             self._trade("BULL_TREND", 2.0, action="CLOSE"),  # counted (win)
@@ -419,38 +419,38 @@ class TestLearningAgentOrchestration:
     # ── _clamp_threshold type contracts ───────────────────────────────────
 
     def test_clamp_float_key_returns_float(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         result = _clamp_threshold("stop_loss_pct", 4.0)
         assert isinstance(result, float)
 
     def test_clamp_at_lower_boundary_returns_lower(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         # stop_loss_pct lower bound is 1.5 — pass exactly 1.5
         result = _clamp_threshold("stop_loss_pct", 1.5)
         assert result == pytest.approx(1.5)
 
     def test_clamp_at_upper_boundary_returns_upper(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         # stop_loss_pct upper bound is 12.0 — pass exactly 12.0
         result = _clamp_threshold("stop_loss_pct", 12.0)
         assert result == pytest.approx(12.0)
 
     def test_clamp_int_key_below_lower_returns_int(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         # swing_max_days bounds: (3, 7) — both int
         result = _clamp_threshold("swing_max_days", 1)
         assert result == 3
         assert isinstance(result, int)
 
     def test_clamp_invalid_value_returns_unchanged(self):
-        from learning_agent import _clamp_threshold
+        from learning.trade_analysis import _clamp_threshold
         result = _clamp_threshold("stop_loss_pct", "not_a_number")
         assert result == "not_a_number"
 
     # ── _aggregate_by_regime pnl totals ───────────────────────────────────
 
     def test_aggregate_total_pnl_dollar_summed_correctly(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         trades = [
             self._trade("A", pnl_pct=2.0, pnl_dollar=100.0, regime="NORMAL"),
             self._trade("B", pnl_pct=-1.0, pnl_dollar=-40.0, regime="NORMAL"),
@@ -460,13 +460,13 @@ class TestLearningAgentOrchestration:
         assert normal["total_pnl_dollar"] == pytest.approx(60.0)
 
     def test_aggregate_empty_trades_returns_empty_dicts(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         result = _aggregate_by_regime([])
         assert result["by_regime"] == {}
         assert result["by_mode"] == {}
 
     def test_aggregate_avg_pnl_pct_calculated(self):
-        from learning_agent import _aggregate_by_regime
+        from learning.trade_analysis import _aggregate_by_regime
         trades = [
             self._trade("A", pnl_pct=4.0, pnl_dollar=80.0, regime="BULL_TREND"),
             self._trade("B", pnl_pct=2.0, pnl_dollar=40.0, regime="BULL_TREND"),
@@ -478,12 +478,12 @@ class TestLearningAgentOrchestration:
     # ── _classify_loss_source additional branches ─────────────────────────
 
     def test_classify_fundamental_close_reason(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = self._trade(close_reason="guidance_cut", pnl_pct=-3.0)
         assert _classify_loss_source(trade) == "fundamental"
 
     def test_classify_macro_pressure_high_shock_score(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = self._trade(
             close_reason="monitor_stop_loss",
             pnl_pct=-2.0,
@@ -492,7 +492,7 @@ class TestLearningAgentOrchestration:
         assert _classify_loss_source(trade) == "macro_pressure"
 
     def test_classify_crash_recovery_is_market_structure(self):
-        from learning_agent import _classify_loss_source
+        from learning.trade_analysis import _classify_loss_source
         trade = self._trade(close_reason="sl_hit", pnl_pct=-4.0)
         trade["regime_at_entry"] = "CRASH_RECOVERY"
         assert _classify_loss_source(trade) == "market_structure"
@@ -500,7 +500,7 @@ class TestLearningAgentOrchestration:
     # ── _compute_regime_winrate ────────────────────────────────────────────
 
     def test_winrate_ignores_trades_without_regime(self):
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         trades = [
             {"action": "CLOSE", "pnl_pct": 2.0},           # no regime_at_entry
             {"action": "CLOSE", "regime_at_entry": "NORMAL", "pnl_pct": 3.0},  # counted
@@ -511,7 +511,7 @@ class TestLearningAgentOrchestration:
         assert len(result) == 1  # trade without regime not counted
 
     def test_winrate_multiple_regimes_independent(self):
-        from learning_agent import _compute_regime_winrate
+        from learning.trade_analysis import _compute_regime_winrate
         trades = [
             {"action": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": 2.0},
             {"action": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": -1.0},

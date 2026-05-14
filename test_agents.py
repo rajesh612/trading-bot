@@ -573,7 +573,7 @@ class TestLearningAgent:
 
     @pytest.mark.live
     def test_full_learning_cycle(self, sample_trades, tmp_path, monkeypatch):
-        from learning_agent import run_learning_agent
+        from learning.agent import run_learning_agent
 
         journal_file = tmp_path / "trade_journal.json"
         journal_file.write_text(json.dumps(sample_trades))

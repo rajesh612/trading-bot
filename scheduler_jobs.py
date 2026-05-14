@@ -177,7 +177,7 @@ def job_market_monitor():
 
 def job_learning():
     logger.info("━━━ LEARNING AGENT ━━━")
-    from learning_agent import run_learning_agent
+    from learning.agent import run_learning_agent
     _job_guard("learning_agent", run_learning_agent)
 
 
