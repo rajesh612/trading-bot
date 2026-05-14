@@ -63,15 +63,20 @@ class CycleSnapshot:
     intraday_news: dict = field(default_factory=dict)  # populated in Task 9
 
 
-def build_cycle_snapshot(portfolio_gain_pct: float) -> CycleSnapshot:
+def build_cycle_snapshot(
+    portfolio_gain_pct: float,
+    *,
+    regime_info: dict | None = None,
+    params: dict | None = None,
+) -> CycleSnapshot:
     """
     Load all cycle data in one place. Called once by run_trading_cycle().
     Subsequent reads within the same cycle use the returned snapshot.
     """
-    regime_info = load_macro_regime()
+    regime_info = regime_info if regime_info is not None else load_macro_regime()
+    params      = params if params is not None else load_trading_params()
     research    = load_json(config.RESEARCH_REPORT_FILE, {})
     weights     = load_json(config.INDICATOR_WEIGHTS_FILE, {})
-    params      = load_trading_params()
 
     strat_path = Path(str(config.STRATEGY_MEMORY_FILE))
     try:

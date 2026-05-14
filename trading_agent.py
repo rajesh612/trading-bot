@@ -31,8 +31,6 @@ from trading.journal import (
 from trading.closer import close_position, force_close_all, _apply_profit_lock
 from trading.cycle_context import build_cycle_snapshot
 from trading.pipeline import TradingPipeline
-from signals.entry_gates import check_all_gates
-
 # Flash crash monitor re-exported for backward compatibility
 from utils.market_monitor import (  # noqa: F401
     run_market_monitor,
@@ -56,17 +54,6 @@ def load_watch_list() -> list[str]:
     if config.WATCH_LIST_FILE.exists():
         return [t.strip().upper() for t in config.WATCH_LIST_FILE.read_text().splitlines() if t.strip()]
     return []
-
-
-def load_research() -> dict:
-    data = load_json(config.RESEARCH_REPORT_FILE, {})
-    if not any(k for k in data if k != "__meta__"):
-        logger.warning("Research report is empty — Claude will have no sentiment context this cycle")
-    return data
-
-
-def load_weights() -> dict:
-    return load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
 
 # ── Position monitor (runs every 60 s) ───────────────────────────────────────
@@ -214,11 +201,6 @@ def run_trading_cycle():
     regime      = regime_info.get("regime", "NORMAL")
     params      = load_trading_params()
 
-    try:
-        fred_cache = load_json(config.FRED_CACHE_FILE, {})
-    except Exception:
-        fred_cache = {}
-
     # Flash crash lockout check
     flash_crash_active = regime_info.get("flash_crash_active", False)
     flash_crash_until  = regime_info.get("flash_crash_until")
@@ -263,7 +245,11 @@ def run_trading_cycle():
         return
 
     portfolio_gain_pct = (portfolio_value - last_equity) / last_equity * 100 if last_equity else 0.0
-    snap = build_cycle_snapshot(portfolio_gain_pct=portfolio_gain_pct)
+    snap = build_cycle_snapshot(
+        portfolio_gain_pct=portfolio_gain_pct,
+        regime_info=regime_info,
+        params=params,
+    )
 
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
