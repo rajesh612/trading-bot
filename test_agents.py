@@ -302,7 +302,7 @@ class TestVolatilityScreener:
 
     @pytest.mark.live
     def test_scores_real_tickers(self, alpaca):
-        from volatility_screener import _score_ticker
+        from agents.volatility_screener import _score_ticker
         score = _score_ticker(TEST_SYMBOL, alpaca)
         assert isinstance(score, float)
         assert score >= 0
@@ -311,10 +311,14 @@ class TestVolatilityScreener:
     @pytest.mark.live
     def test_top50_selection(self, alpaca, monkeypatch, tmp_path):
         """With >50 tickers, should return exactly 50."""
-        from volatility_screener import run_volatility_screener
+        from agents.volatility_screener import run_volatility_screener
+        import agents.volatility_screener as vs
 
-        # Build a fake list of 55 tickers (use real ones + fake ones)
-        tickers = TEST_SYMBOLS + [f"FAKE{i}" for i in range(52)]
+        # Generate 52 purely ALPHABETIC fake tickers so they pass the .isalpha() check
+        # This creates FAKEAA, FAKEAB, ..., FAKEBZ
+        fake_tickers = [f"FAKE{chr(65 + (i // 26))}{chr(65 + (i % 26))}" for i in range(52)]
+        tickers = TEST_SYMBOLS + fake_tickers
+
         tickers_file = tmp_path / "tickers.txt"
         tickers_file.write_text("\n".join(tickers))
         daily_file = tmp_path / "daily_tradeable.txt"
@@ -322,9 +326,22 @@ class TestVolatilityScreener:
         monkeypatch.setattr(config, "TICKERS_FILE", tickers_file)
         monkeypatch.setattr(config, "DAILY_TRADEABLE_FILE", daily_file)
 
+        # MOCK THE SCORING FUNCTION (Crucial Step!)
+        # This completely stops the test from calling Alpaca/Yahoo and getting stuck.
+        # We assign real tickers a score of 1.0, and fakes a score of 0.1.
+        monkeypatch.setattr(
+            vs, 
+            "_score_ticker", 
+            lambda symbol, client: 1.0 if symbol in TEST_SYMBOLS else 0.1
+        )
+
         # Fake tickers score 0.0, real ones score > 0
         result = run_volatility_screener()
         assert len(result) == 50
+
+        # Optional sanity check: Ensure our real tickers beat out the 0.0 fakes
+        for symbol in TEST_SYMBOLS:
+            assert symbol in result
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -335,7 +352,7 @@ class TestWatchListAgent:
 
     @pytest.mark.live
     def test_score_stock_returns_dict(self, alpaca):
-        from watch_list_agent import _score_stock
+        from agents.watch_list import _score_stock
         result = _score_stock(TEST_SYMBOL, alpaca)
         assert result is not None
         assert "symbol" in result
@@ -347,7 +364,7 @@ class TestWatchListAgent:
 
     @pytest.mark.live
     def test_full_watch_list_generation(self, tmp_path, monkeypatch):
-        from watch_list_agent import run_watch_list_agent
+        from agents.watch_list import run_watch_list_agent
 
         tickers_file = tmp_path / "tickers.txt"
         tickers_file.write_text("\n".join(TEST_SYMBOLS))
@@ -456,7 +473,8 @@ class TestTradingAgent:
     @pytest.mark.live
     def test_claude_decision_structure(self, tmp_path, monkeypatch):
         """Claude must return a valid structured decision for a real indicator snapshot."""
-        from trading_agent import _ask_claude_batch
+        from trading.claude_caller import _ask_claude_batch
+        from trading.cycle_context import CycleSnapshot
         from indicators.engine import compute_indicators
         from alpaca_client import AlpacaClient
         import anthropic as ant
@@ -467,15 +485,28 @@ class TestTradingAgent:
         assert iv is not None
 
         ai = ant.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        weights = json.loads(config.INDICATOR_WEIGHTS_FILE.read_text())
+
+        # Using default values/empty structures that the function expects
+        snap = CycleSnapshot(
+            regime_info={"regime": "NORMAL", "macro_health_score": 0},
+            regime="NORMAL",
+            fred_cache={},
+            research={},
+            research_meta={"macro_shock_score": 0},
+            strategy_memory="",
+            weights={"VWAP": 0.2, "RSI": 0.2, "MACD": 0.2, "BB": 0.2, "EMA": 0.2},
+            params={},
+            portfolio_gain_pct=0.0,
+            intraday_news={}
+        )
 
         decisions = _ask_claude_batch(
             batch=[(TEST_SYMBOL, iv, None)],
-            research={},
-            strategy_memory="",
-            weights=weights,
+            snap=snap,
             ai=ai,
         )
+
+        assert TEST_SYMBOL in decisions
         decision = decisions[TEST_SYMBOL]
 
         assert "action" in decision
