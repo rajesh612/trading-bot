@@ -12,15 +12,12 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from zoneinfo import ZoneInfo
-
 import numpy as np
 import pandas as pd
 import pytest
 
 import config
-
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 TEST_SYMBOL = "AAPL"
 TEST_SYMBOLS = ["AAPL", "MSFT", "NVDA"]
 
