@@ -66,7 +66,7 @@ def reconcile_positions() -> None:
     Swing positions (swing_positions.json) are intentional overnight holds and are
     always skipped — swing_manager owns them.
     """
-    from trading_agent import load_open_positions, save_open_positions, append_trade
+    from trading.journal import load_open_positions, save_open_positions, append_trade
     from alpaca_client import AlpacaClient
     # Deferred import to avoid circular reference at module load
     import scheduler_jobs as _sj

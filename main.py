@@ -275,7 +275,7 @@ def main():
     logger.info("Bot is live. Press Ctrl+C to stop.")
 
     from macro_regime import load_macro_regime
-    from trading_agent import load_open_positions
+    from trading.journal import load_open_positions
     try:
         regime = load_macro_regime().get("regime", "UNKNOWN")
         n_pos  = len(load_open_positions())

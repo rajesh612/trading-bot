@@ -14,9 +14,7 @@ import config
 import telegram_notify
 from alpaca_client import AlpacaClient
 from macro_regime import load_macro_regime, load_trading_params
-from trading.closer import force_close_all       # noqa: F401
 from trading.cycle_context import build_cycle_snapshot
-from trading.journal import load_open_positions  # noqa: F401
 from trading.pipeline import TradingPipeline
 from trading.watch_loader import load_watch_list
 from utils.constants import ET

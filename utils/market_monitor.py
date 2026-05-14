@@ -107,7 +107,7 @@ def _set_crisis_lockout(hours: int = 48) -> None:
 
 def _trigger_flash_crash_lockout() -> None:
     """Force-close all positions and set 48h CRISIS lockout."""
-    from trading_agent import force_close_all  # lazy import to avoid circular dependency
+    from trading.closer import force_close_all  # lazy import to avoid circular dependency
     force_close_all()
     try:
         from swing_manager import load_swing_positions, _execute_full_close

@@ -85,7 +85,7 @@ def job_volatility_screener():
 def job_watch_list():
     logger.info("━━━ WATCH LIST AGENT ━━━")
     def _run():
-        from trading_agent import reset_daily_closed
+        from trading.journal import reset_daily_closed
         reset_daily_closed()
         from agents.watch_list import run_watch_list_agent
         run_watch_list_agent()
@@ -113,7 +113,7 @@ def job_trading():
     if now.hour > 15 or (now.hour == 15 and now.minute >= 55):
         return
     logger.info("━━━ TRADING CYCLE ━━━")
-    from trading_agent import run_trading_cycle
+    from trading.cycle import run_trading_cycle
     _job_guard("trading_cycle", run_trading_cycle)
 
 
@@ -125,13 +125,13 @@ def job_position_monitor():
         return
     if now.hour > 15 or (now.hour == 15 and now.minute >= 55):
         return
-    from trading_agent import run_position_monitor
+    from trading.monitor import run_position_monitor
     _job_guard("position_monitor", run_position_monitor)
 
 
 def job_force_close():
     logger.info("━━━ FORCE CLOSE ALL POSITIONS ━━━")
-    from trading_agent import force_close_all
+    from trading.closer import force_close_all
     # Pause position_monitor to prevent double-close / double-journal during EOD sweep (RC-4)
     try:
         if _scheduler is not None:
@@ -202,7 +202,7 @@ def job_budget_rollover():
 def job_heartbeat():
     now = datetime.now(ET)
     try:
-        from trading_agent import load_open_positions
+        from trading.journal import load_open_positions
         open_pos = load_open_positions()
         n_pos = len(open_pos)
     except Exception:

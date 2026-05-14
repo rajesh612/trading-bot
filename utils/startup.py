@@ -83,7 +83,7 @@ def cleanup_stale_files() -> None:
         logger.debug(f"research_report.json prune skipped: {exc}")
 
     try:
-        from trading_agent import archive_old_journal_entries
+        from trading.journal import archive_old_journal_entries
         archive_old_journal_entries()
     except Exception as exc:
         logger.warning(f"Journal archival failed: {exc}")

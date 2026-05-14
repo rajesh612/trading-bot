@@ -262,14 +262,14 @@ class TestTradingAgentHelpers:
     def test_load_watch_list_returns_empty_when_missing(self, tmp_path):
         import config
         config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
-        from trading_agent import load_watch_list
+        from trading.watch_loader import load_watch_list
         assert load_watch_list() == []
 
     def test_load_watch_list_strips_and_uppercases(self, tmp_path):
         import config
         config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
         config.WATCH_LIST_FILE.write_text("nvda\n aapl \nAMD\n")
-        from trading_agent import load_watch_list
+        from trading.watch_loader import load_watch_list
         result = load_watch_list()
         assert result == ["NVDA", "AAPL", "AMD"]
 

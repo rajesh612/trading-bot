@@ -444,7 +444,7 @@ class TestTradingAgent:
 
     @pytest.mark.unit
     def test_open_positions_persistence(self, tmp_path, monkeypatch):
-        from trading_agent import save_open_positions, load_open_positions
+        from trading.journal import save_open_positions, load_open_positions
         pos_file = tmp_path / "open_positions.json"
         monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", pos_file)
 
@@ -455,12 +455,12 @@ class TestTradingAgent:
 
     @pytest.mark.unit
     def test_trade_journal_append(self, tmp_path, monkeypatch):
-        from trading_agent import append_trade, load_open_positions
+        from trading.journal import append_trade, load_open_positions
         journal_file = tmp_path / "trade_journal.json"
         journal_file.write_text("[]")
         monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", journal_file)
 
-        from trading_agent import append_trade
+        from trading.journal import append_trade
         append_trade({"type": "BUY", "symbol": "AAPL", "price": 150.0})
         append_trade({"type": "CLOSE", "symbol": "AAPL", "price": 155.0})
 
@@ -525,7 +525,7 @@ class TestTradingAgent:
     @pytest.mark.live
     def test_full_trading_cycle_no_orders(self, tmp_path, monkeypatch):
         """Run a full trading cycle but intercept order placement."""
-        from trading_agent import run_trading_cycle
+        from trading.cycle import run_trading_cycle
 
         watch_file = tmp_path / "watch_list.txt"
         watch_file.write_text(TEST_SYMBOL)
