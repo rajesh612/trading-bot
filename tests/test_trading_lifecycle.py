@@ -358,3 +358,26 @@ class TestFlushProfitLock:
         flush_profit_lock_updates({"AAPL": {"stop_loss_price": 100.0}})
         pos = load_open_positions()
         assert pos["TSLA"]["stop_loss_price"] == pytest.approx(200.0)
+
+
+# ── trading/watch_loader: load_watch_list ────────────────────────────────────
+
+@pytest.mark.unit
+def test_load_watch_list_returns_symbols(tmp_path, monkeypatch):
+    """load_watch_list strips whitespace and uppercases symbols."""
+    from trading.watch_loader import load_watch_list
+    import config
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", tmp_path / "watch_list.txt")
+    (tmp_path / "watch_list.txt").write_text("AAPL\nnvda\n  MSFT  \n")
+    result = load_watch_list()
+    assert result == ["AAPL", "NVDA", "MSFT"]
+
+
+@pytest.mark.unit
+def test_load_watch_list_missing_file_returns_empty(tmp_path, monkeypatch):
+    """load_watch_list returns empty list when file does not exist."""
+    from trading.watch_loader import load_watch_list
+    import config
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", tmp_path / "nonexistent.txt")
+    result = load_watch_list()
+    assert result == []
