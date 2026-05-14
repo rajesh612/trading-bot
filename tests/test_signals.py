@@ -13,6 +13,35 @@ import pytz
 _ET_ZONE = pytz.timezone("America/New_York")
 
 
+def make_full_iv(**overrides):
+    """Module-level factory: builds a fully-populated IndicatorValues for tests.
+
+    All required fields are given safe defaults that pass every hard gate.
+    Pass keyword overrides to exercise specific conditions.
+    """
+    from indicators.values import IndicatorValues
+    defaults = dict(
+        symbol="TEST", timestamp="2024-01-15T11:00:00",
+        current_price=100.0, vwap=100.0,
+        vwap_std1_upper=102.5, vwap_std1_lower=97.5,
+        vwap_std2_upper=105.0, vwap_std2_lower=95.0,
+        rsi=55.0, rsi_delta=1.0, stoch_k=50.0, stoch_d=50.0,
+        composite_score=50.0, atr=1.0, prev_close=99.0,
+        parabolic=False, stop_hunt_zone=False,
+        momentum_exhaustion=False, bot_herding_score=0,
+        squeeze_setup=False, obv_divergence="none",
+        volume_exhaustion=False, volume_ratio=1.0,
+        macd=0.1, macd_signal=0.05, macd_hist=0.05,
+        bb_upper=105.0, bb_mid=100.0, bb_lower=95.0,
+        ema9=100.0, ema21=99.0,
+        obv=1000.0, vwap_slope=0.1, rsi_slope=0.1,
+        daily_volume_ratio=1.0, daily_volume_trend=0.0, daily_volume_mean=1000000.0,
+        signal="BUY", confidence=0.7,
+    )
+    defaults.update(overrides)
+    return IndicatorValues(**defaults)
+
+
 # ── signals.time_gate ─────────────────────────────────────────────────────────
 
 from signals.time_gate import is_entry_allowed
@@ -315,7 +344,7 @@ class TestEntryGates:
             momentum_exhaustion=False,
             bot_herding_score=0,
             squeeze_setup=False,
-            rsi=50.0,       # below RSI_HARD_SKIP_THRESHOLD (72)
+            rsi=50.0,       # below RSI_BUY_MAX (72)
             stoch_d=50.0,   # below STOCH_HARD_VETO_THRESHOLD (88)
             prev_close=100.0,  # no gap-up (100 / 100 = 1.0 = 0% gap)
         )
@@ -649,7 +678,7 @@ class TestRsiStochGates:
 
     @pytest.mark.unit
     def test_rsi_above_threshold_blocks(self, monkeypatch):
-        """RSI > RSI_HARD_SKIP_THRESHOLD fires the gate."""
+        """RSI > RSI_BUY_MAX fires the gate."""
         self._patch_calendars(monkeypatch)
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
@@ -760,84 +789,6 @@ class TestGapUpGate:
             self._now(), entries_this_cycle=0,
         )
         assert result.passed is True
-
-
-# ─── fast_gate ────────────────────────────────────────────────────────────────
-
-class TestFastGate:
-
-    def _iv(self, **overrides):
-        """Minimal IndicatorValues that passes fast_gate by default."""
-        from indicators.values import IndicatorValues
-        defaults = dict(
-            symbol="TEST", timestamp="2024-01-15T11:00:00",
-            current_price=100.0, vwap=100.0,
-            vwap_std1_upper=102.5, vwap_std1_lower=97.5,
-            vwap_std2_upper=105.0, vwap_std2_lower=95.0,
-            rsi=55.0, rsi_delta=1.0, stoch_k=50.0, stoch_d=50.0,
-            composite_score=50.0, atr=1.0, prev_close=99.0,
-            parabolic=False, stop_hunt_zone=False,
-            momentum_exhaustion=False, bot_herding_score=0,
-            squeeze_setup=False, obv_divergence="none",
-            volume_exhaustion=False, volume_ratio=1.0,
-            macd=0.1, macd_signal=0.05, macd_hist=0.05,
-            bb_upper=105.0, bb_mid=100.0, bb_lower=95.0,
-            ema9=100.0, ema21=99.0,
-            obv=1000.0, vwap_slope=0.1, rsi_slope=0.1,
-            daily_volume_ratio=1.0, daily_volume_trend=0.0, daily_volume_mean=1000000.0,
-            signal="BUY", confidence=0.7,
-        )
-        defaults.update(overrides)
-        return IndicatorValues(**defaults)
-
-    @pytest.mark.unit
-    def test_passes_clean_setup(self):
-        from signals.entry_gates import fast_gate
-        result = fast_gate(self._iv())
-        assert result.passed is True
-
-    @pytest.mark.unit
-    def test_blocks_rsi_above_threshold(self):
-        from signals.entry_gates import fast_gate
-        import config
-        result = fast_gate(self._iv(rsi=config.RSI_HARD_SKIP_THRESHOLD + 1))
-        assert result.passed is False
-        assert "RSI" in result.reason
-
-    @pytest.mark.unit
-    def test_blocks_stochastic_above_threshold(self):
-        from signals.entry_gates import fast_gate
-        import config
-        result = fast_gate(self._iv(stoch_d=config.STOCH_HARD_VETO_THRESHOLD + 1))
-        assert result.passed is False
-        assert "Stochastic" in result.reason
-
-    @pytest.mark.unit
-    def test_blocks_rsi_delta_collapse(self):
-        from signals.entry_gates import fast_gate
-        import config
-        result = fast_gate(self._iv(rsi_delta=config.RSI_DELTA_HARD_BLOCK - 1))
-        assert result.passed is False
-        assert "delta" in result.reason.lower()
-
-    @pytest.mark.unit
-    def test_blocks_parabolic(self):
-        from signals.entry_gates import fast_gate
-        from unittest.mock import patch
-        with patch("signals.entry_gates.config") as mock_cfg:
-            mock_cfg.RSI_HARD_SKIP_THRESHOLD = 72
-            mock_cfg.STOCH_HARD_VETO_THRESHOLD = 88
-            mock_cfg.RSI_DELTA_HARD_BLOCK = -7
-            mock_cfg.PARABOLIC_ENTRY_BLOCK = True
-            result = fast_gate(self._iv(parabolic=True))
-        assert result.passed is False
-        assert "parabolic" in result.reason
-
-    @pytest.mark.unit
-    def test_blocks_stop_hunt_zone(self):
-        from signals.entry_gates import fast_gate
-        result = fast_gate(self._iv(stop_hunt_zone=True))
-        assert result.passed is False
 
 
 # ── signals.entry_gates.effective_composite_gate ─────────────────────────────

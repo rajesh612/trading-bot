@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 import config
 from indicators.values import IndicatorValues
-from signals.entry_gates import fast_gate
 from trading.cycle_context import CycleSnapshot
 
 
@@ -41,18 +40,18 @@ def pre_claude_filter(
 
     # Layer 1 — Composite minimum
     composite_min = (
-        config.HIGH_VOL_COMPOSITE_MIN
+        config.COMPOSITE_MIN_HIGH_VOL
         if snap.regime in ("HIGH_VOL", "DEFENSIVE")
-        else config.PRE_CLAUDE_COMPOSITE_MIN
+        else config.COMPOSITE_MIN_NORMAL
     )
     if iv.composite_score < composite_min:
         return FilterResult("SKIP",
             f"composite {iv.composite_score:+.1f} < {composite_min} ({snap.regime})")
 
-    # Layer 2 — Technical fast gate
-    fg = fast_gate(iv)
-    if not fg.passed:
-        return FilterResult("SKIP", fg.reason)
+    # Layer 2 — Extreme RSI only (Stochastic/parabolic/stop-hunt handled by check_all_gates)
+    if iv.rsi > config.RSI_BUY_MAX:
+        return FilterResult("SKIP",
+            f"RSI hard skip (RSI={iv.rsi:.1f} > {config.RSI_BUY_MAX})")
 
     # Layer 3 — Macro health + shock
     health = snap.regime_info.get("macro_health_score", 0)

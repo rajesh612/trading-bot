@@ -98,17 +98,13 @@ class TestPreClaudeFilter:
         return CycleSnapshot(**defaults)
 
     def _iv(self, composite=50.0, rsi=55.0, stoch_d=50.0, **kw):
-        from indicators.values import IndicatorValues
-        # Read indicators/values.py to see all required fields; fill them all
-        # Use same pattern as TestFastGate._iv() in tests/test_signals.py
-        from tests.test_signals import TestFastGate
-        base = TestFastGate()._iv(composite_score=composite, rsi=rsi, stoch_d=stoch_d, **kw)
-        return base
+        from tests.test_signals import make_full_iv
+        return make_full_iv(composite_score=composite, rsi=rsi, stoch_d=stoch_d, **kw)
 
     @pytest.mark.unit
     def test_skip_composite_below_minimum(self):
         from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=30.0), self._snap())
+        result = pre_claude_filter("TEST", self._iv(composite=15.0), self._snap())
         assert result.decision == "SKIP"
         assert "composite" in result.reason
 
@@ -147,7 +143,8 @@ class TestPreClaudeFilter:
     def test_skip_negative_sentiment_weak_composite(self):
         from trading.pre_claude_filter import pre_claude_filter
         snap = self._snap(research={"TEST": {"sentiment_score": -5}})
-        result = pre_claude_filter("TEST", self._iv(composite=42.0), snap)
+        # composite=25 < SENTIMENT_WEAK_COMPOSITE_MIN=30, negative sentiment → SKIP
+        result = pre_claude_filter("TEST", self._iv(composite=25.0), snap)
         assert result.decision == "SKIP"
 
     @pytest.mark.unit
@@ -208,8 +205,8 @@ class TestPreClaudeFilter:
             regime_info={"regime": "HIGH_VOL", "macro_health_score": 0},
             regime="HIGH_VOL",
         )
-        # composite=45 passes NORMAL (>=40) but fails HIGH_VOL (>=50)
-        result = pre_claude_filter("TEST", self._iv(composite=45.0), snap)
+        # composite=30 passes NORMAL (>=20) but fails HIGH_VOL (>=35)
+        result = pre_claude_filter("TEST", self._iv(composite=30.0), snap)
         assert result.decision == "SKIP"
 
 
@@ -461,10 +458,10 @@ class TestCycleSnapshotIntradayNews:
 class TestPipelinePhase2Tiers:
 
     def _make_iv(self, symbol, composite, rsi=55.0, stoch_d=50.0, current_price=100.0):
-        from tests.test_signals import TestFastGate
-        return TestFastGate()._iv(
+        from tests.test_signals import make_full_iv
+        return make_full_iv(
             symbol=symbol, composite_score=composite, rsi=rsi,
-            stoch_d=stoch_d, current_price=current_price
+            stoch_d=stoch_d, current_price=current_price,
         )
 
     def _snap(self, research=None, intraday_news=None):
@@ -506,7 +503,7 @@ class TestPipelinePhase2Tiers:
     @pytest.mark.unit
     def test_low_composite_skipped_no_claude(self):
         from trading.pipeline import TradingPipeline
-        iv = self._make_iv("TEST", composite=25.0)
+        iv = self._make_iv("TEST", composite=15.0)
         with patch("trading.pipeline._fetch_symbol_data", return_value=("TEST", iv, None, 0.0)), \
              patch("trading.pipeline._ask_claude_batch") as mock_claude:
             TradingPipeline().run(
@@ -752,8 +749,8 @@ class TestPreClaudeFilterDailyClosed:
         )
 
     def _iv(self, composite=50.0):
-        from tests.test_signals import TestFastGate
-        return TestFastGate()._iv(composite_score=composite, rsi=55.0, stoch_d=50.0)
+        from tests.test_signals import make_full_iv
+        return make_full_iv(composite_score=composite, rsi=55.0, stoch_d=50.0)
 
     @pytest.mark.unit
     def test_layer0_skips_already_closed_symbol(self):
@@ -796,8 +793,8 @@ class TestPreClaudeFilterDailyClosed:
 class TestAutoExecuteWhenBudgetExhausted:
 
     def _make_iv(self, symbol, composite, rsi=55.0, stoch_d=50.0, current_price=100.0):
-        from tests.test_signals import TestFastGate
-        return TestFastGate()._iv(
+        from tests.test_signals import make_full_iv
+        return make_full_iv(
             symbol=symbol, composite_score=composite, rsi=rsi,
             stoch_d=stoch_d, current_price=current_price,
         )

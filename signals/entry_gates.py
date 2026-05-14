@@ -34,33 +34,15 @@ def effective_composite_gate(iv: IndicatorValues, regime: str) -> int:
     Priority: HIGH_VOL safety → squeeze setup → bot herding → CHOPPY → NORMAL.
     """
     if regime in ("HIGH_VOL", "DEFENSIVE"):
-        return config.HIGH_VOL_COMPOSITE_MIN   # 35
+        return config.COMPOSITE_MIN_HIGH_VOL   # 35
     if iv.squeeze_setup:
         return 12                              # strong squeeze signal lowers bar
     if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
         return config.HERD_ENTRY_GATE          # 25
     if regime == "CHOPPY":
         return config.CHOPPY_COMPOSITE_GATE   # 30
-    return config.PRE_CLAUDE_COMPOSITE_MIN    # 20
+    return config.COMPOSITE_MIN_NORMAL        # 20
 
-
-def fast_gate(iv: IndicatorValues) -> GateResult:
-    """
-    Pure indicator-based hard vetos — no I/O, no external data.
-    Called in pipeline Phase 2 PRE-Claude to eliminate guaranteed HOLDs
-    without spending a single API token.
-    """
-    if iv.rsi > config.RSI_HARD_SKIP_THRESHOLD:
-        return GateResult(False, f"RSI hard skip (RSI={iv.rsi:.1f} > {config.RSI_HARD_SKIP_THRESHOLD})")
-    if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
-        return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
-    if iv.rsi_delta <= config.RSI_DELTA_HARD_BLOCK:
-        return GateResult(False, f"RSI delta hard block ({iv.rsi_delta:.1f} <= {config.RSI_DELTA_HARD_BLOCK})")
-    if config.PARABOLIC_ENTRY_BLOCK and iv.parabolic:
-        return GateResult(False, "parabolic move hard veto")
-    if iv.stop_hunt_zone:
-        return GateResult(False, "stop-hunt zone hard veto")
-    return GateResult(True)
 
 
 def check_all_gates(
@@ -132,8 +114,8 @@ def check_all_gates(
             return GateResult(False, f"momentum exhaustion + herding ({iv.bot_herding_score})")
 
     # 10. RSI overbought hard skip — saves Claude tokens on conditions that will HOLD anyway
-    if iv.rsi > config.RSI_HARD_SKIP_THRESHOLD:
-        return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {config.RSI_HARD_SKIP_THRESHOLD})")
+    if iv.rsi > config.RSI_BUY_MAX:
+        return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {config.RSI_BUY_MAX})")
 
     # 11. Stochastic overbought hard veto
     if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:

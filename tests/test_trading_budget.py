@@ -316,8 +316,8 @@ class TestAutoExecuteSoftFlagGuard:
     """execute_buy must block auto-execute trades when check_all_gates returns soft flags."""
 
     def _iv(self, composite=60.0, current_price=100.0):
-        from tests.test_signals import TestFastGate
-        return TestFastGate()._iv(
+        from tests.test_signals import make_full_iv
+        return make_full_iv(
             symbol="TEST", composite_score=composite, rsi=55.0,
             stoch_d=50.0, current_price=current_price,
         )

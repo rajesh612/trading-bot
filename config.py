@@ -40,7 +40,6 @@ WATCH_LIST_MAX = 15
 
 # Claude API cost controls
 CLAUDE_BATCH_SIZE = 5            # Stocks per batched Claude call in trading cycle
-COMPOSITE_SCORE_THRESHOLD = 15   # Skip Claude if no open position and score <= this
 STRATEGY_MEMORY_MAX_CHARS = 3500 # tighter — still above 1024-token cache minimum
 
 # Risk parameters
@@ -57,7 +56,7 @@ ENTRY_START_HOUR = 10          # No entries before 10:00 AM (avoid open noise)
 ENTRY_END_HOUR = 15            # No entries at or after 3:00 PM
 
 # VIX regime thresholds
-RSI_BUY_MAX = 75               # Block extreme overbought only; momentum stocks live at RSI 50-75
+RSI_BUY_MAX = 72               # Max RSI for BUY entry (unified across all gate layers)
 RSI_BUY_MAX_HIGH_VOL = 65      # Tighter gate in high-volatility regimes
 VWAP_SLOPE_MIN = -0.3          # % VWAP drift over 10 bars; below this = downtrend, skip BUY
 HIGH_VOL_POSITION_MULT = 0.5   # Halve position size in HIGH_VOL / CRISIS regimes
@@ -214,7 +213,6 @@ VWAP_OVEREXTENSION_GATE     = True    # block price > VWAP+2σ
 PARABOLIC_ENTRY_BLOCK       = True    # block parabolic=True entries
 
 # ── Entry gate overbought thresholds ──────────────────────────────────────────
-RSI_HARD_SKIP_THRESHOLD    = 72    # RSI above this → hard gate before Claude
 STOCH_HARD_VETO_THRESHOLD  = 88    # Stochastic %D above this → hard gate before Claude
 POST_EVENT_POSITION_MULT    = 0.6     # 60% sizing on post-FOMC/NFP/CPI days
 INTRADAY_CONTEXT_TTL_SEC    = 300     # cache SPY intraday context 5 min
@@ -238,8 +236,8 @@ PEAD_EPS_BEAT_SOLID         = 10.0    # strong beat threshold (25 pts)
 PEAD_FWD_REVISION_MIN       = 3.0     # forward EPS revision % to qualify as 6th condition
 
 # ── Pre-Claude Filter + Token Efficiency ──────────────────────────────────────
-PRE_CLAUDE_COMPOSITE_MIN      = 20    # pipeline Phase 2: below this never reaches Claude
-HIGH_VOL_COMPOSITE_MIN        = 35    # raised bar in HIGH_VOL / DEFENSIVE regime
+COMPOSITE_MIN_NORMAL          = 20    # composite entry minimum — NORMAL regime
+COMPOSITE_MIN_HIGH_VOL        = 35    # raised composite minimum — HIGH_VOL / DEFENSIVE regime
 MACRO_HEALTH_SKIP_THRESHOLD   = -20   # skip if macro_health_score < this
 MACRO_SHOCK_SKIP_THRESHOLD    = 50    # skip if research macro_shock_score > this
 SENTIMENT_HARD_BLOCK          = -15   # combined_sentiment_score below this = hard block
@@ -268,6 +266,4 @@ WATCH_LIST_RSI_FILTER         = 70    # exclude if RSI > this at 9 AM snapshot
 WATCH_LIST_STOCH_FILTER       = 80    # exclude if Stochastic %D > this at 9 AM snapshot
 WATCH_LIST_MIN_AFTER_FILTER   = 6     # relax filter thresholds if fewer symbols remain
 
-# ── Fast-Gate Thresholds (pre-Claude technical vetos) ────────────────────────
-RSI_DELTA_HARD_BLOCK          = -7    # fast_gate: block if RSI declining this fast
 INTRADAY_NEWS_CACHE_FILE      = BASE_DIR / "intraday_news_cache.json"
