@@ -663,6 +663,7 @@ class TestCircuitBreakerTTL:
         # Set circuit breaker with already-expired TTL
         claude_caller._CLAUDE_DISABLED.set()
         claude_caller._CLAUDE_DISABLED_UNTIL = time.monotonic() - 1.0
+        claude_caller._CLAUDE_DISABLED_REASON = "stale reason"
 
         mock_ai = MagicMock()
         mock_ai.messages.create.return_value = MagicMock(
@@ -682,6 +683,7 @@ class TestCircuitBreakerTTL:
             claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
 
         assert not claude_caller._CLAUDE_DISABLED.is_set()
+        assert claude_caller._CLAUDE_DISABLED_REASON == ""  # reason cleared on TTL expiry
         mock_ai.messages.create.assert_called_once()
 
     @pytest.mark.unit
