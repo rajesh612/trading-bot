@@ -344,6 +344,9 @@ class TestRiskManagerAdditions:
             mc.BUDGET_ROLLOVER_MINUTE = 30
             mc.BUDGET_ROLLOVER_FRACTION = 0.5
             mc.EXIT_ROLLOVER_MAX_USD = 0.15
+            mc.API_BUDGET_NORMAL_CEILING = 1.0
+            mc.ENTRY_BUDGET_RATIO = 0.70
+            mc.EXIT_BUDGET_RATIO = 0.30
             from trading.risk_manager import try_rollover_exit_to_entry
             try_rollover_exit_to_entry(now)
 
