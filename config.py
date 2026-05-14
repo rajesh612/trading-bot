@@ -50,6 +50,7 @@ STOP_LOSS_PCT = 4.0            # Default 4% stop loss
 TAKE_PROFIT_PCT = 5.0          # Default 5% take profit
 MAX_DAILY_LOSS_PCT = 0.03      # Halt new entries if down 3% on the day
 MIN_BUYING_POWER = 500.0       # Minimum buying power to enter new positions
+DEAD_DAY_ALERT_CYCLES = 4      # Consecutive zero-candidate cycles before dead-day Telegram alert
 
 # Entry time window (ET)
 ENTRY_START_HOUR = 10          # No entries before 10:00 AM (avoid open noise)
@@ -237,12 +238,12 @@ PEAD_EPS_BEAT_SOLID         = 10.0    # strong beat threshold (25 pts)
 PEAD_FWD_REVISION_MIN       = 3.0     # forward EPS revision % to qualify as 6th condition
 
 # ── Pre-Claude Filter + Token Efficiency ──────────────────────────────────────
-PRE_CLAUDE_COMPOSITE_MIN      = 40    # pipeline Phase 2: below this never reaches Claude
-HIGH_VOL_COMPOSITE_MIN        = 50    # raised bar in HIGH_VOL / DEFENSIVE regime
+PRE_CLAUDE_COMPOSITE_MIN      = 20    # pipeline Phase 2: below this never reaches Claude
+HIGH_VOL_COMPOSITE_MIN        = 35    # raised bar in HIGH_VOL / DEFENSIVE regime
 MACRO_HEALTH_SKIP_THRESHOLD   = -20   # skip if macro_health_score < this
 MACRO_SHOCK_SKIP_THRESHOLD    = 50    # skip if research macro_shock_score > this
 SENTIMENT_HARD_BLOCK          = -15   # combined_sentiment_score below this = hard block
-SENTIMENT_WEAK_COMPOSITE_MIN  = 45    # if sentiment < 0, require composite >= this
+SENTIMENT_WEAK_COMPOSITE_MIN  = 30    # if sentiment < 0, require composite >= this
 INTRADAY_SENTIMENT_BLOCK      = -10   # intraday sentiment_score below this = skip
 
 # ── Auto-Execute (skip Claude for textbook setups) ────────────────────────────

@@ -120,7 +120,7 @@ def run_trading_cycle() -> None:
 
         alert_hour = params.get("entry_start_hour", config.ENTRY_START_HOUR) + 1
         if (not _zero_pass["alerted"]
-                and _zero_pass["count"] >= 4
+                and _zero_pass["count"] >= config.DEAD_DAY_ALERT_CYCLES
                 and now.hour >= alert_hour):
             _zero_pass["alerted"] = True
             msg = (
