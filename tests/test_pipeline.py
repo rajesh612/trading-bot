@@ -386,7 +386,7 @@ class TestWatchListFilter:
 
     @pytest.mark.unit
     def test_filters_overbought_symbols(self):
-        from watch_list_agent import _apply_technical_filter
+        from agents.watch_list import _apply_technical_filter
         snapshots = {
             "NVDA": {"rsi": 75.0, "stoch_d": 60.0},   # RSI too high → out
             "AAPL": {"rsi": 55.0, "stoch_d": 85.0},   # Stoch too high → out
@@ -409,7 +409,7 @@ class TestWatchListFilter:
     @pytest.mark.unit
     def test_relaxes_thresholds_if_too_few_pass(self):
         """If < WATCH_LIST_MIN_AFTER_FILTER pass, retry with relaxed limits."""
-        from watch_list_agent import _apply_technical_filter
+        from agents.watch_list import _apply_technical_filter
         # All overbought at 70/80 but clean at 76/87
         snapshots = {s: {"rsi": 72.0, "stoch_d": 83.0} for s in ["A", "B", "C", "D", "E", "F"]}
         result = _apply_technical_filter(
@@ -422,7 +422,7 @@ class TestWatchListFilter:
     @pytest.mark.unit
     def test_missing_snapshot_treated_as_clean(self):
         """Symbol with no snapshot data is not filtered out."""
-        from watch_list_agent import _apply_technical_filter
+        from agents.watch_list import _apply_technical_filter
         snapshots = {}  # no data
         result = _apply_technical_filter(["NVDA"], snapshots, rsi_limit=70, stoch_limit=80)
         assert "NVDA" in result

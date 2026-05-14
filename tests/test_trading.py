@@ -870,7 +870,7 @@ class TestAgentBudgetRecording:
     def test_watch_list_agent_records_budget(self, monkeypatch, tmp_path):
         """run_watch_list_agent records token usage after its Claude call."""
         import types
-        import watch_list_agent
+        from agents import watch_list as watch_list_agent
 
         fake_resp = self._fake_response(input_tok=300, output_tok=80, cache_write=500)
 
@@ -893,7 +893,7 @@ class TestAgentBudgetRecording:
             recorded["output"] = output_tokens
             recorded["cache_write"] = cache_write_tokens
 
-        with patch("watch_list_agent.AlpacaClient", return_value=mock_alpaca), \
+        with patch("agents.watch_list.AlpacaClient", return_value=mock_alpaca), \
              patch("anthropic.Anthropic") as MockAI, \
              patch("trading.risk_manager.record_usage", side_effect=fake_record):
             MockAI.return_value.messages.create.return_value = fake_resp
