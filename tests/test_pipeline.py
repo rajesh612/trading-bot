@@ -497,3 +497,74 @@ class TestPipelinePhase2Tiers:
                 can_open=True,
             )
         mock_claude.assert_not_called()
+
+
+# ─── entry_exhausted_flag day-reset (Task 2: Fix 1) ──────────────────────────
+
+class TestEntryExhaustedFlagReset:
+
+    @pytest.mark.unit
+    def test_flag_syncs_to_false_on_fresh_day_budget(self, tmp_path):
+        """Stale True flag is cleared when disk budget shows entry_exhausted=False."""
+        import json
+        from unittest.mock import patch
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = True  # stale from yesterday
+
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        budget = {
+            "date": today, "calls_made": 0, "entry_calls": 0, "exit_calls": 0,
+            "input_tokens": 0, "output_tokens": 0, "cache_write_tokens": 0,
+            "cache_read_tokens": 0, "estimated_cost_usd": 0.0,
+            "entry_spent_usd": 0.0, "exit_spent_usd": 0.0,
+            "ceiling_usd": 1.0,
+            "entry_ceiling_usd": 0.70, "exit_ceiling_usd": 0.30,
+            "ceiling_mode": "normal", "entry_exhausted": False,
+            "exit_exhausted": False, "budget_exhausted": False, "escalated": False,
+        }
+        budget_file = tmp_path / "api_budget.json"
+        budget_file.write_text(json.dumps(budget))
+
+        with patch("trading.risk_manager.config") as mc, \
+             patch("trading.risk_manager.morning_cap_exceeded", return_value=False), \
+             patch("trading.risk_manager.midday_cap_exceeded", return_value=False):
+            mc.API_BUDGET_FILE = budget_file
+            mc.ENTRY_BUDGET_RATIO = 0.7
+            mc.EXIT_BUDGET_RATIO  = 0.3
+            mc.API_BUDGET_WARNING_PCT = 0.8
+            result = risk_manager.check_entry_budget(0.001, "NORMAL")
+
+        assert result is True
+        assert risk_manager._entry_exhausted_flag is False
+
+    @pytest.mark.unit
+    def test_flag_stays_true_when_disk_entry_exhausted(self, tmp_path):
+        """Flag is not cleared when disk budget confirms entry_exhausted=True."""
+        import json
+        from unittest.mock import patch
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = True
+
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        budget = {
+            "date": today, "calls_made": 5, "entry_calls": 5, "exit_calls": 0,
+            "input_tokens": 0, "output_tokens": 0, "cache_write_tokens": 0,
+            "cache_read_tokens": 0, "estimated_cost_usd": 0.70,
+            "entry_spent_usd": 0.70, "exit_spent_usd": 0.0,
+            "ceiling_usd": 1.0,
+            "entry_ceiling_usd": 0.70, "exit_ceiling_usd": 0.30,
+            "ceiling_mode": "normal", "entry_exhausted": True,
+            "exit_exhausted": False, "budget_exhausted": False, "escalated": False,
+        }
+        budget_file = tmp_path / "api_budget.json"
+        budget_file.write_text(json.dumps(budget))
+
+        with patch("trading.risk_manager.config") as mc:
+            mc.API_BUDGET_FILE = budget_file
+            mc.ENTRY_BUDGET_RATIO = 0.7
+            mc.EXIT_BUDGET_RATIO  = 0.3
+            result = risk_manager.check_entry_budget(0.001, "NORMAL")
+
+        assert result is False
+        assert risk_manager._entry_exhausted_flag is True
+        risk_manager._entry_exhausted_flag = False  # cleanup

@@ -75,7 +75,10 @@ def get_ceiling() -> float:
 
 def check_entry_budget(estimated_cost: float, regime: str) -> bool:
     """Return True if entry call is within the 70% entry pool."""
+    global _entry_exhausted_flag
     b = load_budget()
+    if not b.get("entry_exhausted"):
+        _entry_exhausted_flag = False
 
     if b.get("entry_exhausted"):
         logger.warning("Entry budget pool exhausted — blocking entry call.")
@@ -105,7 +108,6 @@ def check_entry_budget(estimated_cost: float, regime: str) -> bool:
             spent, estimated_cost, entry_ceil,
         )
         b["entry_exhausted"] = True
-        global _entry_exhausted_flag
         _entry_exhausted_flag = True
         _check_both_exhausted(b)
         _save_budget(b)
