@@ -1000,7 +1000,7 @@ class TestRiskManagerBudget:
         self._setup(tmp_path, monkeypatch, entry_spent_usd=0.70,
                     entry_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.ENTRY_BUDGET_RATIO, 4))
         from trading.risk_manager import check_entry_budget
-        result = check_entry_budget(0.01, 0.0, "NORMAL")
+        result = check_entry_budget(0.01, "NORMAL")
         assert result is False
 
     # 2. Entry pool allows when under limit
@@ -1008,7 +1008,7 @@ class TestRiskManagerBudget:
         """check_entry_budget returns True when entry pool has room."""
         self._setup(tmp_path, monkeypatch, entry_spent_usd=0.0)
         from trading.risk_manager import check_entry_budget
-        result = check_entry_budget(0.01, 0.0, "NORMAL")
+        result = check_entry_budget(0.01, "NORMAL")
         assert result is True
 
     # 3. Exit pool escalates when exhausted with open positions
@@ -1070,7 +1070,7 @@ class TestRiskManagerBudget:
                     entry_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.ENTRY_BUDGET_RATIO, 4),
                     exit_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.EXIT_BUDGET_RATIO, 4))
         from trading.risk_manager import check_entry_budget, check_exit_budget, load_budget
-        check_entry_budget(0.01, 0.0, "NORMAL")   # marks entry_exhausted
+        check_entry_budget(0.01, "NORMAL")   # marks entry_exhausted
         check_exit_budget(0.01, open_position_count=0, regime="NORMAL")  # marks exit_exhausted, no escalation
         b = load_budget()
         assert b["budget_exhausted"] is True

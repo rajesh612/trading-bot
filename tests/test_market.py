@@ -83,7 +83,7 @@ class TestApiBudget:
         from trading import risk_manager
         import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        assert risk_manager.check_entry_budget(0.50, 0.0, "NORMAL") is True
+        assert risk_manager.check_entry_budget(0.50, "NORMAL") is True
 
     def test_check_budget_blocks_over_ceiling(self, tmp_path):
         from trading import risk_manager
@@ -92,7 +92,7 @@ class TestApiBudget:
         # Record usage that fills entry pool (70% of $1.00 = $0.70)
         risk_manager.record_usage(input_tokens=290_000, output_tokens=0)
         # Now try to add more than remaining
-        assert risk_manager.check_entry_budget(0.50, 0.0, "NORMAL") is False
+        assert risk_manager.check_entry_budget(0.50, "NORMAL") is False
 
     def test_record_usage_accumulates(self, tmp_path):
         from trading import risk_manager
@@ -216,7 +216,7 @@ class TestApiBudgetRemaining:
         from trading import risk_manager
         import config
         config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        assert risk_manager.check_entry_budget(estimated_cost=0.0, gain_pct=0.0, regime="NORMAL") is True
+        assert risk_manager.check_entry_budget(estimated_cost=0.0, regime="NORMAL") is True
 
     def test_ceiling_exhausted_after_many_calls(self, tmp_path, monkeypatch):
         from trading import risk_manager
@@ -227,7 +227,7 @@ class TestApiBudgetRemaining:
         for _ in range(5):
             risk_manager.record_usage(input_tokens=100_000, output_tokens=10_000,
                                       cache_write_tokens=0, cache_read_tokens=0)
-        assert risk_manager.check_entry_budget(estimated_cost=0.0, gain_pct=0.0, regime="NORMAL") is False
+        assert risk_manager.check_entry_budget(estimated_cost=0.0, regime="NORMAL") is False
 
 
 # ── telegram_notify ───────────────────────────────────────────────────────────
