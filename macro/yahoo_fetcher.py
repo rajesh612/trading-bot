@@ -2,38 +2,25 @@
 Yahoo Finance data fetchers for macro regime. Boundary module — HTTP calls are intentional.
 """
 import logging
-import time
 from datetime import datetime, timedelta
-import requests
 
 import config
 from utils.io_utils import load_json
 from utils.constants import ET
+from utils.http import yahoo_get
 
 logger = logging.getLogger(__name__)
-_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def yahoo_closes(symbol: str, days: int = 120) -> list[float]:
-    """Fetch daily closing prices from Yahoo Finance. Retries up to 3× on transient errors."""
+    """Fetch daily closing prices from Yahoo Finance."""
     url = (
         f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
         f"?interval=1d&range={days}d"
     )
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=_YAHOO_HEADERS, timeout=10)
-            if resp.status_code == 429:
-                time.sleep(2 ** attempt)
-                continue
-            resp.raise_for_status()
-            quotes = resp.json()["chart"]["result"][0]["indicators"]["quote"][0]
-            return [c for c in quotes["close"] if c is not None]
-        except Exception:
-            if attempt == 2:
-                raise
-            time.sleep(1)
-    return []
+    data = yahoo_get(url)
+    quotes = data["chart"]["result"][0]["indicators"]["quote"][0]
+    return [c for c in quotes["close"] if c is not None]
 
 
 def ret5d(closes: list[float]) -> float:

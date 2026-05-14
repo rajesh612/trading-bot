@@ -2,14 +2,12 @@
 Provider-agnostic market data layer.
 MARKET_DATA_PROVIDER env var selects: yahoo | alpaca | hybrid
 """
-import time
 from datetime import datetime
 import pandas as pd
-import requests
 
 import config
 from utils.constants import ET
-_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
+from utils.http import yahoo_get
 
 
 def _yahoo_bars(symbol: str, interval: str, period: str) -> pd.DataFrame:
@@ -17,33 +15,22 @@ def _yahoo_bars(symbol: str, interval: str, period: str) -> pd.DataFrame:
         f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
         f"?interval={interval}&range={period}"
     )
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=_YAHOO_HEADERS, timeout=10)
-            if resp.status_code == 429:
-                time.sleep(2 ** attempt)
-                continue
-            resp.raise_for_status()
-            result = resp.json()["chart"]["result"][0]
-            timestamps = result["timestamp"]
-            q = result["indicators"]["quote"][0]
-            df = pd.DataFrame(
-                {
-                    "open":   [float(v) if v is not None else float("nan") for v in q["open"]],
-                    "high":   [float(v) if v is not None else float("nan") for v in q["high"]],
-                    "low":    [float(v) if v is not None else float("nan") for v in q["low"]],
-                    "close":  [float(v) if v is not None else float("nan") for v in q["close"]],
-                    "volume": [float(v) if v is not None else 0.0 for v in q["volume"]],
-                },
-                index=pd.to_datetime(timestamps, unit="s", utc=True).tz_convert(ET),
-            )
-            df.index.name = "timestamp"
-            return df.dropna(subset=["close"])
-        except Exception:
-            if attempt == 2:
-                raise
-            time.sleep(1)
-    return pd.DataFrame()
+    data = yahoo_get(url)
+    result = data["chart"]["result"][0]
+    timestamps = result["timestamp"]
+    q = result["indicators"]["quote"][0]
+    df = pd.DataFrame(
+        {
+            "open":   [float(v) if v is not None else float("nan") for v in q["open"]],
+            "high":   [float(v) if v is not None else float("nan") for v in q["high"]],
+            "low":    [float(v) if v is not None else float("nan") for v in q["low"]],
+            "close":  [float(v) if v is not None else float("nan") for v in q["close"]],
+            "volume": [float(v) if v is not None else 0.0 for v in q["volume"]],
+        },
+        index=pd.to_datetime(timestamps, unit="s", utc=True).tz_convert(ET),
+    )
+    df.index.name = "timestamp"
+    return df.dropna(subset=["close"])
 
 
 def get_intraday_bars(

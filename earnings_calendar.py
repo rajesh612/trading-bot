@@ -5,14 +5,12 @@ Provides next-earnings-date lookups and PEAD (post-earnings drift) detection.
 import json
 import logging
 from datetime import datetime, timedelta
-import requests
 
 import config
 from utils.constants import ET
+from utils.http import yahoo_get
 
 logger = logging.getLogger(__name__)
-
-_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def _yahoo_quote_summary(symbol: str, modules: str) -> dict:
@@ -20,9 +18,8 @@ def _yahoo_quote_summary(symbol: str, modules: str) -> dict:
         f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
         f"?modules={modules}"
     )
-    resp = requests.get(url, headers=_YAHOO_HEADERS, timeout=10)
-    resp.raise_for_status()
-    result = resp.json().get("quoteSummary", {}).get("result", [])
+    data = yahoo_get(url)
+    result = data.get("quoteSummary", {}).get("result", [])
     return result[0] if result else {}
 
 
