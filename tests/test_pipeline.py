@@ -770,3 +770,99 @@ class TestPreClaudeFilterDailyClosed:
         result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap())
         if result.decision == "SKIP":
             assert "already closed" not in result.reason
+
+
+# ─── auto-execute outside budget gate (Task 5: Fix 5) ───────────────────────
+
+class TestAutoExecuteWhenBudgetExhausted:
+
+    def _make_iv(self, symbol, composite, rsi=55.0, stoch_d=50.0, current_price=100.0):
+        from tests.test_signals import TestFastGate
+        return TestFastGate()._iv(
+            symbol=symbol, composite_score=composite, rsi=rsi,
+            stoch_d=stoch_d, current_price=current_price,
+        )
+
+    def _snap(self, research=None, intraday_news=None):
+        from trading.cycle_context import CycleSnapshot
+        return CycleSnapshot(
+            regime_info={"regime": "NORMAL", "macro_health_score": 0, "spy_5day_return": 0.0},
+            regime="NORMAL",
+            fred_cache={},
+            research=research or {"AUTO": {"sentiment_score": 25}},
+            research_meta={"macro_shock_score": 0},
+            strategy_memory="",
+            weights={},
+            params={
+                "rsi_buy_max": 72, "rsi_buy_max_high_vol": 65,
+                "high_vol_position_mult": 0.5,
+                "entry_start_hour": 10, "entry_end_hour": 15,
+            },
+            portfolio_gain_pct=0.0,
+            intraday_news=intraday_news or {},
+        )
+
+    @pytest.mark.unit
+    def test_auto_execute_runs_when_budget_exhausted(self):
+        """AUTO_EXECUTE candidates are collected and execute_buy is called even when entry budget exhausted."""
+        from trading.pipeline import TradingPipeline
+        from trading import risk_manager
+        import config
+
+        # Use thresholds that put this stock on the AUTO_EXECUTE path
+        composite = float(config.AUTO_EXECUTE_COMPOSITE_MIN + 5)
+        sentiment = config.AUTO_EXECUTE_SENTIMENT_MIN + 5
+        iv = self._make_iv("AUTO", composite=composite)
+        snap = self._snap(
+            research={"AUTO": {"sentiment_score": sentiment}},
+            intraday_news={"AUTO": {"shock_score": 0, "sentiment_score": sentiment}},
+        )
+
+        risk_manager._entry_exhausted_flag = True
+        try:
+            with patch("trading.pipeline._fetch_symbol_data", return_value=("AUTO", iv, None, 0.0)), \
+                 patch("trading.pipeline._ask_claude_batch") as mock_claude, \
+                 patch("trading.pipeline.execute_buy", return_value=None) as mock_buy, \
+                 patch("trading.pipeline.load_open_positions", return_value={}), \
+                 patch("trading.pipeline.load_daily_closed", return_value=set()), \
+                 patch("trading.pipeline._ask_claude_exit_batch", return_value={}):
+                TradingPipeline().run(
+                    symbols=["AUTO"], snap=snap,
+                    ai=MagicMock(), now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+                    alpaca=MagicMock(), portfolio_value=10000, buying_power=5000,
+                    can_open=True,
+                )
+            mock_claude.assert_not_called()
+            mock_buy.assert_called_once()
+        finally:
+            risk_manager._entry_exhausted_flag = False
+
+    @pytest.mark.unit
+    def test_claude_candidates_blocked_when_budget_exhausted(self):
+        """Symbols that route to Claude are held (not collected) when entry budget exhausted."""
+        from trading.pipeline import TradingPipeline
+        from trading import risk_manager
+
+        # composite=42, sentiment=5 → passes all gates but not AUTO_EXECUTE threshold
+        iv = self._make_iv("HOLD_ME", composite=42.0)
+        snap = self._snap(
+            research={"HOLD_ME": {"sentiment_score": 5}},
+            intraday_news={"HOLD_ME": {"shock_score": 0, "sentiment_score": 5}},
+        )
+
+        risk_manager._entry_exhausted_flag = True
+        try:
+            with patch("trading.pipeline._fetch_symbol_data", return_value=("HOLD_ME", iv, None, 0.0)), \
+                 patch("trading.pipeline._ask_claude_batch") as mock_claude, \
+                 patch("trading.pipeline.load_open_positions", return_value={}), \
+                 patch("trading.pipeline.load_daily_closed", return_value=set()), \
+                 patch("trading.pipeline._ask_claude_exit_batch", return_value={}):
+                TradingPipeline().run(
+                    symbols=["HOLD_ME"], snap=snap,
+                    ai=MagicMock(), now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+                    alpaca=MagicMock(), portfolio_value=10000, buying_power=5000,
+                    can_open=True,
+                )
+            mock_claude.assert_not_called()
+        finally:
+            risk_manager._entry_exhausted_flag = False

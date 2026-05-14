@@ -135,27 +135,28 @@ class TradingPipeline:
             logger.warning("No valid indicator data — skipping cycle.")
             return result
 
-        # ── Phase 2: Pre-Claude filter (budget pre-check + 5-layer filter) ────
+        # ── Phase 2: Pre-Claude filter ────────────────────────────────────────
+        # Auto-execute is always collected (zero API budget cost).
+        # Claude candidates are only collected when entry budget allows.
         t_gates = time.monotonic()
         needs_claude:  list[tuple[str, IndicatorValues, dict | None]] = []
         auto_execute:  list[tuple[str, IndicatorValues]] = []
 
-        if risk_manager.is_entry_budget_exhausted():
-            logger.info("Entry budget exhausted — skipping Claude phase entirely.")
-        else:
-            for symbol, iv, existing_pos, _ret5d in stock_data:
-                if existing_pos:
-                    pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
-                    logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
-                    continue
-                filt = pre_claude_filter(symbol, iv, snap, daily_closed)
-                if filt.decision == "SKIP":
-                    logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
-                elif filt.decision == "AUTO_EXECUTE":
-                    auto_execute.append((symbol, iv))
-                    logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
-                else:
-                    needs_claude.append((symbol, iv, None))
+        for symbol, iv, existing_pos, _ret5d in stock_data:
+            if existing_pos:
+                pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
+                logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
+                continue
+            filt = pre_claude_filter(symbol, iv, snap, daily_closed)
+            if filt.decision == "SKIP":
+                logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
+            elif filt.decision == "AUTO_EXECUTE":
+                auto_execute.append((symbol, iv))
+                logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
+            elif not risk_manager.is_entry_budget_exhausted():
+                needs_claude.append((symbol, iv, None))
+            else:
+                logger.info("BUDGET-EXHAUSTED HOLD %s: would need Claude", symbol)
 
         gates_elapsed = time.monotonic() - t_gates
 
