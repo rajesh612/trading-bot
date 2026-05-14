@@ -2,12 +2,29 @@
 Provider-agnostic market data layer.
 MARKET_DATA_PROVIDER env var selects: yahoo | alpaca | hybrid
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 
 import config
 from utils.constants import ET
 from utils.http import yahoo_get
+
+
+def _alpaca_bars(symbol: str, timeframe, start: datetime, limit: int) -> pd.DataFrame:
+    from alpaca.data.historical import StockHistoricalDataClient
+    from alpaca.data.requests import StockBarsRequest
+    client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
+    req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, limit=limit)
+    bars = client.get_stock_bars(req).get(symbol, [])
+    if not bars:
+        return pd.DataFrame()
+    df = pd.DataFrame(
+        [{"open": b.open, "high": b.high, "low": b.low, "close": b.close, "volume": float(b.volume)}
+         for b in bars],
+        index=pd.DatetimeIndex([b.timestamp for b in bars], tz="UTC").tz_convert(ET),
+    )
+    df.index.name = "timestamp"
+    return df
 
 
 def _yahoo_bars(symbol: str, interval: str, period: str) -> pd.DataFrame:
@@ -51,8 +68,11 @@ def get_intraday_bars(
                 return pd.DataFrame()
 
     # alpaca or hybrid fallback
-    from alpaca_client import AlpacaClient
-    return AlpacaClient().get_intraday_bars(symbol, lookback)
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+    tf = TimeFrame(config.BAR_TIMEFRAME_MINUTES, TimeFrameUnit.Minute)
+    start = datetime.now(ET) - timedelta(days=5)
+    df = _alpaca_bars(symbol, tf, start, lookback)
+    return df.tail(lookback) if not df.empty else df
 
 
 def get_daily_bars(symbol: str, days: int = config.DAILY_BARS_LOOKBACK) -> pd.DataFrame:
@@ -67,8 +87,10 @@ def get_daily_bars(symbol: str, days: int = config.DAILY_BARS_LOOKBACK) -> pd.Da
             if provider != "hybrid":
                 return pd.DataFrame()
 
-    from alpaca_client import AlpacaClient
-    return AlpacaClient().get_daily_bars(symbol, days)
+    from alpaca.data.timeframe import TimeFrame
+    start = datetime.now(ET) - timedelta(days=days + 10)
+    df = _alpaca_bars(symbol, TimeFrame.Day, start, days)
+    return df.tail(days) if not df.empty else df
 
 
 def get_latest_price(symbol: str) -> float:
@@ -77,8 +99,12 @@ def get_latest_price(symbol: str) -> float:
 
     if provider in ("alpaca", "hybrid"):
         try:
-            from alpaca_client import AlpacaClient
-            return AlpacaClient().get_latest_price(symbol)
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockLatestTradeRequest
+            client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
+            req = StockLatestTradeRequest(symbol_or_symbols=symbol)
+            trade = client.get_stock_latest_trade(req)[symbol]
+            return float(trade.price)
         except Exception:
             pass
 
