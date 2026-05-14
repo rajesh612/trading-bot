@@ -6,12 +6,11 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 

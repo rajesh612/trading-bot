@@ -6,11 +6,10 @@ No API calls — all tests use synthetic fixtures.
 import json
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 @pytest.mark.unit
 class TestEarningsCalendar:
@@ -136,8 +135,7 @@ class TestEarningsCalendarCacheHelpers:
     def _write_cache(self, tmp_path, symbol="NVDA", days_until=3, reported_block=None):
         import config, json
         from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
-        ET = ZoneInfo("America/New_York")
+        from utils.constants import ET
         config.EARNINGS_CALENDAR_FILE = tmp_path / "earnings_calendar.json"
         today_et = datetime.now(ET).date()
         next_date = (today_et + timedelta(days=days_until)).isoformat()

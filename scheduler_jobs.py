@@ -1,13 +1,11 @@
 import logging
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
 import telegram_notify
+from utils.constants import ET
 
 logger = logging.getLogger("main")
-ET = ZoneInfo("America/New_York")
 
 # Set by main.py after the scheduler is created, so job_force_close can pause/resume jobs.
 _scheduler = None

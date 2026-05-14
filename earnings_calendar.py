@@ -5,14 +5,12 @@ Provides next-earnings-date lookups and PEAD (post-earnings drift) detection.
 import json
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import requests
 
 import config
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 _YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 

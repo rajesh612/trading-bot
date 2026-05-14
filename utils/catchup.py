@@ -1,12 +1,10 @@
 import logging
 import threading
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
+from utils.constants import ET
 
 logger = logging.getLogger("main")
-ET = ZoneInfo("America/New_York")
 
 
 def _file_is_from_today(path) -> bool:

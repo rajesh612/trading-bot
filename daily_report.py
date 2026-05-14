@@ -4,15 +4,13 @@ import smtplib
 import ssl
 from datetime import datetime
 from email.message import EmailMessage
-from zoneinfo import ZoneInfo
-
 import certifi
 
 import config
 import telegram_notify
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 DAILY_REPORT_SENT_FILE = config.DAILY_REPORT_SENT_FILE
 

@@ -3,16 +3,15 @@ EOD hold qualification and promotion logic for swing positions.
 """
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import config
 from earnings_calendar import is_earnings_imminent
 from economic_calendar import is_event_risk_window
 from utils.io_utils import load_json
 from trading.tiered_tp import _compute_tier_quantities
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 _SWING_ELIGIBLE_REGIMES = {"BULL_TREND", "OPPORTUNITY", "CAPITULATION", "CRASH_RECOVERY"}
 

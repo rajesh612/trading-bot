@@ -7,8 +7,6 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
 import telegram_notify
 from alpaca_client import AlpacaClient
@@ -25,8 +23,9 @@ from trading.position_sizer import (
 )
 from trading import risk_manager
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 def effective_composite_gate(iv: IndicatorValues, regime: str) -> int:

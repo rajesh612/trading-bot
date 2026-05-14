@@ -7,8 +7,6 @@ trading.claude_caller, trading.position_sizer, and trading.journal.
 """
 import logging
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import anthropic
 
 import config
@@ -44,8 +42,9 @@ from utils.market_monitor import (  # noqa: F401
     _set_crisis_lockout,
 )
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 # ── Persistence helpers ───────────────────────────────────────────────────────

@@ -9,16 +9,15 @@ reserved for thesis-break evaluation even when entries are exhausted.
 import logging
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
 import telegram_notify
 from indicators.values import IndicatorValues
 from trading.budget_guard import morning_cap_exceeded, midday_cap_exceeded, apply_exit_rollover
 from utils.io_utils import load_json, save_json
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 # Sonnet 4.6 pricing per token (USD)
 _INPUT_COST_PER_TOKEN       = 3.00    / 1_000_000

@@ -6,14 +6,12 @@ import json
 import logging
 from calendar import monthcalendar
 from datetime import datetime, timedelta, time as dt_time
-from zoneinfo import ZoneInfo
-
 import requests
 
 import config
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 _RISK_WINDOW_MINUTES = 45
 _FOMC_2026_DATES = [

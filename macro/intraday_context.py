@@ -7,12 +7,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 _SECTOR_ETFS = ["XLF", "XLK", "XLE", "XLV", "XLI"]
 _CACHE_LOCK = threading.Lock()

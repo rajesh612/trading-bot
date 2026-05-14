@@ -4,15 +4,13 @@ Boundary module: file I/O is intentional here.
 """
 import logging
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import requests
 
 import config
 from utils.io_utils import load_json, save_json
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 def refresh_fred_cache() -> None:

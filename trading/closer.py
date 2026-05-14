@@ -8,8 +8,6 @@ import logging
 import time
 from dataclasses import asdict
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
 import telegram_notify
 from alpaca_client import AlpacaClient
@@ -21,8 +19,9 @@ from trading.journal import (
     record_daily_closed,
 )
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 def _eod_close_reason(pnl_pct: float) -> str:

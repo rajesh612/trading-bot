@@ -15,8 +15,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import anthropic
 
 import config
@@ -34,8 +32,9 @@ from trading.closer import close_position
 from trading.executor import execute_buy
 from trading.pre_claude_filter import pre_claude_filter
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 @dataclass

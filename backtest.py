@@ -24,6 +24,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 import config
 from indicators.engine import compute_indicators
+from utils.constants import ET
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,8 +32,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
-
-ET = ZoneInfo("America/New_York")
 
 # ── Parameters ──────────────────────────────────────────────────────────────
 TRADING_DAYS = [

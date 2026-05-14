@@ -1,13 +1,11 @@
 import logging
 import time
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import config
 from utils.io_utils import load_json, save_json
+from utils.constants import ET
 
 logger = logging.getLogger("main")
-ET = ZoneInfo("America/New_York")
 
 
 def reset_bot_health() -> None:

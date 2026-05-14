@@ -6,8 +6,6 @@ import sys
 import threading
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -17,6 +15,7 @@ from utils.instance_lock import acquire_instance_lock, kill_existing_instance, w
 from utils.startup import validate_state_files, cleanup_stale_files, exit_with_alert
 from utils.bot_health import reset_bot_health, check_crash_loop, reconcile_positions
 from utils.catchup import catchup_missed_agents, catchup_daily_report
+from utils.constants import ET
 from scheduler_jobs import (
     set_scheduler,
     set_heartbeat_refs,
@@ -65,7 +64,6 @@ logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler
 logging.getLogger().handlers[0].flush = lambda: (_file_handler.stream.flush(), None)[1]
 
 logger = logging.getLogger("main")
-ET = ZoneInfo("America/New_York")
 scheduler = BlockingScheduler(timezone=ET)
 
 # Watchdog: last time the heartbeat ran (as a one-element list to allow mutation in threads)

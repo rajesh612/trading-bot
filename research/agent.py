@@ -1,8 +1,6 @@
 import logging
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import anthropic
 
 import config
@@ -22,8 +20,9 @@ from research.analyzer import (
     _quick_sentiment_result,
 )
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 def run_research_agent(watch_list: list[str]) -> dict:

@@ -10,8 +10,6 @@ import re
 import threading
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import anthropic
 
 import config
@@ -21,8 +19,9 @@ from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
 from trading.context_builder import build_stable_system_context, build_dynamic_user_context, build_stock_block, build_exit_stock_block
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 # ── Circuit breaker — tripped on 402/429; auto-clears after TTL expires ──
 _CLAUDE_DISABLED = threading.Event()

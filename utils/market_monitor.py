@@ -7,17 +7,15 @@ positions and sets a 48h CRISIS lockout in macro_regime.json.
 """
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import requests
 
 import config
 import telegram_notify
 from market_data import get_latest_price
 from utils.io_utils import load_json, save_json
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 
 # ── SPY data helpers ─────────────────────────────────────────────────────────

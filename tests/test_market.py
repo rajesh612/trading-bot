@@ -8,12 +8,11 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 # ── api_budget: daily ceiling and reset ──────────────────────────────────────

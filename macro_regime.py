@@ -5,8 +5,6 @@ Runs as the 8:55 AM scheduler job; writes macro_regime.json.
 """
 import logging
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import config
 from utils.io_utils import load_json, save_json
 from macro.health_scorer import compute_macro_health_score, _score_tech
@@ -17,8 +15,9 @@ from macro.yahoo_fetcher import (
     fetch_closes_for_regime, build_signals_dict,
 )
 
+from utils.constants import ET
+
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 _VALID_REGIMES = {
     "BULL_TREND", "BULL_TREND_PARABOLIC", "NORMAL", "CHOPPY",

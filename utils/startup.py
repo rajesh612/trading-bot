@@ -2,14 +2,12 @@ import json
 import logging
 import sys
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import config
 import telegram_notify
 from utils.io_utils import load_json, save_json
+from utils.constants import ET
 
 logger = logging.getLogger("main")
-ET = ZoneInfo("America/New_York")
 
 
 def exit_with_alert(msg: str, code: int = 1) -> None:

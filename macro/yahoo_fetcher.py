@@ -4,15 +4,13 @@ Yahoo Finance data fetchers for macro regime. Boundary module — HTTP calls are
 import logging
 import time
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import requests
 
 import config
 from utils.io_utils import load_json
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 _YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 

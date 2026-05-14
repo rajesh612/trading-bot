@@ -3,11 +3,10 @@ import json
 import threading
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from unittest.mock import patch, MagicMock
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 # ─── CycleSnapshot / FRED TTL cache ──────────────────────────────────────────

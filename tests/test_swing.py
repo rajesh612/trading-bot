@@ -6,11 +6,10 @@ No API calls — all tests use synthetic fixtures.
 import json
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 # ── swing_manager: _execute_partial_close ────────────────────────────────────

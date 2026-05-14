@@ -4,14 +4,11 @@ MARKET_DATA_PROVIDER env var selects: yahoo | alpaca | hybrid
 """
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import pandas as pd
 import requests
 
 import config
-
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 _YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 

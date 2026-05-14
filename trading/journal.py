@@ -5,13 +5,11 @@ All read-modify-write operations hold the corresponding lock.
 import logging
 import threading
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import config
 from utils.io_utils import load_json, save_json
+from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-ET = ZoneInfo("America/New_York")
 
 _POSITIONS_LOCK     = threading.Lock()   # open_positions.json
 _DAILY_CLOSED_LOCK  = threading.Lock()   # daily_closed.json

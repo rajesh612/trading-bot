@@ -6,11 +6,9 @@ Imported by trading.risk_manager.
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import config
-
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 def morning_cap_exceeded(entry_spent: float, entry_ceiling: float, now: datetime) -> bool:

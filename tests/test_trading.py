@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 # ── Plan 3: Mode Routing & Learning ──────────────────────────────────────────
