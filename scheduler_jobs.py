@@ -78,7 +78,7 @@ def job_fred_cache():
 
 def job_volatility_screener():
     logger.info("━━━ VOLATILITY SCREENER ━━━")
-    from volatility_screener import run_volatility_screener
+    from agents.volatility_screener import run_volatility_screener
     _job_guard("volatility_screener", run_volatility_screener)
 
 
@@ -87,7 +87,7 @@ def job_watch_list():
     def _run():
         from trading_agent import reset_daily_closed
         reset_daily_closed()
-        from watch_list_agent import run_watch_list_agent
+        from agents.watch_list import run_watch_list_agent
         run_watch_list_agent()
     _job_guard("watch_list", _run)
 
@@ -98,7 +98,7 @@ def job_research():
         from research.agent import run_research_agent
         watch_list = _read_watch_list()
         if not watch_list:
-            from watch_list_agent import _load_universe
+            from agents.watch_list import _load_universe
             watch_list = _load_universe()[: config.WATCH_LIST_MAX]
         run_research_agent(watch_list)
     _job_guard("research", _run)
