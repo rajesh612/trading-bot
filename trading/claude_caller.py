@@ -83,7 +83,7 @@ def _ask_claude_batch(
             return {sym: _default_hold(sym) for sym in symbols}
 
     estimated_cost = _estimate_batch_call_cost(len(batch))
-    if not risk_manager.check_entry_budget(estimated_cost, snap.portfolio_gain_pct, snap.regime):
+    if not risk_manager.check_entry_budget(estimated_cost, snap.regime):
         logger.warning("API budget blocked — HOLD for %s", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 

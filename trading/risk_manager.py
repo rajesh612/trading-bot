@@ -73,7 +73,7 @@ def get_ceiling() -> float:
     return config.API_BUDGET_NORMAL_CEILING
 
 
-def check_entry_budget(estimated_cost: float, gain_pct: float, regime: str) -> bool:
+def check_entry_budget(estimated_cost: float, regime: str) -> bool:
     """Return True if entry call is within the 70% entry pool."""
     b = load_budget()
 

@@ -334,6 +334,35 @@ class TestRiskManagerAdditions:
         updated = json.loads(budget_file.read_text())
         assert updated["entry_ceiling_usd"] == pytest.approx(0.85, abs=0.01)
 
+    @pytest.mark.unit
+    def test_check_entry_budget_no_gain_pct(self, tmp_path):
+        """check_entry_budget accepts (cost, regime) — no gain_pct argument."""
+        import json
+        from unittest.mock import patch
+        from trading import risk_manager
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        budget = {
+            "date": today, "calls_made": 0, "entry_calls": 0, "exit_calls": 0,
+            "input_tokens": 0, "output_tokens": 0, "cache_write_tokens": 0,
+            "cache_read_tokens": 0, "estimated_cost_usd": 0.0,
+            "entry_spent_usd": 0.0, "exit_spent_usd": 0.0,
+            "ceiling_usd": 1.0,
+            "entry_ceiling_usd": 0.70, "exit_ceiling_usd": 0.30,
+            "ceiling_mode": "normal", "entry_exhausted": False,
+            "exit_exhausted": False, "budget_exhausted": False, "escalated": False,
+        }
+        budget_file = tmp_path / "api_budget.json"
+        budget_file.write_text(json.dumps(budget))
+        with patch("trading.risk_manager.config") as mc, \
+             patch("trading.risk_manager.morning_cap_exceeded", return_value=False), \
+             patch("trading.risk_manager.midday_cap_exceeded", return_value=False):
+            mc.API_BUDGET_FILE = budget_file
+            mc.ENTRY_BUDGET_RATIO = 0.7
+            mc.EXIT_BUDGET_RATIO  = 0.3
+            mc.API_BUDGET_WARNING_PCT = 0.8
+            result = risk_manager.check_entry_budget(0.001, "NORMAL")
+        assert result is True
+
 
 # ─── watch list filter ────────────────────────────────────────────────────────
 
