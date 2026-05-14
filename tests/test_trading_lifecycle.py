@@ -381,3 +381,14 @@ def test_load_watch_list_missing_file_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "WATCH_LIST_FILE", tmp_path / "nonexistent.txt")
     result = load_watch_list()
     assert result == []
+
+
+# ── trading/monitor: run_position_monitor ───────────────────────────────────
+
+@pytest.mark.unit
+def test_run_position_monitor_noop_when_no_positions(tmp_path):
+    """Monitor returns immediately when there are no open positions."""
+    from unittest.mock import patch
+    with patch("trading.monitor.load_open_positions", return_value={}):
+        from trading.monitor import run_position_monitor
+        run_position_monitor()  # should not raise
