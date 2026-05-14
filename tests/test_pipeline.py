@@ -575,3 +575,137 @@ class TestEntryExhaustedFlagReset:
 
         assert result is False
         assert risk_manager._entry_exhausted_flag is True
+
+
+# ─── Circuit breaker TTL + exponential backoff (Task 3: Fix 2) ───────────────
+
+class TestCircuitBreakerTTL:
+
+    def setup_method(self):
+        from trading import claude_caller
+        claude_caller._CLAUDE_DISABLED.clear()
+        claude_caller._CLAUDE_DISABLED_UNTIL = 0.0
+        claude_caller._CLAUDE_DISABLED_REASON = ""
+
+    def teardown_method(self):
+        from trading import claude_caller
+        claude_caller._CLAUDE_DISABLED.clear()
+        claude_caller._CLAUDE_DISABLED_UNTIL = 0.0
+        claude_caller._CLAUDE_DISABLED_REASON = ""
+
+    def _make_snap(self):
+        """Minimal CycleSnapshot-like mock."""
+        snap = MagicMock()
+        snap.regime = "NORMAL"
+        snap.portfolio_gain_pct = 0.0
+        snap.research = {}
+        snap.research_meta = {}
+        snap.regime_info = {}
+        snap.fred_cache = {}
+        snap.weights = {}
+        snap.strategy_memory = ""
+        return snap
+
+    def _make_exc(self, status_code, message="error"):
+        """Build a minimal APIStatusError without calling its real __init__."""
+        import anthropic
+        exc = anthropic.APIStatusError.__new__(anthropic.APIStatusError)
+        exc.status_code = status_code
+        exc.message = message
+        return exc
+
+    @pytest.mark.unit
+    def test_429_sets_5min_ttl(self):
+        """HTTP 429 trips circuit breaker with ~300s TTL."""
+        from trading import claude_caller
+        snap = self._make_snap()
+
+        t_before = time.monotonic()
+        with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
+             patch("trading.claude_caller.build_stock_block", return_value="block"), \
+             patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
+             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.telegram_notify"):
+            mock_ai = MagicMock()
+            mock_ai.messages.create.side_effect = self._make_exc(429, "rate limit exceeded")
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+
+        assert claude_caller._CLAUDE_DISABLED.is_set()
+        ttl = claude_caller._CLAUDE_DISABLED_UNTIL - t_before
+        assert 290 <= ttl <= 310, f"Expected ~300s TTL, got {ttl:.1f}s"
+
+    @pytest.mark.unit
+    def test_402_sets_30min_ttl_and_telegrams(self):
+        """HTTP 402 trips circuit breaker with ~1800s TTL and sends Telegram."""
+        from trading import claude_caller
+        snap = self._make_snap()
+
+        t_before = time.monotonic()
+        with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
+             patch("trading.claude_caller.build_stock_block", return_value="block"), \
+             patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
+             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.telegram_notify") as mock_tg:
+            mock_ai = MagicMock()
+            mock_ai.messages.create.side_effect = self._make_exc(402, "billing error")
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+
+        assert claude_caller._CLAUDE_DISABLED.is_set()
+        ttl = claude_caller._CLAUDE_DISABLED_UNTIL - t_before
+        assert 1790 <= ttl <= 1810, f"Expected ~1800s TTL, got {ttl:.1f}s"
+        mock_tg.notify_claude_disabled.assert_called_once()
+
+    @pytest.mark.unit
+    def test_circuit_breaker_clears_after_ttl_expires(self):
+        """When TTL is expired, _ask_claude_batch clears the event and allows the call."""
+        from trading import claude_caller
+
+        # Set circuit breaker with already-expired TTL
+        claude_caller._CLAUDE_DISABLED.set()
+        claude_caller._CLAUDE_DISABLED_UNTIL = time.monotonic() - 1.0
+
+        mock_ai = MagicMock()
+        mock_ai.messages.create.return_value = MagicMock(
+            content=[MagicMock(text='{"TEST": {"action": "HOLD", "confidence": 0, '
+                                    '"reasoning": "ok", "stop_loss_pct": 4.0, '
+                                    '"take_profit_pct": 5.0, "indicator_signals": {}}}')],
+            usage=MagicMock(input_tokens=100, output_tokens=50,
+                            cache_creation_input_tokens=0, cache_read_input_tokens=0),
+        )
+
+        snap = self._make_snap()
+        with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
+             patch("trading.claude_caller.risk_manager.record_usage"), \
+             patch("trading.claude_caller.build_stock_block", return_value="block"), \
+             patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
+             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"):
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+
+        assert not claude_caller._CLAUDE_DISABLED.is_set()
+        mock_ai.messages.create.assert_called_once()
+
+    @pytest.mark.unit
+    def test_backoff_doubles_remaining_on_probe_failure(self):
+        """Re-trip while prior TTL has remaining time doubles the effective TTL."""
+        from trading import claude_caller
+
+        # Simulate a situation where the circuit was cleared for a probe but
+        # 200s of TTL still remain in _CLAUDE_DISABLED_UNTIL from the previous trip.
+        claude_caller._CLAUDE_DISABLED_UNTIL = time.monotonic() + 200.0
+        # Event is NOT set (probe in progress)
+
+        snap = self._make_snap()
+        t_before = time.monotonic()
+        with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
+             patch("trading.claude_caller.build_stock_block", return_value="block"), \
+             patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
+             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.telegram_notify"):
+            mock_ai = MagicMock()
+            mock_ai.messages.create.side_effect = self._make_exc(429, "rate limit")
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+
+        new_ttl = claude_caller._CLAUDE_DISABLED_UNTIL - t_before
+        # remaining was ~200s; doubled = 400s > base 300s → new_ttl should be ~400s
+        assert new_ttl >= 390, f"Expected TTL >= 390s (double of ~200s remaining), got {new_ttl:.1f}s"
+        assert new_ttl <= 1800, "TTL should not exceed 30 min cap"

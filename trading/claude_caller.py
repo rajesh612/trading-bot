@@ -24,9 +24,10 @@ from trading.context_builder import build_stable_system_context, build_dynamic_u
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-# ── Circuit breaker — tripped on 402/429; prevents hammering a dead endpoint ──
+# ── Circuit breaker — tripped on 402/429; auto-clears after TTL expires ──
 _CLAUDE_DISABLED = threading.Event()
 _CLAUDE_DISABLED_REASON: str = ""
+_CLAUDE_DISABLED_UNTIL: float = 0.0
 _CLAUDE_LOCK = threading.Lock()
 
 # ── Stable context cache — TTL 1 hour; string is identical within a trading day ─
@@ -44,10 +45,6 @@ def _get_cached_stable_context(fred_cache: dict, research_meta: dict, regime_inf
         _stable_ctx_text = build_stable_system_context(regime_info, fred_cache, research_meta)
         _stable_ctx_time = time.monotonic()
         return _stable_ctx_text
-
-
-def is_claude_disabled() -> bool:
-    return _CLAUDE_DISABLED.is_set()
 
 
 def _default_hold(symbol: str) -> dict:
@@ -74,13 +71,17 @@ def _ask_claude_batch(
     ai: anthropic.Anthropic,
 ) -> dict[str, dict]:
     """Ask Claude for decisions on multiple stocks in a single API call."""
-    global _CLAUDE_DISABLED_REASON
+    global _CLAUDE_DISABLED_REASON, _CLAUDE_DISABLED_UNTIL
     symbols = [sym for sym, _, _ in batch]
 
     with _CLAUDE_LOCK:
         if _CLAUDE_DISABLED.is_set():
-            logger.warning("Claude disabled (%s) — HOLD for %s", _CLAUDE_DISABLED_REASON, symbols)
-            return {sym: _default_hold(sym) for sym in symbols}
+            if time.monotonic() >= _CLAUDE_DISABLED_UNTIL:
+                _CLAUDE_DISABLED.clear()
+                _CLAUDE_DISABLED_REASON = ""
+            else:
+                logger.warning("Claude disabled (%s) — HOLD for %s", _CLAUDE_DISABLED_REASON, symbols)
+                return {sym: _default_hold(sym) for sym in symbols}
 
     estimated_cost = _estimate_batch_call_cost(len(batch))
     if not risk_manager.check_entry_budget(estimated_cost, snap.regime):
@@ -144,15 +145,19 @@ def _ask_claude_batch(
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
+            base_ttl = 1800.0 if exc.status_code == 402 else 300.0
             with _CLAUDE_LOCK:
+                remaining = max(0.0, _CLAUDE_DISABLED_UNTIL - time.monotonic())
+                new_ttl = min(max(base_ttl, remaining * 2), 1800.0)
                 _CLAUDE_DISABLED_REASON = f"HTTP {exc.status_code} — {exc.message[:120]}"
+                _CLAUDE_DISABLED_UNTIL = time.monotonic() + new_ttl
                 _CLAUDE_DISABLED.set()
             logger.error(
-                "CLAUDE API ERROR — circuit breaker tripped: %s\n"
-                "  Resolve at https://console.anthropic.com — all Claude calls suspended until restart.",
-                _CLAUDE_DISABLED_REASON,
+                "CLAUDE API ERROR — circuit breaker tripped for %.0fs: %s",
+                new_ttl, _CLAUDE_DISABLED_REASON,
             )
-            telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
+            if exc.status_code == 402:
+                telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
         else:
             logger.error("Claude API error HTTP %d: %s", exc.status_code, exc.message[:200])
         return {sym: _default_hold(sym) for sym in symbols}
@@ -190,12 +195,16 @@ def _ask_claude_exit_batch(
     ai: anthropic.Anthropic,
 ) -> dict[str, dict]:
     """Ask Claude to evaluate thesis-break candidates using compact exit prompts."""
-    global _CLAUDE_DISABLED_REASON
+    global _CLAUDE_DISABLED_REASON, _CLAUDE_DISABLED_UNTIL
     symbols = [sym for sym, _, _ in exit_candidates]
 
     with _CLAUDE_LOCK:
         if _CLAUDE_DISABLED.is_set():
-            return {sym: _default_hold(sym) for sym in symbols}
+            if time.monotonic() >= _CLAUDE_DISABLED_UNTIL:
+                _CLAUDE_DISABLED.clear()
+                _CLAUDE_DISABLED_REASON = ""
+            else:
+                return {sym: _default_hold(sym) for sym in symbols}
 
     open_count = len(exit_candidates)
     estimated_cost = (300 * open_count) * 3.00 / 1_000_000
@@ -230,10 +239,15 @@ def _ask_claude_exit_batch(
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
+            base_ttl = 1800.0 if exc.status_code == 402 else 300.0
             with _CLAUDE_LOCK:
+                remaining = max(0.0, _CLAUDE_DISABLED_UNTIL - time.monotonic())
+                new_ttl = min(max(base_ttl, remaining * 2), 1800.0)
                 _CLAUDE_DISABLED_REASON = f"HTTP {exc.status_code} — {exc.message[:120]}"
+                _CLAUDE_DISABLED_UNTIL = time.monotonic() + new_ttl
                 _CLAUDE_DISABLED.set()
-            telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
+            if exc.status_code == 402:
+                telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
         logger.error("Claude exit API error HTTP %d: %s", exc.status_code, exc.message[:200])
         return {sym: _default_hold(sym) for sym in symbols}
     except Exception as exc:
