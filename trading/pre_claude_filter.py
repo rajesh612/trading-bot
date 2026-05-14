@@ -18,8 +18,14 @@ class FilterResult:
     reason: str
 
 
-def pre_claude_filter(symbol: str, iv: IndicatorValues, snap: CycleSnapshot) -> FilterResult:
+def pre_claude_filter(
+    symbol: str,
+    iv: IndicatorValues,
+    snap: CycleSnapshot,
+    daily_closed: set[str] | None = None,
+) -> FilterResult:
     """
+    Layer 0 — Already closed today.
     Layer 1 — Composite minimum (regime-adjusted).
     Layer 2 — Technical fast gate (RSI, Stochastic, parabolic, stop-hunt).
     Layer 3 — Macro health score + morning shock score.
@@ -29,6 +35,10 @@ def pre_claude_filter(symbol: str, iv: IndicatorValues, snap: CycleSnapshot) -> 
     If all layers pass and signal is very strong → AUTO_EXECUTE (skip Claude).
     Otherwise → CLAUDE.
     """
+    # Layer 0 — Already closed today
+    if daily_closed and symbol in daily_closed:
+        return FilterResult("SKIP", "already closed today")
+
     # Layer 1 — Composite minimum
     composite_min = (
         config.HIGH_VOL_COMPOSITE_MIN

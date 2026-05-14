@@ -711,3 +711,62 @@ class TestCircuitBreakerTTL:
         # remaining was ~200s; doubled = 400s > base 300s → new_ttl should be ~400s
         assert new_ttl >= 390, f"Expected TTL >= 390s (double of ~200s remaining), got {new_ttl:.1f}s"
         assert new_ttl <= 1800, "TTL should not exceed 30 min cap"
+
+
+# ─── daily_closed as Layer 0 (Task 4: Fix 3) ────────────────────────────────────
+
+class TestPreClaudeFilterDailyClosed:
+
+    def _snap(self):
+        from trading.cycle_context import CycleSnapshot
+        return CycleSnapshot(
+            regime_info={"regime": "NORMAL", "macro_health_score": 0},
+            regime="NORMAL",
+            fred_cache={},
+            research={"TEST": {"sentiment_score": 20}},
+            research_meta={"macro_shock_score": 0},
+            strategy_memory="",
+            weights={},
+            params={},
+            portfolio_gain_pct=0.0,
+            intraday_news={},
+        )
+
+    def _iv(self, composite=50.0):
+        from tests.test_signals import TestFastGate
+        return TestFastGate()._iv(composite_score=composite, rsi=55.0, stoch_d=50.0)
+
+    @pytest.mark.unit
+    def test_layer0_skips_already_closed_symbol(self):
+        """Symbol in daily_closed returns SKIP before any other layer."""
+        from trading.pre_claude_filter import pre_claude_filter
+        result = pre_claude_filter("TEST", self._iv(composite=80.0), self._snap(),
+                                   daily_closed={"TEST"})
+        assert result.decision == "SKIP"
+        assert "already closed" in result.reason
+
+    @pytest.mark.unit
+    def test_layer0_passes_symbol_not_in_closed(self):
+        """Symbol absent from daily_closed is not blocked by Layer 0."""
+        from trading.pre_claude_filter import pre_claude_filter
+        result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap(),
+                                   daily_closed={"OTHER"})
+        # Must not be skipped due to "already closed"
+        assert not (result.decision == "SKIP" and "already closed" in result.reason)
+
+    @pytest.mark.unit
+    def test_layer0_not_triggered_with_empty_set(self):
+        """Passing an empty set never triggers Layer 0 SKIP."""
+        from trading.pre_claude_filter import pre_claude_filter
+        result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap(),
+                                   daily_closed=set())
+        if result.decision == "SKIP":
+            assert "already closed" not in result.reason
+
+    @pytest.mark.unit
+    def test_layer0_not_triggered_when_none(self):
+        """daily_closed=None (default) skips Layer 0 entirely."""
+        from trading.pre_claude_filter import pre_claude_filter
+        result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap())
+        if result.decision == "SKIP":
+            assert "already closed" not in result.reason

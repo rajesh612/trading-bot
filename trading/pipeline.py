@@ -110,7 +110,7 @@ class TradingPipeline:
         )
         pos_mult  = snap.params.get("high_vol_position_mult", 0.5) if regime in ("DEFENSIVE", "CHOPPY") else 1.0
         open_positions = load_open_positions()
-        load_daily_closed()
+        daily_closed = load_daily_closed()
 
         # ── Phase 1: Parallel data fetch ──────────────────────────────────────
         t_fetch = time.monotonic()
@@ -148,7 +148,7 @@ class TradingPipeline:
                     pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
                     logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
                     continue
-                filt = pre_claude_filter(symbol, iv, snap)
+                filt = pre_claude_filter(symbol, iv, snap, daily_closed)
                 if filt.decision == "SKIP":
                     logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 elif filt.decision == "AUTO_EXECUTE":
