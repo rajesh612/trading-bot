@@ -503,6 +503,14 @@ class TestPipelinePhase2Tiers:
 
 class TestEntryExhaustedFlagReset:
 
+    def setup_method(self):
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = False
+
+    def teardown_method(self):
+        from trading import risk_manager
+        risk_manager._entry_exhausted_flag = False
+
     @pytest.mark.unit
     def test_flag_syncs_to_false_on_fresh_day_budget(self, tmp_path):
         """Stale True flag is cleared when disk budget shows entry_exhausted=False."""
@@ -567,4 +575,3 @@ class TestEntryExhaustedFlagReset:
 
         assert result is False
         assert risk_manager._entry_exhausted_flag is True
-        risk_manager._entry_exhausted_flag = False  # cleanup
