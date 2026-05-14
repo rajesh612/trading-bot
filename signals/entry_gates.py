@@ -28,6 +28,22 @@ class GateResult:
     flags: tuple[str, ...] = ()
 
 
+def effective_composite_gate(iv: IndicatorValues, regime: str) -> int:
+    """Single source of truth for composite entry threshold by regime and signal context.
+
+    Priority: HIGH_VOL safety → squeeze setup → bot herding → CHOPPY → NORMAL.
+    """
+    if regime in ("HIGH_VOL", "DEFENSIVE"):
+        return config.HIGH_VOL_COMPOSITE_MIN   # 35
+    if iv.squeeze_setup:
+        return 12                              # strong squeeze signal lowers bar
+    if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
+        return config.HERD_ENTRY_GATE          # 25
+    if regime == "CHOPPY":
+        return config.CHOPPY_COMPOSITE_GATE   # 30
+    return config.PRE_CLAUDE_COMPOSITE_MIN    # 20
+
+
 def fast_gate(iv: IndicatorValues) -> GateResult:
     """
     Pure indicator-based hard vetos — no I/O, no external data.

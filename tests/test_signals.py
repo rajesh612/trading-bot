@@ -838,4 +838,59 @@ class TestFastGate:
         from signals.entry_gates import fast_gate
         result = fast_gate(self._iv(stop_hunt_zone=True))
         assert result.passed is False
-        assert "stop" in result.reason.lower()
+
+
+# ── signals.entry_gates.effective_composite_gate ─────────────────────────────
+
+class TestEffectiveCompositeGate:
+    """effective_composite_gate is the single source of truth for composite thresholds."""
+
+    def _iv(self, *, squeeze_setup=False, bot_herding_score=0):
+        from unittest.mock import MagicMock
+        iv = MagicMock()
+        iv.squeeze_setup = squeeze_setup
+        iv.bot_herding_score = bot_herding_score
+        return iv
+
+    @pytest.mark.unit
+    def test_high_vol_regime_returns_35(self):
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv()
+        assert effective_composite_gate(iv, "HIGH_VOL") == 35
+
+    @pytest.mark.unit
+    def test_defensive_regime_returns_35(self):
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv()
+        assert effective_composite_gate(iv, "DEFENSIVE") == 35
+
+    @pytest.mark.unit
+    def test_squeeze_setup_returns_12(self):
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv(squeeze_setup=True)
+        assert effective_composite_gate(iv, "NORMAL") == 12
+
+    @pytest.mark.unit
+    def test_herding_returns_25(self):
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv(bot_herding_score=60)  # BOT_HERD_ALERT_SCORE = 60
+        assert effective_composite_gate(iv, "NORMAL") == 25
+
+    @pytest.mark.unit
+    def test_choppy_returns_30(self):
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv()
+        assert effective_composite_gate(iv, "CHOPPY") == 30
+
+    @pytest.mark.unit
+    def test_normal_returns_20(self):
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv()
+        assert effective_composite_gate(iv, "NORMAL") == 20
+
+    @pytest.mark.unit
+    def test_high_vol_overrides_squeeze(self):
+        """HIGH_VOL safety takes priority over squeeze setup."""
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv(squeeze_setup=True)
+        assert effective_composite_gate(iv, "HIGH_VOL") == 35

@@ -13,7 +13,7 @@ from alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
 from market_data import get_intraday_bars
 from utils.io_utils import load_json, save_json
-from signals.entry_gates import check_all_gates
+from signals.entry_gates import check_all_gates, effective_composite_gate
 from trading.journal import _POSITIONS_LOCK, append_trade
 from trading.modes import get_active_mode, get_sl_tp_for_mode_and_regime, _MODE_POSITION_LIMITS
 from trading.position_sizer import (
@@ -27,16 +27,6 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
-
-def effective_composite_gate(iv: IndicatorValues, regime: str) -> int:
-    """Squeeze loosens; herding / choppy raises the composite entry threshold."""
-    if iv.squeeze_setup:
-        return 12
-    if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
-        return config.HERD_ENTRY_GATE
-    if regime == "CHOPPY":
-        return config.CHOPPY_COMPOSITE_GATE
-    return config.COMPOSITE_SCORE_THRESHOLD
 
 
 def execute_buy(
