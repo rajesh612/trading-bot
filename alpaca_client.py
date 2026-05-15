@@ -35,15 +35,15 @@ class AlpacaClient:
         return {p.symbol: p for p in self._trading.get_all_positions()}
 
     def get_latest_price(self, symbol: str) -> float:
-        from market_data import get_latest_price
+        from data.market_data import get_latest_price
         return get_latest_price(symbol)
 
     def get_intraday_bars(self, symbol: str, lookback: int = config.BARS_LOOKBACK) -> pd.DataFrame:
-        from market_data import get_intraday_bars
+        from data.market_data import get_intraday_bars
         return get_intraday_bars(symbol, lookback=lookback)
 
     def get_daily_bars(self, symbol: str, days: int = config.DAILY_BARS_LOOKBACK) -> pd.DataFrame:
-        from market_data import get_daily_bars
+        from data.market_data import get_daily_bars
         return get_daily_bars(symbol, days=days)
 
     def place_market_order(self, symbol: str, qty: float, side: str) -> dict:

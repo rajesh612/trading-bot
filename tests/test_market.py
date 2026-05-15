@@ -121,7 +121,7 @@ class TestApiBudget:
 class TestMarketDataSchema:
     def test_yahoo_bars_returns_correct_columns(self):
         """Yahoo bars must have OHLCV columns and a tz-aware DatetimeIndex."""
-        from market_data import _yahoo_bars
+        from data.market_data import _yahoo_bars
         try:
             df = _yahoo_bars("SPY", "1d", "10d")
         except Exception:
@@ -130,7 +130,7 @@ class TestMarketDataSchema:
         assert df.index.tz is not None
 
     def test_get_intraday_bars_respects_lookback(self):
-        from market_data import get_intraday_bars
+        from data.market_data import get_intraday_bars
         try:
             df = get_intraday_bars("SPY", lookback=50)
         except Exception:
@@ -146,7 +146,7 @@ class TestMarketDataHelpers:
     def test_get_intraday_bars_returns_empty_on_yahoo_error(self, monkeypatch):
         import config
         monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
-        import market_data as md
+        import data.market_data as md
         monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
         result = md.get_intraday_bars("AAPL")
         assert result.empty
@@ -154,7 +154,7 @@ class TestMarketDataHelpers:
     def test_get_daily_bars_returns_empty_on_yahoo_error(self, monkeypatch):
         import config
         monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
-        import market_data as md
+        import data.market_data as md
         monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
         result = md.get_daily_bars("AAPL")
         assert result.empty
@@ -162,7 +162,7 @@ class TestMarketDataHelpers:
     def test_get_latest_price_yahoo_path(self, monkeypatch):
         import config
         monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
-        import market_data as md
+        import data.market_data as md
         idx = pd.date_range("2026-05-01 15:50", periods=1, freq="2min", tz="America/New_York")
         fake_df = pd.DataFrame({"close": [155.0]}, index=idx)
         monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: fake_df)
@@ -192,7 +192,7 @@ class TestAlpacaClientHelpers:
         with patch("alpaca_client.TradingClient"):
             import alpaca_client
             client = alpaca_client.AlpacaClient()
-            with patch("market_data.get_latest_price", return_value=200.5):
+            with patch("data.market_data.get_latest_price", return_value=200.5):
                 price = client.get_latest_price("AAPL")
                 assert price == 200.5
 
@@ -759,7 +759,7 @@ class TestMarketMonitor:
         mock_df = pd.DataFrame({"close": closes}, index=idx)
 
         # Patch at the market_data module level — _get_spy_prev_close imports from there
-        import market_data
+        import data.market_data as market_data
         monkeypatch.setattr(market_data, "get_daily_bars", lambda *a, **kw: mock_df)
 
         from utils.market_monitor import _get_spy_prev_close

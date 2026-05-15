@@ -90,7 +90,7 @@ def _fetch_earnings_day_reaction(symbol: str, report_date: str) -> dict:
         "guidance_change":             "unknown",
     }
     try:
-        from market_data import get_daily_bars
+        from data.market_data import get_daily_bars
         df = get_daily_bars(symbol, days=30)
         if df.empty:
             return result

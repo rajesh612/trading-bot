@@ -56,7 +56,7 @@ def get_intraday_context(now: datetime) -> "IntradayContext | None":
 
 def _fetch_intraday_context(now: datetime) -> "IntradayContext | None":
     try:
-        from market_data import get_intraday_bars, get_daily_bars
+        from data.market_data import get_intraday_bars, get_daily_bars
         from economic_calendar import is_post_major_event_day
 
         spy_bars = get_intraday_bars("SPY", lookback=80)
@@ -126,7 +126,7 @@ def _fetch_intraday_context(now: datetime) -> "IntradayContext | None":
 def _prev_close_from_daily(symbol: str) -> float:
     """Get yesterday's closing price from daily bars."""
     try:
-        from market_data import get_daily_bars
+        from data.market_data import get_daily_bars
         daily = get_daily_bars(symbol, days=3)
         if daily is not None and len(daily) >= 2:
             return float(daily["close"].iloc[-2])

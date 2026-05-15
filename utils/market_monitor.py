@@ -11,7 +11,7 @@ import requests
 
 import config
 import telegram_notify
-from market_data import get_latest_price
+from data.market_data import get_latest_price
 from utils.io_utils import load_json, save_json
 from utils.constants import ET
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def _get_spy_prev_close() -> float:
     """Get SPY previous daily close via Yahoo Finance."""
     try:
-        from market_data import get_daily_bars
+        from data.market_data import get_daily_bars
         df = get_daily_bars("SPY", days=5)
         if len(df) >= 2:
             return float(df["close"].iloc[-2])

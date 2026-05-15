@@ -117,35 +117,3 @@ def get_latest_price(symbol: str) -> float:
         pass
 
     raise ValueError(f"Cannot fetch latest price for {symbol}")
-
-
-def get_quote(symbol: str) -> dict:
-    """Return {bid, ask, last, volume, timestamp}."""
-    provider = config.MARKET_DATA_PROVIDER
-
-    if provider in ("alpaca", "hybrid"):
-        try:
-            from alpaca.data.historical import StockHistoricalDataClient
-            from alpaca.data.requests import StockLatestQuoteRequest
-            client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
-            req = StockLatestQuoteRequest(symbol_or_symbols=symbol)
-            q = client.get_stock_latest_quote(req)[symbol]
-            mid = float((q.bid_price + q.ask_price) / 2)
-            return {
-                "bid": float(q.bid_price),
-                "ask": float(q.ask_price),
-                "last": mid,
-                "volume": 0,
-                "timestamp": q.timestamp.isoformat(),
-            }
-        except Exception:
-            pass
-
-    price = get_latest_price(symbol)
-    return {
-        "bid": price,
-        "ask": price,
-        "last": price,
-        "volume": 0,
-        "timestamp": datetime.now(ET).isoformat(),
-    }

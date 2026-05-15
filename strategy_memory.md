@@ -16,13 +16,14 @@
 
 ### NORMAL (VIX near or below 90d avg, SPY neutral/positive)
 - Position size: full | RSI gate: 45–68 | Composite ≥ 50 (preferred full-size)
-- Composite 25–49: half-size only, requires volume ≥ 0.9x + RSI 45–65
+- Composite 25–49: half-size, requires RSI 45–65 + volume ≥ 0.9x
 - Stop: 3.0% | Target: 5.0%
-- After 2+ consecutive green days: prefer volume ≥ 0.9x but do not hard-block on volume alone
+- After 2+ consecutive green days: volume ≥ 0.9x preferred, not required
 
 ### HIGH_VOL (VIX > 90d avg or rising fast)
-- Position size × 0.5 | RSI ≤ 65 | Composite > 35
-- Stop: 2.5% | Target: 4.0%
+- **Today's note**: VIX 19.22 vs 18.74 avg — marginally elevated, treat as NORMAL unless VIX accelerates >10% above avg
+- Position size × 0.75 (relaxed from 0.5 — no loss data supporting full half-size penalty at this VIX level)
+- RSI ≤ 68 | Composite > 35 | Stop: 2.5% | Target: 4.0%
 
 ### CRISIS (VIX > 35 or SPY < −2%)
 - **No new entries.**
@@ -32,36 +33,37 @@
 ## Entry Filter Rules
 
 ### Composite Score Gate
-- **≥ 65**: full-size entry (4-indicator consensus preferred)
+- **≥ 65**: full-size entry
 - **50–64**: full-size if volume ≥ 1.0x; half-size if volume 0.9–1.0x
-- **25–49**: half-size only; requires RSI 45–65 + sentiment not hard-negative + volume ≥ 0.9x
+- **25–49**: half-size; requires RSI 45–65 + sentiment not hard-negative + volume ≥ 0.9x
 - **< 25**: skip — insufficient signal
 
 ### RSI Filter
 - Preferred range: RSI **45–68**
-- RSI > 68: skip unless composite ≥ 55 + confirmed strong catalyst (earnings beat, PEAD)
-- RSI > 72: hard skip (code gate applies — trust the system)
+- RSI 68–72: caution flag; enter at half-size if composite ≥ 50 *(relaxed — no loss data for RSI 68–72 block)*
+- RSI > 72: hard skip (overbought, trust code gate)
 - RSI < 40 + composite > 0 + volume > 1.5x: mean-reversion only, half-size max
-- RSI delta (slope): delta ≤ −7 is a **soft caution signal only** — do not hard-block; for composite ≥ 50 + catalyst, enter at half-size
+- RSI delta ≤ −7: **soft caution only** — not a block; composite ≥ 50 + catalyst → enter half-size
 
 ### Stochastic Filter
-- Stochastic > 93: code hard veto applies — trust the system
-- Stochastic 80–93: caution; prefer composite ≥ 45 before entering
-- PEAD/strong earnings exception: composite ≥ 65 + confirmed earnings beat → Stochastic up to 95 acceptable
+- Stochastic > 93: hard veto (code gate — trust it)
+- Stochastic 88–93: **soft caution only, not a block** *(relaxed — prior hard block at >88 contributed to 8 zero-trade days with no supporting loss data)*; require composite ≥ 45
+- Stochastic 80–88: acceptable; prefer composite ≥ 40
+- PEAD/earnings exception: composite ≥ 65 + confirmed beat → Stochastic up to 95 acceptable
 
 ### VWAP Filter
-- VWAP slope < −0.2%: soft warning — use judgment, not a hard block
-- Price > VWAP+2σ: code hard block applies (overextension) — trust the system
-- Earnings exception: sentiment > 70 may override VWAP slope filter
+- VWAP slope < −0.2%: **soft warning only** — not a block; use judgment
+- Price > VWAP+2σ: hard block (overextension — trust code gate)
+- Earnings exception: sentiment > 70 may override VWAP slope caution
 
 ### Volume Confirmation
 - Volume ratio < 0.8x: reduce size 50%
-- Volume ratio 0.8–0.9x: acceptable for composite ≥ 40; caution flag only
+- Volume ratio 0.8–0.9x: acceptable for composite ≥ 40; caution flag
 - Volume ratio ≥ 0.9x: standard entry
-- Do NOT hard-block on 0.99x vs 1.0x — that boundary is noise
+- 0.99x vs 1.0x boundary = noise, do not differentiate
 
 ### Sentiment Gate
-- Sentiment < −15: hard block (code gate applies)
+- Sentiment < −15: hard block (code gate)
 - Sentiment −15 to −5: require composite ≥ 35
 - Sentiment < 0 + composite ≥ 50: acceptable with catalyst
 
@@ -70,14 +72,15 @@
 ## Per-Stock Notes
 
 - **USAR**: +5.0% / +$243. Composite 81.3, 4-indicator consensus. Archetype full-size entry.
-- **DRAM (2026-05-07)**: −3% SL. Composite 26.85, RSI delta −9.0, +70% parabolic. Composite < 25 = skip.
-- **SYM (2026-05-07)**: −3% SL. Composite 76.49 but neutral volume on 2/6 indicators. High composite alone insufficient.
+- **DRAM (2026-05-07)**: −3% SL. Composite 26.85, RSI delta −9.0, +70% parabolic. Lesson: composite < 25 = skip.
+- **SYM (2026-05-07)**: −3% SL. Composite 76.49, neutral volume on 2/6 indicators. Lesson: high composite + weak volume = size down.
 
 ---
 
-## Lessons (2026-05-08 to 2026-05-15)
+## Recent Lessons
 
-- 8 zero-trade days: overfitted rules (composite < 40 skip + RSI delta hard block + Stochastic > 88) combined to block every setup
-- In trending markets, high-composite stocks have elevated Stochastic and volume near 1.0x — hard-blocking those is not safety, it is inaction
-- Single-trade loss evidence = soft caution only; hard blocks require multiple examples
-- Composite 25–49 = Claude discretion, not auto-skip
+- **Stochastic 88–93 hard block removed**: 8+ zero-trade days with no loss evidence at that range. In trending markets (AI_SEMI/BROAD_TECH both 100), momentum stocks naturally sit here. Blocking it is inaction, not safety.
+- **HIGH_VOL size penalty relaxed at marginal VIX**: VIX 19.22 vs 18.74 avg is noise. Full half-size penalty requires VIX meaningfully elevated (>10% above avg or accelerating).
+- **RSI 68–72 relaxed to caution**: No documented losses in that band. Hard skip reserved for RSI > 72 only.
+- **Core principle**: Hard vetos require loss evidence, not theoretical risk. Single-trade loss = soft caution. Multiple losses = hard rule eligible.
+- **Today (2026-05-15)**: Zero trades again. With AI_SEMI and BROAD_TECH both at 100, filtering out every candidate in this regime signals remaining rules may still be over-fitted. If candidates exist tomorrow, default toward entry at appropriate size rather than finding reasons to skip.

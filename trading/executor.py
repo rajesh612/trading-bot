@@ -11,7 +11,7 @@ import config
 import telegram_notify
 from alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
-from market_data import get_intraday_bars
+from data.market_data import get_intraday_bars
 from utils.io_utils import load_json, save_json
 from signals.entry_gates import check_all_gates, effective_composite_gate
 from trading.journal import _POSITIONS_LOCK, append_trade
