@@ -13,10 +13,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import logging
 import config
 from research.intraday import load_intraday_news
 from macro_regime import load_macro_regime, load_trading_params
 from utils.io_utils import load_json
+
+_logger = logging.getLogger(__name__)
+_STRATEGY_MEMORY_MAX_AGE_DAYS = 7
 
 # ── FRED TTL cache — stable all trading day ───────────────────────────────────
 _fred_cache: dict = {}
@@ -79,12 +83,21 @@ def build_cycle_snapshot(
     weights     = load_json(config.INDICATOR_WEIGHTS_FILE, {})
 
     strat_path = Path(str(config.STRATEGY_MEMORY_FILE))
+    raw_mem = ""
     try:
-        raw_mem = strat_path.read_text()
-        if len(raw_mem) > config.STRATEGY_MEMORY_MAX_CHARS:
-            raw_mem = raw_mem[-config.STRATEGY_MEMORY_MAX_CHARS:]
+        age_days = (time.time() - strat_path.stat().st_mtime) / 86400
+        if age_days > _STRATEGY_MEMORY_MAX_AGE_DAYS:
+            _logger.warning(
+                "strategy_memory.md is %.0f days old (> %d) — skipping stale rules; "
+                "learning agent will refresh it tonight.",
+                age_days, _STRATEGY_MEMORY_MAX_AGE_DAYS,
+            )
+        else:
+            raw_mem = strat_path.read_text()
+            if len(raw_mem) > config.STRATEGY_MEMORY_MAX_CHARS:
+                raw_mem = raw_mem[-config.STRATEGY_MEMORY_MAX_CHARS:]
     except FileNotFoundError:
-        raw_mem = ""
+        pass
 
     return CycleSnapshot(
         regime_info=regime_info,

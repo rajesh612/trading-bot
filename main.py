@@ -38,6 +38,7 @@ from scheduler_jobs import (
     job_heartbeat,
     job_intraday_news,
     job_budget_rollover,
+    job_midday_check,
 )
 
 # Backward-compat aliases so existing tests that import `main._xxx` continue to work.
@@ -200,6 +201,15 @@ def setup_scheduler():
         replace_existing=True,
         max_instances=1,
         misfire_grace_time=30,
+    )
+    # Midday health check at 12:00 PM ET — alerts if zero trades by noon
+    scheduler.add_job(
+        job_midday_check,
+        CronTrigger(hour=12, minute=0, **kw),
+        id="midday_check",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=300,
     )
     # Budget rollover at 12:30 PM ET
     scheduler.add_job(

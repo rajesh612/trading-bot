@@ -213,7 +213,7 @@ VWAP_OVEREXTENSION_GATE     = True    # block price > VWAP+2σ
 PARABOLIC_ENTRY_BLOCK       = True    # block parabolic=True entries
 
 # ── Entry gate overbought thresholds ──────────────────────────────────────────
-STOCH_HARD_VETO_THRESHOLD  = 88    # Stochastic %D above this → hard gate before Claude
+STOCH_HARD_VETO_THRESHOLD  = 93    # Stochastic %D above this → hard gate before Claude
 POST_EVENT_POSITION_MULT    = 0.6     # 60% sizing on post-FOMC/NFP/CPI days
 INTRADAY_CONTEXT_TTL_SEC    = 300     # cache SPY intraday context 5 min
 RESEARCH_STALE_WARN_MIN     = 120     # warn if research report > 2h old

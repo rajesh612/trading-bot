@@ -199,6 +199,38 @@ def job_budget_rollover():
     _job_guard("budget_rollover", lambda: try_rollover_exit_to_entry(datetime.now(ET)))
 
 
+def job_midday_check():
+    """Fire at noon ET: alert if zero BUY trades have executed today."""
+    now = datetime.now(ET)
+    try:
+        from trading.journal import load_journal
+        today = now.date().isoformat()
+        journal = load_journal()
+        buys_today = [e for e in journal if e.get("action") == "BUY" and e.get("timestamp", "").startswith(today)]
+        if buys_today:
+            return  # trades already executed — no alert needed
+
+        from macro_regime import load_macro_regime
+        regime_data = load_macro_regime()
+        regime = regime_data.get("regime", "UNKNOWN")
+
+        from utils.io_utils import load_json
+        budget = load_json(config.API_BUDGET_FILE, {})
+        spent = budget.get("total_spent_usd", 0.0)
+        ceiling = budget.get("daily_ceiling_usd", config.DAILY_API_BUDGET_USD)
+        budget_pct = spent / ceiling * 100 if ceiling else 0
+
+        # Estimate cycles run: 9:30→noon every 10 min = ~15 cycles
+        entry_start = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        elapsed_min = (now - entry_start).total_seconds() / 60
+        cycles_run = max(0, int(elapsed_min / 10))
+
+        telegram_notify.notify_no_trades_midday(regime, cycles_run, budget_pct)
+        logger.warning("Midday check: 0 trades executed after %d cycles — Telegram alert sent.", cycles_run)
+    except Exception as exc:
+        logger.warning("job_midday_check failed: %s", exc)
+
+
 def job_heartbeat():
     now = datetime.now(ET)
     try:

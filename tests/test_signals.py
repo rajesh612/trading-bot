@@ -703,9 +703,11 @@ class TestRsiStochGates:
     def test_stoch_above_threshold_blocks(self, monkeypatch):
         """Stochastic %D > STOCH_HARD_VETO_THRESHOLD fires the gate."""
         self._patch_calendars(monkeypatch)
+        import config
         from signals.entry_gates import check_all_gates
+        above_threshold = config.STOCH_HARD_VETO_THRESHOLD + 1.0
         result = check_all_gates(
-            "NVDA", self._iv(stoch_d=89.0), {}, set(), None,
+            "NVDA", self._iv(stoch_d=above_threshold), {}, set(), None,
             self._now(), entries_this_cycle=0,
         )
         assert result.passed is False

@@ -28,12 +28,73 @@ from learning.data import (
 logger = logging.getLogger(__name__)
 
 
+def _refresh_strategy_memory_no_trades(today: str) -> None:
+    """
+    On zero-trade days the main learning loop exits early, but strategy_memory still
+    needs a daily refresh so stale rules don't accumulate and freeze the bot.
+    Asks Claude to review current rules against today's market and relax any that
+    have been blocking entries without evidence of losses.
+    """
+    current_memory = (
+        config.STRATEGY_MEMORY_FILE.read_text()
+        if config.STRATEGY_MEMORY_FILE.exists()
+        else ""
+    )
+    if not current_memory:
+        return
+
+    regime_info = load_macro_regime()
+    ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    try:
+        response = ai.messages.create(
+            model=config.CLAUDE_MODEL,
+            max_tokens=1500,
+            system=[{
+                "type": "text",
+                "text": (
+                    "You maintain a living trading strategy memory document.\n"
+                    "Today zero trades were executed — all candidates were filtered out.\n"
+                    "Your job: review the current rules and identify which ones may be "
+                    "too restrictive given today's market conditions. "
+                    "Relax rules that lack loss evidence. Hard vetos should be reserved "
+                    "for conditions that historically caused losses, not theoretical risk.\n"
+                    "Keep the document under 1000 words. Update the '# Last updated' date.\n"
+                    "Required sections: General Rules, Market Regime Playbook, "
+                    "Entry Filter Rules, Per-Stock Notes, Weight Rationale, Recent Lessons."
+                ),
+            }],
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Date: {today} — ZERO TRADES EXECUTED TODAY\n"
+                    f"Market regime: {json.dumps(regime_info, indent=2)}\n\n"
+                    f"Current strategy memory:\n{current_memory}\n\n"
+                    "Review each hard rule. If a rule has been in place for > 5 days "
+                    "with zero supporting loss data, relax it to a soft warning. "
+                    "Write the complete updated strategy_memory.md."
+                ),
+            }],
+        )
+        risk_manager.record_usage(
+            input_tokens=getattr(response.usage, "input_tokens", 0),
+            output_tokens=getattr(response.usage, "output_tokens", 0),
+            cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", 0),
+            cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0),
+        )
+        config.STRATEGY_MEMORY_FILE.write_text(response.content[0].text.strip())
+        logger.info("strategy_memory.md refreshed (zero-trade rule-review pass).")
+    except Exception as exc:
+        logger.warning("Zero-trade strategy_memory refresh failed: %s", exc)
+
+
 def run_learning_agent():
     today = date.today().isoformat()
     closed_trades = _load_todays_closed_trades()
 
     if not closed_trades:
-        logger.info("No closed trades today — nothing to learn from.")
+        logger.info("No closed trades today — running rule-review pass on strategy_memory.")
+        _refresh_strategy_memory_no_trades(today)
         return
 
     current_weights = _load_weights()

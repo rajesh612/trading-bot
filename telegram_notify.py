@@ -142,6 +142,17 @@ def notify_close(
     )
 
 
+# ── Midday health check ───────────────────────────────────────────────────────
+
+def notify_no_trades_midday(regime: str, cycles_run: int, budget_pct: float) -> None:
+    _send(
+        f"<b>⚠️ No trades by 12:00 PM ET</b>\n"
+        f"Regime: <b>{regime}</b> | Cycles run: {cycles_run}\n"
+        f"API budget used: {budget_pct:.0f}%\n"
+        f"Bot is running but all candidates are being filtered."
+    )
+
+
 # ── EOD summary ───────────────────────────────────────────────────────────────
 
 def notify_eod_summary(

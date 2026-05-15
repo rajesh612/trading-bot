@@ -57,6 +57,11 @@ def pre_claude_filter(
         return FilterResult("SKIP",
             f"RSI {iv.rsi:.1f} > {rsi_max} ({snap.regime})")
 
+    # Layer 2.1 — Stochastic overbought (mirrors executor gate; avoids burning budget on guaranteed HOLDs)
+    if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
+        return FilterResult("SKIP",
+            f"Stochastic {iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD}")
+
     # Layer 2.5 — VWAP: slope downtrend + price overextension (same criteria as executor)
     vwap_slope_min = snap.params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
     if iv.vwap_slope < vwap_slope_min:
