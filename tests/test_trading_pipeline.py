@@ -378,3 +378,116 @@ class TestBudgetEscalationNotify:
         with patch("requests.post", side_effect=Exception("network error")):
             telegram_notify.notify_budget_escalation(0.25, 1.50)
             # Must not raise — function should return normally
+
+
+# ── Pipeline HIGH_VOL regime routing ─────────────────────────────────────────
+
+@pytest.mark.unit
+def test_pipeline_passes_correct_rsi_max_and_pos_mult_for_high_vol():
+    """TradingPipeline.run() passes RSI_BUY_MAX_HIGH_VOL and pos_mult=0.5 to execute_buy in HIGH_VOL."""
+    from datetime import datetime, timedelta
+    from unittest.mock import MagicMock, patch
+    import config
+    from trading.pipeline import TradingPipeline
+    from trading.cycle_context import CycleSnapshot
+    from trading.pre_claude_filter import FilterResult
+    from utils.constants import ET
+
+    fresh_ts = (datetime.now(ET) - timedelta(minutes=5)).isoformat()
+    snap = CycleSnapshot(
+        regime_info={"regime": "HIGH_VOL", "macro_health_score": 0, "spy_5day_return": 0.0},
+        regime="HIGH_VOL",
+        fred_cache={},
+        research={"__meta__": {"timestamp": fresh_ts}},
+        research_meta={"timestamp": fresh_ts, "macro_shock_score": 0},
+        strategy_memory="",
+        weights={},
+        params={
+            "rsi_buy_max": config.RSI_BUY_MAX,
+            "rsi_buy_max_high_vol": config.RSI_BUY_MAX_HIGH_VOL,
+            "high_vol_position_mult": 0.5,
+            "vwap_slope_min": -0.3,
+            "entry_start_hour": 10,
+            "entry_end_hour": 15,
+        },
+        portfolio_gain_pct=0.0,
+        intraday_news={},
+    )
+
+    mock_iv = MagicMock()
+    mock_iv.composite_score = 50.0
+    mock_iv.current_price = 100.0
+
+    captured = {}
+
+    def fake_execute_buy(*, rsi_max, pos_mult, **kw):
+        captured["rsi_max"] = rsi_max
+        captured["pos_mult"] = pos_mult
+        return None
+
+    with patch("trading.pipeline._fetch_symbol_data", return_value=("TEST", mock_iv, None, 0.0)), \
+         patch("trading.pipeline.pre_claude_filter", return_value=FilterResult("CLAUDE", "")), \
+         patch("trading.pipeline.risk_manager.is_entry_budget_exhausted", return_value=False), \
+         patch("trading.pipeline._ask_claude_batch", return_value={"TEST": {"action": "BUY", "confidence": 80, "reasoning": "", "stop_loss_pct": 4.0, "take_profit_pct": 5.0}}), \
+         patch("trading.pipeline._ask_claude_exit_batch", return_value={}), \
+         patch("trading.pipeline.load_open_positions", return_value={}), \
+         patch("trading.pipeline.load_daily_closed", return_value=set()), \
+         patch("trading.pipeline.execute_buy", side_effect=fake_execute_buy):
+        TradingPipeline().run(
+            symbols=["TEST"],
+            snap=snap,
+            ai=MagicMock(),
+            now=datetime.now(ET),
+            alpaca=MagicMock(),
+            portfolio_value=10000.0,
+            buying_power=5000.0,
+            can_open=True,
+        )
+
+    assert captured.get("rsi_max") == config.RSI_BUY_MAX_HIGH_VOL, \
+        f"Expected rsi_max={config.RSI_BUY_MAX_HIGH_VOL}, got {captured.get('rsi_max')}"
+    assert captured.get("pos_mult") == 0.5, \
+        f"Expected pos_mult=0.5, got {captured.get('pos_mult')}"
+
+
+@pytest.mark.unit
+def test_execute_buy_blocked_by_high_vol_composite_gate():
+    """execute_buy rejects composite=30 in HIGH_VOL regime (effective_composite_gate returns 35)."""
+    from unittest.mock import MagicMock, patch
+    import config
+    from trading.executor import execute_buy
+    from signals.entry_gates import GateResult
+
+    iv = MagicMock()
+    iv.rsi = 55.0
+    iv.vwap_slope = 0.1
+    iv.composite_score = 30.0
+    iv.squeeze_setup = False
+    iv.bot_herding_score = 0
+    iv.current_price = 100.0
+    iv.momentum_exhaustion = False
+
+    with patch("trading.executor.get_intraday_bars", return_value=None), \
+         patch("trading.executor.load_json", return_value=[]), \
+         patch("trading.executor.check_all_gates", return_value=GateResult(passed=True)), \
+         patch("trading.executor.get_active_mode", return_value="DAY_TRADE"):
+        result = execute_buy(
+            symbol="TEST", iv=iv,
+            decision={"action": "BUY", "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+                      "confidence": 0.8, "reasoning": "test"},
+            regime="HIGH_VOL",
+            regime_info={"regime": "HIGH_VOL", "macro_health_score": 0},
+            research={"TEST": {"sentiment_score": 10}},
+            open_positions={},
+            alpaca=MagicMock(),
+            portfolio_value=10000.0,
+            pos_mult=0.5,
+            spy_ret5d=0.0,
+            symbol_ret5d=0.0,
+            rsi_max=config.RSI_BUY_MAX_HIGH_VOL,
+            params={"vwap_slope_min": -0.3},
+            now=MagicMock(),
+            entries_this_cycle=0,
+        )
+
+    assert result is None

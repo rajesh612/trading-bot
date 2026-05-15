@@ -94,7 +94,7 @@ class TestForceCloseAll:
     def test_force_close_phantom_skip(self, tmp_path, monkeypatch):
         """Symbols not in Alpaca positions are skipped without journaling"""
         from unittest.mock import MagicMock, patch
-        from trading import closer as trading_agent
+        from trading import closer
         import config
 
         # position in JSON but NOT in alpaca
@@ -112,7 +112,7 @@ class TestForceCloseAll:
         config.EOD_VERIFY_FILLS = True
         try:
             with patch("trading.closer.AlpacaClient", return_value=mock_alpaca):
-                trading_agent.force_close_all()
+                closer.force_close_all()
         finally:
             config.EOD_VERIFY_FILLS = orig
 

@@ -56,8 +56,9 @@ def execute_buy(
     if iv.rsi > rsi_max:
         logger.info("SKIP %s — RSI %.1f > %s (regime=%s).", symbol, iv.rsi, rsi_max, regime)
         return None
-    if iv.vwap_slope < params["vwap_slope_min"]:
-        logger.info("SKIP %s — VWAP slope %.3f%% < %.3f%% (downtrend).", symbol, iv.vwap_slope, params["vwap_slope_min"])
+    vwap_slope_min = params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
+    if iv.vwap_slope < vwap_slope_min:
+        logger.info("SKIP %s — VWAP slope %.3f%% < %.3f%% (downtrend).", symbol, iv.vwap_slope, vwap_slope_min)
         return None
 
     mode = get_active_mode(regime, symbol)
@@ -72,9 +73,6 @@ def execute_buy(
             return None
 
     symbol_sentiment = research.get(symbol, {}).get("sentiment_score", 0)
-    if symbol_sentiment < config.SENTIMENT_HARD_BLOCK:
-        logger.info("SKIP %s — bearish sentiment (%+d) blocks BUY", symbol, symbol_sentiment)
-        return None
 
     try:
         bars_15min = get_intraday_bars(symbol, lookback=config.MTF_BARS_LOOKBACK, timeframe_min=config.MTF_TIMEFRAME_MINUTES)

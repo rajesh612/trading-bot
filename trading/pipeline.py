@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 class CycleResult:
     entries: int = 0
     closes: int = 0
+    candidates: int = 0   # symbols that passed pre-Claude gates (reached Claude or auto-execute)
     skipped: bool = False
     reason: str = ""
 
@@ -104,10 +105,15 @@ class TradingPipeline:
         regime    = snap.regime
         spy_ret5d = snap.regime_info.get("spy_5day_return", 0.0)
         rsi_max   = (
-            snap.params.get("rsi_buy_max_high_vol", 65) if regime in ("CRISIS", "DEFENSIVE")
-            else snap.params.get("rsi_buy_max", 72)
+            snap.params.get("rsi_buy_max_high_vol", config.RSI_BUY_MAX_HIGH_VOL)
+            if regime in ("HIGH_VOL", "CRISIS", "DEFENSIVE")
+            else snap.params.get("rsi_buy_max", config.RSI_BUY_MAX)
         )
-        pos_mult  = snap.params.get("high_vol_position_mult", 0.5) if regime in ("DEFENSIVE", "CHOPPY") else 1.0
+        pos_mult  = (
+            snap.params.get("high_vol_position_mult", config.HIGH_VOL_POSITION_MULT)
+            if regime in ("HIGH_VOL", "DEFENSIVE", "CHOPPY")
+            else 1.0
+        )
         open_positions = load_open_positions()
         daily_closed = load_daily_closed()
 
@@ -157,6 +163,7 @@ class TradingPipeline:
             else:
                 logger.info("BUDGET-EXHAUSTED HOLD %s: would need Claude", symbol)
 
+        result.candidates = len(needs_claude) + len(auto_execute)
         gates_elapsed = time.monotonic() - t_gates
 
         # ── Phase 2.5: Thesis-break detection ────────────────────────────────

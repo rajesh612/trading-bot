@@ -128,20 +128,20 @@ def check_all_gates(
 
     # ── Soft gates (pass through, flag for Claude) ────────────────────────────
 
-    # 10. Relative strength
+    # 13. Relative strength
     if symbol_ret5d != 0.0:
         ratio = rs_rank(symbol, spy_ret5d, symbol_ret5d)
         if not passes_rs_filter(ratio):
             flags.append(f"rs_weak(ratio={ratio:.2f})")
 
-    # 11. MTF confirmation
+    # 14. MTF confirmation
     try:
         if bars_15min is not None and not passes_mtf_filter(bars_15min):
             flags.append("mtf_not_confirmed")
     except Exception:
         flags.append("mtf_unavailable")
 
-    # 12. Correlation guard
+    # 15. Correlation guard
     if not passes_correlation_guard(symbol, open_positions):
         flags.append("sector_limit_soft")
 

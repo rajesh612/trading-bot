@@ -73,7 +73,7 @@ def run_trading_cycle() -> None:
         )
         can_open = False
 
-    if regime in ("DEFENSIVE", "CHOPPY"):
+    if regime in ("HIGH_VOL", "DEFENSIVE", "CHOPPY"):
         logger.info(
             "Regime=%s: position size ×%.1f, RSI max=%s",
             regime, params["high_vol_position_mult"],
