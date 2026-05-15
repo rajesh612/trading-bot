@@ -11,7 +11,7 @@ import anthropic
 
 import config
 from trading import risk_manager
-from macro_regime import load_macro_regime, load_trading_params
+from macro.regime import load_macro_regime, load_trading_params
 from learning.trade_analysis import (
     _aggregate_by_regime,
     _classify_loss_source,

@@ -62,14 +62,14 @@ def job_economic_calendar():
 
 def job_macro_regime():
     logger.info("━━━ MACRO REGIME ━━━")
-    from macro_regime import fetch_macro_regime
+    from macro.regime import fetch_macro_regime
     _job_guard("macro_regime", fetch_macro_regime)
 
 
 def job_fred_cache():
     logger.info("━━━ FRED CACHE REFRESH ━━━")
     def _run():
-        from macro_regime import refresh_fred_cache
+        from macro.regime import refresh_fred_cache
         from trading.cycle_context import invalidate_fred_cache
         refresh_fred_cache()
         invalidate_fred_cache()
@@ -210,7 +210,7 @@ def job_midday_check():
         if buys_today:
             return  # trades already executed — no alert needed
 
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         regime_data = load_macro_regime()
         regime = regime_data.get("regime", "UNKNOWN")
 

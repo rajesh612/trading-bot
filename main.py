@@ -288,7 +288,7 @@ def main():
     logger.info("Watchdog thread started.")
     logger.info("Bot is live. Press Ctrl+C to stop.")
 
-    from macro_regime import load_macro_regime
+    from macro.regime import load_macro_regime
     from trading.journal import load_open_positions
     try:
         regime = load_macro_regime().get("regime", "UNKNOWN")

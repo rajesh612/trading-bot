@@ -215,23 +215,23 @@ class TestPatternDetection:
 @pytest.mark.unit
 class TestFlashCrash:
     def test_triggers_at_exactly_2point5_pct(self):
-        from macro_regime import check_flash_crash
+        from macro.regime import check_flash_crash
         assert check_flash_crash(spy_current=97.5, spy_prev_close=100.0) is True
 
     def test_triggers_below_threshold(self):
-        from macro_regime import check_flash_crash
+        from macro.regime import check_flash_crash
         assert check_flash_crash(spy_current=95.0, spy_prev_close=100.0) is True
 
     def test_does_not_trigger_just_above_threshold(self):
-        from macro_regime import check_flash_crash
+        from macro.regime import check_flash_crash
         assert check_flash_crash(spy_current=97.6, spy_prev_close=100.0) is False
 
     def test_no_crash_on_green_day(self):
-        from macro_regime import check_flash_crash
+        from macro.regime import check_flash_crash
         assert check_flash_crash(spy_current=102.0, spy_prev_close=100.0) is False
 
     def test_zero_prev_close_safe(self):
-        from macro_regime import check_flash_crash
+        from macro.regime import check_flash_crash
         assert check_flash_crash(spy_current=100.0, spy_prev_close=0.0) is False
 
 
@@ -426,7 +426,7 @@ class TestTier1Config:
 class TestFlashCrashConfig:
     def test_check_flash_crash_uses_config_threshold(self, monkeypatch):
         import config
-        from macro_regime import check_flash_crash
+        from macro.regime import check_flash_crash
         monkeypatch.setattr(config, "FLASH_CRASH_SPY_DROP_PCT", -5.0)
         # -4% drop should NOT trigger when threshold is -5%
         assert check_flash_crash(spy_current=96.0, spy_prev_close=100.0) is False
@@ -436,7 +436,7 @@ class TestFlashCrashConfig:
     def test_load_macro_regime_default_has_candidate_field(self, tmp_path, monkeypatch):
         import config
         monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert "flash_crash_candidate" in result
         assert result["flash_crash_candidate"] is None
@@ -604,7 +604,7 @@ class TestLoadMacroRegime:
     def test_missing_file_returns_normal_default(self, tmp_path):
         import config
         config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "NORMAL"
         assert "macro_health_score" in result
@@ -615,7 +615,7 @@ class TestLoadMacroRegime:
         payload = {"regime": "BULL_TREND", "health_score": 55, "capitulation_candidate": []}
         with open(config.MACRO_REGIME_FILE, "w") as f:
             json.dump(payload, f)
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "BULL_TREND"
         assert result["health_score"] == 55
@@ -624,7 +624,7 @@ class TestLoadMacroRegime:
         import config
         config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
         config.MACRO_REGIME_FILE.write_text("NOT JSON{{")
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "NORMAL"
 
@@ -635,7 +635,7 @@ class TestLoadMacroRegime:
 class TestVixRegimeHelpers:
     def test_load_macro_regime_missing_file_returns_normal(self, tmp_path, monkeypatch):
         monkeypatch.setattr("config.MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "NORMAL"
 
@@ -643,13 +643,13 @@ class TestVixRegimeHelpers:
         monkeypatch.setattr("config.MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         payload = {"regime": "CRISIS", "macro_health_score": -50}
         (tmp_path / "macro_regime.json").write_text(json.dumps(payload))
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "CRISIS"
 
     def test_load_trading_params_returns_config_defaults(self, tmp_path, monkeypatch):
         monkeypatch.setattr("config.TRADING_PARAMS_FILE", tmp_path / "trading_params.json")
-        from macro_regime import load_trading_params
+        from macro.regime import load_trading_params
         params = load_trading_params()
         import config
         assert "entry_start_hour" in params
@@ -659,7 +659,7 @@ class TestVixRegimeHelpers:
         params_file = tmp_path / "trading_params.json"
         params_file.write_text(json.dumps({"stop_loss_pct": 3.5}))
         monkeypatch.setattr("config.TRADING_PARAMS_FILE", params_file)
-        from macro_regime import load_trading_params
+        from macro.regime import load_trading_params
         params = load_trading_params()
         assert params["stop_loss_pct"] == 3.5
 
@@ -673,12 +673,12 @@ class TestMacroRegimeCoverage:
     # ── _sector_scores ─────────────────────────────────────────────
 
     def test_sector_scores_structure(self):
-        from macro_regime import _sector_scores
+        from macro.regime import _sector_scores
         result = _sector_scores(soxx_ret5d=3.0, qqq_ret5d=2.0)
         assert set(result.keys()) == {"AI_SEMI", "BROAD_TECH", "CYBERSECURITY"}
 
     def test_sector_scores_cybersecurity_derived(self):
-        from macro_regime import _sector_scores
+        from macro.regime import _sector_scores
         # CYBERSECURITY = 0.8 × BROAD_TECH
         result = _sector_scores(soxx_ret5d=0.0, qqq_ret5d=2.0)
         assert result["CYBERSECURITY"] == pytest.approx(result["BROAD_TECH"] * 0.8)

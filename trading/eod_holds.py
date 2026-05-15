@@ -54,7 +54,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
     Returns list of promoted symbols.
     """
     from trading.journal import load_open_positions
-    from macro_regime import load_macro_regime
+    from macro.regime import load_macro_regime
     from tier1_config import is_tier1, get_sector
 
     regime_info = load_macro_regime()

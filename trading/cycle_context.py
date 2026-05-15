@@ -16,7 +16,7 @@ from pathlib import Path
 import logging
 import config
 from research.intraday import load_intraday_news
-from macro_regime import load_macro_regime, load_trading_params
+from macro.regime import load_macro_regime, load_trading_params
 from utils.io_utils import load_json
 
 _logger = logging.getLogger(__name__)

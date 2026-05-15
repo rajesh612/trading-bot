@@ -210,7 +210,7 @@ class TestLearningAgentHelpers:
 class TestLoadTradingParamsInMacroRegime:
     def test_returns_config_defaults_when_file_absent(self, tmp_path, monkeypatch):
         monkeypatch.setattr("config.TRADING_PARAMS_FILE", tmp_path / "trading_params.json")
-        from macro_regime import load_trading_params
+        from macro.regime import load_trading_params
         params = load_trading_params()
         import config as cfg
         assert params["entry_start_hour"] == cfg.ENTRY_START_HOUR
@@ -221,13 +221,13 @@ class TestLoadTradingParamsInMacroRegime:
         params_file = tmp_path / "trading_params.json"
         params_file.write_text('{"rsi_buy_max": 60, "entry_start_hour": 11}')
         monkeypatch.setattr("config.TRADING_PARAMS_FILE", params_file)
-        from macro_regime import load_trading_params
+        from macro.regime import load_trading_params
         params = load_trading_params()
         assert params["rsi_buy_max"] == 60
         assert params["entry_start_hour"] == 11
 
     def test_load_macro_regime_returns_regime_key(self, tmp_path, monkeypatch):
-        from macro_regime import load_macro_regime
+        from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert "regime" in result
 

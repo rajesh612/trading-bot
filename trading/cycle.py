@@ -13,7 +13,7 @@ import anthropic
 import config
 import notifications.telegram as telegram_notify
 from broker.alpaca_client import AlpacaClient
-from macro_regime import load_macro_regime, load_trading_params
+from macro.regime import load_macro_regime, load_trading_params
 from trading.cycle_context import build_cycle_snapshot
 from trading.pipeline import TradingPipeline
 from trading.watch_loader import load_watch_list

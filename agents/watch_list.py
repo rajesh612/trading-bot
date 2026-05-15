@@ -178,7 +178,7 @@ def run_watch_list_agent() -> list[str]:
     config.WATCH_LIST_FILE.write_text("\n".join(watch_list))
     logger.info(f"Watch list ({len(watch_list)} stocks): {watch_list}")
 
-    from macro_regime import load_macro_regime
+    from macro.regime import load_macro_regime
     regime = load_macro_regime().get("regime", "UNKNOWN")
     telegram_notify.notify_watch_list(watch_list, regime)
 
