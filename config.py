@@ -5,18 +5,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).parent
+STATE_DIR = BASE_DIR / "data" / "state"
 
 # Data files
 TICKERS_FILE = BASE_DIR / "tickers.txt"
 DAILY_TRADEABLE_FILE = BASE_DIR / "daily_tradeable.txt"
 WATCH_LIST_FILE = BASE_DIR / "watch_list.txt"
-TRADE_JOURNAL_FILE = BASE_DIR / "trade_journal.json"
-INDICATOR_WEIGHTS_FILE = BASE_DIR / "indicator_weights.json"
+TRADE_JOURNAL_FILE = STATE_DIR / "trade_journal.json"
+INDICATOR_WEIGHTS_FILE = STATE_DIR / "indicator_weights.json"
 STRATEGY_MEMORY_FILE = BASE_DIR / "strategy_memory.md"
 INDICATOR_PERFORMANCE_LOG = BASE_DIR / "indicator_performance_log.md"
-RESEARCH_REPORT_FILE = BASE_DIR / "research_report.json"
-OPEN_POSITIONS_FILE = BASE_DIR / "open_positions.json"
-DAILY_CLOSED_FILE   = BASE_DIR / "daily_closed.json"
+RESEARCH_REPORT_FILE = STATE_DIR / "research_report.json"
+OPEN_POSITIONS_FILE = STATE_DIR / "open_positions.json"
+DAILY_CLOSED_FILE   = STATE_DIR / "daily_closed.json"
 
 # Alpaca — PAPER TRADING ONLY
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
@@ -62,7 +63,7 @@ VWAP_SLOPE_MIN = -0.3          # % VWAP drift over 10 bars; below this = downtre
 HIGH_VOL_POSITION_MULT = 0.5   # Halve position size in HIGH_VOL / CRISIS regimes
 
 # Paths
-TRADING_PARAMS_FILE = BASE_DIR / "trading_params.json"
+TRADING_PARAMS_FILE = STATE_DIR / "trading_params.json"
 
 # Indicator engine
 BAR_TIMEFRAME_MINUTES = 5
@@ -73,7 +74,7 @@ DAILY_BARS_LOOKBACK = 30
 EMAIL_SENDER       = os.getenv("EMAIL_SENDER", "")
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "")
 EMAIL_RECIPIENT    = os.getenv("EMAIL_RECIPIENT", "")
-DAILY_REPORT_SENT_FILE = BASE_DIR / "daily_report_sent.json"
+DAILY_REPORT_SENT_FILE = STATE_DIR / "daily_report_sent.json"
 
 # Telegram notifications (optional — leave blank to disable)
 # Setup: message @BotFather → /newbot → get token.
@@ -84,11 +85,11 @@ TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
 # ── Plan 1: Regime-Adaptive Foundation ────────────────────────────────────────
 
 # State file paths
-MACRO_REGIME_FILE      = BASE_DIR / "macro_regime.json"
-FRED_CACHE_FILE        = BASE_DIR / "fred_cache.json"
-ECONOMIC_CALENDAR_FILE = BASE_DIR / "economic_calendar.json"
-API_BUDGET_FILE        = BASE_DIR / "api_budget.json"
-SWING_POSITIONS_FILE   = BASE_DIR / "swing_positions.json"
+MACRO_REGIME_FILE      = STATE_DIR / "macro_regime.json"
+FRED_CACHE_FILE        = STATE_DIR / "fred_cache.json"
+ECONOMIC_CALENDAR_FILE = STATE_DIR / "economic_calendar.json"
+API_BUDGET_FILE        = STATE_DIR / "api_budget.json"
+SWING_POSITIONS_FILE   = STATE_DIR / "swing_positions.json"
 
 # FRED API (free, optional — bot defaults to modifier=0 if missing)
 FRED_API_KEY = os.getenv("FRED_API_KEY", "")
@@ -130,7 +131,7 @@ SHORT_TERM_MAX_DAYS      = 21   # max calendar days to hold a short-term positio
 # ── Plan 2: Swing & Signals ────────────────────────────────────────────────────
 
 # Earnings calendar
-EARNINGS_CALENDAR_FILE = BASE_DIR / "earnings_calendar.json"
+EARNINGS_CALENDAR_FILE = STATE_DIR / "earnings_calendar.json"
 
 # Counter-bot / parabolic signal thresholds
 PARABOLIC_5DAY_RETURN_PCT     = 15.0   # 5-day return % to flag as parabolic
@@ -156,7 +157,7 @@ QUICK_SENTIMENT_SCORE_BULL =  55  # combined_sentiment_score assigned to rule-ba
 QUICK_SENTIMENT_SCORE_BEAR = -55  # combined_sentiment_score assigned to rule-based BEARISH
 
 # ── Crash Recovery ────────────────────────────────────────────────────────
-BOT_HEALTH_FILE              = BASE_DIR / "bot_health.json"
+BOT_HEALTH_FILE              = STATE_DIR / "bot_health.json"
 CRASH_LOOP_THRESHOLD         = 3      # restarts within window before backoff triggers
 CRASH_LOOP_WINDOW_MINUTES    = 10     # rolling window for crash counting
 CRASH_BACKOFF_MINUTES        = 30     # pause before resuming after crash loop
@@ -266,4 +267,4 @@ WATCH_LIST_RSI_FILTER         = 70    # exclude if RSI > this at 9 AM snapshot
 WATCH_LIST_STOCH_FILTER       = 80    # exclude if Stochastic %D > this at 9 AM snapshot
 WATCH_LIST_MIN_AFTER_FILTER   = 6     # relax filter thresholds if fewer symbols remain
 
-INTRADAY_NEWS_CACHE_FILE      = BASE_DIR / "intraday_news_cache.json"
+INTRADAY_NEWS_CACHE_FILE      = STATE_DIR / "intraday_news_cache.json"
