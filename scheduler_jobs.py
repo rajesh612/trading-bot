@@ -2,7 +2,7 @@ import logging
 import time
 from datetime import datetime
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from utils.constants import ET
 
 logger = logging.getLogger("main")

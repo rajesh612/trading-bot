@@ -248,7 +248,7 @@ class TestTelegramNotify:
     def test_no_token_is_silent(self, monkeypatch):
         self._patch_no_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_startup("NORMAL", 0)
             mock_post.assert_not_called()
@@ -256,7 +256,7 @@ class TestTelegramNotify:
     def test_sends_when_configured(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_startup("BULL_TREND", 2)
             mock_post.assert_called_once()
@@ -267,14 +267,14 @@ class TestTelegramNotify:
     def test_network_error_does_not_raise(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post", side_effect=Exception("network down")):
             telegram_notify.notify_startup("NORMAL", 0)  # must not raise
 
     def test_notify_buy_contains_symbol(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_buy("NVDA", 10, 150.0, 144.0, 157.5, "DAY_TRADE", 42.0, 80)
             text = mock_post.call_args[1]["json"]["text"]
@@ -284,7 +284,7 @@ class TestTelegramNotify:
     def test_notify_close_shows_pnl(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_close("AAPL", 5, 100.0, 105.0, 25.0, 5.0, "claude_decision")
             text = mock_post.call_args[1]["json"]["text"]
@@ -294,7 +294,7 @@ class TestTelegramNotify:
     def test_notify_eod_no_trades(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_eod_summary([], 0.0, 0.0, 10000.0, "NORMAL")
             text = mock_post.call_args[1]["json"]["text"]
@@ -303,7 +303,7 @@ class TestTelegramNotify:
     def test_notify_eod_with_trades(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         closes = [
             {"symbol": "NVDA", "pnl_dollar": 80.0, "pnl_pct": 4.0},
             {"symbol": "AAPL", "pnl_dollar": -20.0, "pnl_pct": -1.5},
@@ -317,7 +317,7 @@ class TestTelegramNotify:
     def test_notify_job_failure_truncates_long_error(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         long_err = "x" * 500
         with patch("requests.post") as mock_post:
             telegram_notify.notify_job_failure("force_close", long_err)
@@ -328,7 +328,7 @@ class TestTelegramNotify:
     def test_notify_claude_disabled(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_claude_disabled("HTTP 400 — invalid cache_control")
             text = mock_post.call_args[1]["json"]["text"]
@@ -337,7 +337,7 @@ class TestTelegramNotify:
     def test_notify_regime_change_crisis_has_alert_emoji(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_regime_change("NORMAL", "CRISIS", -65)
             text = mock_post.call_args[1]["json"]["text"]

@@ -8,7 +8,7 @@ import logging
 from dataclasses import asdict
 from datetime import datetime
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
 from data.market_data import get_intraday_bars

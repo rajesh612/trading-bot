@@ -10,7 +10,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from utils.instance_lock import acquire_instance_lock, kill_existing_instance, write_pid, clear_pid
 from utils.startup import validate_state_files, cleanup_stale_files, exit_with_alert
 from utils.bot_health import reset_bot_health, check_crash_loop, reconcile_positions

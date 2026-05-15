@@ -14,7 +14,7 @@ import anthropic
 
 import config
 from trading import risk_manager
-import telegram_notify
+import notifications.telegram as telegram_notify
 from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
 from trading.context_builder import build_stable_system_context, build_dynamic_user_context, build_stock_block, build_exit_stock_block

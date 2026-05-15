@@ -3,7 +3,7 @@ import logging
 import sys
 from datetime import datetime, timedelta
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from utils.io_utils import load_json, save_json
 from utils.constants import ET
 

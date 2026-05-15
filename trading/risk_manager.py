@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import datetime
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from indicators.values import IndicatorValues
 from trading.budget_guard import morning_cap_exceeded, midday_cap_exceeded, apply_exit_rollover
 from utils.io_utils import load_json, save_json

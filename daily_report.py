@@ -6,7 +6,7 @@ from email.message import EmailMessage
 import certifi
 
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from utils.constants import ET
 from utils.io_utils import load_json, save_json
 

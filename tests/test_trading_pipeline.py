@@ -364,7 +364,7 @@ class TestBudgetEscalationNotify:
     def test_notify_budget_escalation_calls_send(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post") as mock_post:
             telegram_notify.notify_budget_escalation(0.25, 1.50)
             mock_post.assert_called_once()
@@ -374,7 +374,7 @@ class TestBudgetEscalationNotify:
     def test_notify_budget_escalation_swallows_exceptions(self, monkeypatch):
         self._patch_fake_token(monkeypatch)
         from unittest.mock import patch
-        import telegram_notify
+        import notifications.telegram as telegram_notify
         with patch("requests.post", side_effect=Exception("network error")):
             telegram_notify.notify_budget_escalation(0.25, 1.50)
             # Must not raise — function should return normally

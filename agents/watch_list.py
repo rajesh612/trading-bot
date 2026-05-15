@@ -6,7 +6,7 @@ import pandas as pd
 import anthropic
 
 import config
-import telegram_notify
+import notifications.telegram as telegram_notify
 from trading import risk_manager
 from alpaca_client import AlpacaClient
 
