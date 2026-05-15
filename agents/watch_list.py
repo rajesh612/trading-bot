@@ -77,7 +77,7 @@ def _apply_technical_filter(
     return filtered
 
 
-def run_watch_list_agent() -> list[str]:
+def run_watch_list_agent(notify: bool = True) -> list[str]:
     universe = _load_universe()
     logger.info(f"Scoring {len(universe)} stocks for today's watch list…")
 
@@ -178,9 +178,10 @@ def run_watch_list_agent() -> list[str]:
     config.WATCH_LIST_FILE.write_text("\n".join(watch_list))
     logger.info(f"Watch list ({len(watch_list)} stocks): {watch_list}")
 
-    from macro_regime import load_macro_regime
-    regime = load_macro_regime().get("regime", "UNKNOWN")
-    telegram_notify.notify_watch_list(watch_list, regime)
+    if notify:
+        from macro_regime import load_macro_regime
+        regime = load_macro_regime().get("regime", "UNKNOWN")
+        telegram_notify.notify_watch_list(watch_list, regime)
 
     return watch_list
 
