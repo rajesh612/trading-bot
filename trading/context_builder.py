@@ -18,7 +18,7 @@ def build_stock_block(
     existing_pos: dict | None,
 ) -> str:
     """Full per-symbol block (~200 tokens) sent to Claude."""
-    from earnings_calendar import detect_pead_setup
+    from calendars.earnings import detect_pead_setup
     price           = iv.current_price
     research_sym    = research.get(symbol, {})
     sentiment_score = research_sym.get("sentiment_score", 0)

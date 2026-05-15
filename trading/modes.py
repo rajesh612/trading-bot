@@ -33,7 +33,7 @@ def get_active_mode(regime: str, symbol: str | None = None) -> str:
     PEAD overrides if symbol qualifies and regime is not CRISIS.
     """
     if symbol and regime != "CRISIS":
-        from earnings_calendar import detect_pead_setup
+        from calendars.earnings import detect_pead_setup
         from tier1_config import is_tier1
         pead_ok, _ = detect_pead_setup(symbol)
         if pead_ok and is_tier1(symbol):

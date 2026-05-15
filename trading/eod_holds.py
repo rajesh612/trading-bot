@@ -4,7 +4,7 @@ EOD hold qualification and promotion logic for swing positions.
 import logging
 from datetime import datetime, timedelta
 import config
-from earnings_calendar import is_earnings_imminent
+from calendars.earnings import is_earnings_imminent
 from macro.economic_calendar import is_event_risk_window
 from utils.io_utils import load_json
 from trading.tiered_tp import _compute_tier_quantities

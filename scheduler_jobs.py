@@ -46,7 +46,7 @@ def _read_watch_list() -> list[str]:
 def job_earnings_calendar():
     logger.info("━━━ EARNINGS CALENDAR ━━━")
     def _run():
-        from earnings_calendar import refresh_earnings_calendar
+        from calendars.earnings import refresh_earnings_calendar
         from tier1_config import TIER1_NAMES
         watch_list = _read_watch_list()
         symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))

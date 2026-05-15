@@ -82,7 +82,7 @@ def check_all_gates(
         return GateResult(False, "position already open")
 
     # 4. Earnings imminent — imported lazily to avoid circular import
-    from earnings_calendar import is_earnings_imminent
+    from calendars.earnings import is_earnings_imminent
     earnings_days = 1 if mode not in ("HYBRID", "SHORT_TERM") else 2
     if mode not in ("CAPITULATION", "PEAD") and is_earnings_imminent(symbol, days=earnings_days):
         return GateResult(False, f"earnings within {earnings_days} day(s)")

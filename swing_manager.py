@@ -6,7 +6,7 @@ import logging
 import threading
 from datetime import datetime
 import config
-from earnings_calendar import is_earnings_imminent
+from calendars.earnings import is_earnings_imminent
 from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities, evaluate_tiered_tp_action
 from trading.eod_holds import qualifies_for_eod_hold, _SWING_ELIGIBLE_REGIMES

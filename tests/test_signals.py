@@ -353,7 +353,7 @@ class TestEntryGates:
 
     def _patch_calendars(self, monkeypatch):
         """Suppress real calendar I/O so gates don't raise or block."""
-        import earnings_calendar as ec
+        import calendars.earnings as ec
         import macro.economic_calendar as ecc
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
@@ -406,7 +406,7 @@ class TestEntryGates:
     def test_event_risk_window_blocks(self, monkeypatch):
         """Gate 5 fires during an economic event risk window."""
         import macro.economic_calendar as ecc
-        import earnings_calendar as ec
+        import calendars.earnings as ec
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (True, "Non-Farm Payrolls"))
         from signals.entry_gates import check_all_gates
@@ -509,7 +509,7 @@ class TestCheckAllGates:
         return types.SimpleNamespace(**base)
 
     def _patch_calendars(self, monkeypatch):
-        import earnings_calendar as ec
+        import calendars.earnings as ec
         import macro.economic_calendar as ecc
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
@@ -671,7 +671,7 @@ class TestRsiStochGates:
         return types.SimpleNamespace(**base)
 
     def _patch_calendars(self, monkeypatch):
-        import earnings_calendar as ec
+        import calendars.earnings as ec
         import macro.economic_calendar as ecc
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
@@ -753,7 +753,7 @@ class TestGapUpGate:
         return types.SimpleNamespace(**base)
 
     def _patch_calendars(self, monkeypatch):
-        import earnings_calendar as ec
+        import calendars.earnings as ec
         import macro.economic_calendar as ecc
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))

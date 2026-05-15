@@ -172,7 +172,7 @@ class TestPipelinePerCycleCap:
         return types.SimpleNamespace(**base)
 
     def _patch(self, monkeypatch):
-        import earnings_calendar as ec
+        import calendars.earnings as ec
         import macro.economic_calendar as ecc
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
