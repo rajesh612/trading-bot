@@ -25,23 +25,21 @@ def migrate(old: str, new: str) -> None:
     changed = []
     for path in _py_files():
         src = path.read_text()
-        # from <old> import X  →  from <new> import X
+        # from <old> import X  →  from <new> import X  (any indentation)
         out = re.sub(
-            rf"^(from\s+){re.escape(old)}(\s+import\b)",
+            rf"(\bfrom\s+){re.escape(old)}(\s+import\b)",
             rf"\g<1>{new}\2",
             src,
-            flags=re.MULTILINE,
         )
-        # import <old> as Y  →  import <new> as Y  (preserve explicit alias)
+        # import <old> as Y  →  import <new> as Y  (preserve explicit alias, any indentation)
         out = re.sub(
-            rf"^(import\s+){re.escape(old)}(\s+as\s+\w+)",
+            rf"(\bimport\s+){re.escape(old)}(\s+as\s+\w+)",
             rf"\g<1>{new}\2",
             out,
-            flags=re.MULTILINE,
         )
-        # import <old>$  →  import <new> as <alias>
+        # import <old>  (end of statement)  →  import <new> as <alias>
         out = re.sub(
-            rf"^(import\s+){re.escape(old)}\s*$",
+            rf"(\bimport\s+){re.escape(old)}(?=\s*(?:#|$))",
             rf"\g<1>{new} as {alias}",
             out,
             flags=re.MULTILINE,
