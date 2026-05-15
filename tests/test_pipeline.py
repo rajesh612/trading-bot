@@ -209,6 +209,53 @@ class TestPreClaudeFilter:
         result = pre_claude_filter("TEST", self._iv(composite=30.0), snap)
         assert result.decision == "SKIP"
 
+    @pytest.mark.unit
+    def test_choppy_composite_gate_blocks_below_30(self):
+        """In CHOPPY regime, composite 25 < 30 should be SKIP."""
+        from trading.pre_claude_filter import pre_claude_filter
+        snap = self._snap(
+            regime_info={"regime": "CHOPPY", "macro_health_score": 0},
+            regime="CHOPPY",
+        )
+        result = pre_claude_filter("TEST", self._iv(composite=25.0), snap)
+        assert result.decision == "SKIP"
+        assert "composite" in result.reason
+
+    @pytest.mark.unit
+    def test_choppy_composite_gate_passes_at_30(self):
+        """In CHOPPY regime, composite 30 == gate should pass Layer 1."""
+        from trading.pre_claude_filter import pre_claude_filter
+        snap = self._snap(
+            regime_info={"regime": "CHOPPY", "macro_health_score": 0},
+            regime="CHOPPY",
+        )
+        result = pre_claude_filter("TEST", self._iv(composite=30.0), snap)
+        assert result.decision != "SKIP" or "composite" not in result.reason
+
+    @pytest.mark.unit
+    def test_layer_2_5_blocks_vwap_slope_downtrend(self):
+        """VWAP slope below minimum blocks before Claude."""
+        from trading.pre_claude_filter import pre_claude_filter
+        from tests.test_signals import make_full_iv
+        snap = self._snap()
+        # vwap_slope=-0.5 is below VWAP_SLOPE_MIN=-0.3; composite high enough to pass Layer 1+2
+        iv = make_full_iv(composite_score=40.0, rsi=55.0, stoch_d=50.0, vwap_slope=-0.5)
+        result = pre_claude_filter("TEST", iv, snap)
+        assert result.decision == "SKIP"
+        assert "VWAP slope" in result.reason
+
+    @pytest.mark.unit
+    def test_layer_2_5_blocks_vwap_overextension(self):
+        """Price above VWAP+2σ blocks before Claude."""
+        from trading.pre_claude_filter import pre_claude_filter
+        from unittest.mock import patch
+        snap = self._snap()
+        iv = self._iv(composite=40.0)
+        with patch("trading.pre_claude_filter.passes_vwap_guard", return_value=False):
+            result = pre_claude_filter("TEST", iv, snap)
+        assert result.decision == "SKIP"
+        assert "VWAP" in result.reason
+
 
 # ─── budget_guard ────────────────────────────────────────────────────────────
 

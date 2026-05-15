@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import config
 from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
+from signals.entry_gates import effective_composite_gate
+from signals.vwap_guard import passes_vwap_guard
 
 
 @dataclass(frozen=True)
@@ -25,8 +27,9 @@ def pre_claude_filter(
 ) -> FilterResult:
     """
     Layer 0 — Already closed today.
-    Layer 1 — Composite minimum (regime-adjusted).
-    Layer 2 — Technical fast gate (RSI, Stochastic, parabolic, stop-hunt).
+    Layer 1 — Composite minimum (regime-adjusted via effective_composite_gate).
+    Layer 2 — RSI maximum (regime-adjusted, same constant as executor).
+    Layer 2.5 — VWAP: slope downtrend + price overextension.
     Layer 3 — Macro health score + morning shock score.
     Layer 4 — Research sentiment (9:15 AM report).
     Layer 5 — Intraday news (30-min cache; graceful fallback if empty).
@@ -38,20 +41,29 @@ def pre_claude_filter(
     if daily_closed and symbol in daily_closed:
         return FilterResult("SKIP", "already closed today")
 
-    # Layer 1 — Composite minimum
-    composite_min = (
-        config.COMPOSITE_MIN_HIGH_VOL
-        if snap.regime in ("HIGH_VOL", "DEFENSIVE")
-        else config.COMPOSITE_MIN_NORMAL
-    )
+    # Layer 1 — Composite minimum (unified with executor via effective_composite_gate)
+    composite_min = effective_composite_gate(iv, snap.regime)
     if iv.composite_score < composite_min:
         return FilterResult("SKIP",
             f"composite {iv.composite_score:+.1f} < {composite_min} ({snap.regime})")
 
-    # Layer 2 — Extreme RSI only (Stochastic/parabolic/stop-hunt handled by check_all_gates)
-    if iv.rsi > config.RSI_BUY_MAX:
+    # Layer 2 — RSI maximum (same constants as executor rsi_max)
+    rsi_max = (
+        config.RSI_BUY_MAX_HIGH_VOL
+        if snap.regime in ("HIGH_VOL", "DEFENSIVE")
+        else config.RSI_BUY_MAX
+    )
+    if iv.rsi > rsi_max:
         return FilterResult("SKIP",
-            f"RSI hard skip (RSI={iv.rsi:.1f} > {config.RSI_BUY_MAX})")
+            f"RSI {iv.rsi:.1f} > {rsi_max} ({snap.regime})")
+
+    # Layer 2.5 — VWAP: slope downtrend + price overextension (same criteria as executor)
+    vwap_slope_min = snap.params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
+    if iv.vwap_slope < vwap_slope_min:
+        return FilterResult("SKIP",
+            f"VWAP slope {iv.vwap_slope:.3f} < {vwap_slope_min:.3f} (downtrend)")
+    if not passes_vwap_guard(iv):
+        return FilterResult("SKIP", "VWAP overextension (price > VWAP+2σ)")
 
     # Layer 3 — Macro health + shock
     health = snap.regime_info.get("macro_health_score", 0)
