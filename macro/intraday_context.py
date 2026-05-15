@@ -59,8 +59,8 @@ def _fetch_intraday_context(now: datetime) -> "IntradayContext | None":
         from market_data import get_intraday_bars, get_daily_bars
         from economic_calendar import is_post_major_event_day
 
-        spy_bars = get_intraday_bars("SPY", bar_count=80)
-        qqq_bars = get_intraday_bars("QQQ", bar_count=80)
+        spy_bars = get_intraday_bars("SPY", lookback=80)
+        qqq_bars = get_intraday_bars("QQQ", lookback=80)
         if spy_bars is None or len(spy_bars) < 10:
             return None
 
@@ -89,7 +89,7 @@ def _fetch_intraday_context(now: datetime) -> "IntradayContext | None":
         sector_today: dict[str, float] = {}
         for etf in _SECTOR_ETFS:
             try:
-                bars = get_intraday_bars(etf, bar_count=20)
+                bars = get_intraday_bars(etf, lookback=20)
                 if bars is not None and len(bars) >= 2:
                     prev = _prev_close_from_daily(etf)
                     if prev:
@@ -127,7 +127,7 @@ def _prev_close_from_daily(symbol: str) -> float:
     """Get yesterday's closing price from daily bars."""
     try:
         from market_data import get_daily_bars
-        daily = get_daily_bars(symbol, bar_count=3)
+        daily = get_daily_bars(symbol, days=3)
         if daily is not None and len(daily) >= 2:
             return float(daily["close"].iloc[-2])
     except Exception:
