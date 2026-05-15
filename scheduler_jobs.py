@@ -216,8 +216,8 @@ def job_midday_check():
 
         from utils.io_utils import load_json
         budget = load_json(config.API_BUDGET_FILE, {})
-        spent = budget.get("total_spent_usd", 0.0)
-        ceiling = budget.get("daily_ceiling_usd", config.DAILY_API_BUDGET_USD)
+        spent = budget.get("estimated_cost_usd", 0.0)
+        ceiling = budget.get("ceiling_usd", 1.0)
         budget_pct = spent / ceiling * 100 if ceiling else 0
 
         # Estimate cycles run: 9:30→noon every 10 min = ~15 cycles
