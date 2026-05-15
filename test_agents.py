@@ -677,7 +677,7 @@ class TestDailyReport:
 
     @pytest.mark.unit
     def test_pnl_totals_correct(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         trades = [
             {
                 "type": "CLOSE", "symbol": "AAPL", "qty": 10,
@@ -702,7 +702,7 @@ class TestDailyReport:
 
     @pytest.mark.unit
     def test_report_body_contains_fields(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         account = {"portfolio_value": 100000.0, "last_equity": 100000.0}
         subject, body = build_report_body(
             [], account, "HIGH_VOL", "NVDA, AMD", {"RSI": 50.0, "VWAP": 50.0}
@@ -715,7 +715,7 @@ class TestDailyReport:
 
     @pytest.mark.unit
     def test_sentinel_false_when_missing(self, tmp_path, monkeypatch):
-        import daily_report
+        import notifications.daily_report as daily_report
         monkeypatch.setattr(
             daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "daily_report_sent.json"
         )
@@ -723,7 +723,7 @@ class TestDailyReport:
 
     @pytest.mark.unit
     def test_sentinel_true_for_today(self, tmp_path, monkeypatch):
-        import daily_report
+        import notifications.daily_report as daily_report
         from datetime import datetime
         from zoneinfo import ZoneInfo
         sentinel = tmp_path / "daily_report_sent.json"
@@ -737,7 +737,7 @@ class TestDailyReport:
         import config as cfg
         monkeypatch.setattr(cfg, "EMAIL_SENDER", "")
         monkeypatch.setattr(cfg, "EMAIL_APP_PASSWORD", "")
-        from daily_report import send_daily_report
+        from notifications.daily_report import send_daily_report
         send_daily_report()  # must not raise
 
     @pytest.mark.unit
@@ -760,7 +760,7 @@ class TestDailyReport:
                 captured["body"]    = msg.get_content()
 
         with patch("smtplib.SMTP_SSL", FakeSMTP):
-            from daily_report import _send_email
+            from notifications.daily_report import _send_email
             # Em dash in subject — this is what broke the old raw-string approach
             _send_email("Trading Bot — Daily Report", "P&L: $0.00")
 
@@ -797,7 +797,7 @@ class TestDailyReport:
 
         with patch("ssl.create_default_context", fake_create_context), \
              patch("smtplib.SMTP_SSL", FakeSMTP):
-            from daily_report import _send_email
+            from notifications.daily_report import _send_email
             _send_email("Test", "body")
 
         import certifi

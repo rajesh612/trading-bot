@@ -101,6 +101,6 @@ def catchup_daily_report() -> None:
     report_due = now.hour > 16 or (now.hour == 16 and now.minute >= 20)
     if not report_due:
         return
-    from daily_report import send_daily_report
+    from notifications.daily_report import send_daily_report
     logger.info("CATCHUP: checking if daily report needs to be sent…")
     send_daily_report()

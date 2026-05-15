@@ -183,7 +183,7 @@ def job_learning():
 
 def job_daily_report():
     logger.info("━━━ DAILY REPORT ━━━")
-    from daily_report import send_daily_report
+    from notifications.daily_report import send_daily_report
     _job_guard("daily_report", send_daily_report)
 
 

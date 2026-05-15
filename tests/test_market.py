@@ -363,7 +363,7 @@ class TestBuildReportBody:
         }
 
     def test_subject_contains_pnl_when_trades_exist(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         subject, _ = build_report_body(
             trades=[self._close()],
             account=self._account(),
@@ -375,7 +375,7 @@ class TestBuildReportBody:
         assert "1 trades" in subject
 
     def test_subject_no_trades_shows_portfolio(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         subject, _ = build_report_body(
             trades=[], account=self._account(), regime="NORMAL",
             watch_list="", weights={},
@@ -384,7 +384,7 @@ class TestBuildReportBody:
         assert "Portfolio" in subject
 
     def test_body_contains_regime(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         _, body = build_report_body(
             trades=[], account=self._account(), regime="CHOPPY",
             watch_list="TSLA", weights={},
@@ -392,7 +392,7 @@ class TestBuildReportBody:
         assert "CHOPPY" in body
 
     def test_body_lists_individual_trades(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         _, body = build_report_body(
             trades=[self._close("NVDA"), self._close("AAPL", pnl=-50.0, pnl_pct=-0.5)],
             account=self._account(),
@@ -407,19 +407,19 @@ class TestBuildReportBody:
 @pytest.mark.unit
 class TestDailyReportSentFlag:
     def test_not_sent_when_file_missing(self, tmp_path, monkeypatch):
-        import daily_report
+        import notifications.daily_report as daily_report
         monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "sent.json")
         assert daily_report._already_sent_today() is False
 
     def test_not_sent_after_marking_different_date(self, tmp_path, monkeypatch):
-        import daily_report, json
+        import notifications.daily_report as daily_report; import json
         sent_file = tmp_path / "sent.json"
         sent_file.write_text(json.dumps({"date": "2020-01-01"}))
         monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", sent_file)
         assert daily_report._already_sent_today() is False
 
     def test_already_sent_after_mark_sent(self, tmp_path, monkeypatch):
-        import daily_report
+        import notifications.daily_report as daily_report
         monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "sent.json")
         daily_report._mark_sent()
         assert daily_report._already_sent_today() is True
@@ -844,7 +844,7 @@ class TestDailyReportBody:
         return {"portfolio_value": portfolio, "last_equity": last_equity}
 
     def test_subject_contains_pnl_when_trades_exist(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         trades = [
             {"type": "CLOSE", "symbol": "AAPL", "qty": 10,
              "entry_price": 100.0, "exit_price": 105.0,
@@ -855,18 +855,18 @@ class TestDailyReportBody:
         assert "1 trades" in subject
 
     def test_subject_no_trades_shows_portfolio(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         subject, body = build_report_body([], self._account(100_000.0, 100_000.0), "CHOPPY", "", {})
         assert "No trades today" in subject
         assert "Portfolio:" in subject
 
     def test_body_contains_regime(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         _, body = build_report_body([], self._account(), "CRISIS", "", {})
         assert "CRISIS" in body
 
     def test_win_rate_computed_correctly(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         trades = [
             {"type": "CLOSE", "symbol": "A", "qty": 1, "entry_price": 10.0,
              "exit_price": 11.0, "pnl_dollar": 10.0, "pnl_pct": 10.0, "close_reason": "tp"},
@@ -877,7 +877,7 @@ class TestDailyReportBody:
         assert "Win rate: 50.0%" in body
 
     def test_indicator_weights_rendered_in_body(self):
-        from daily_report import build_report_body
+        from notifications.daily_report import build_report_body
         weights = {"rsi": 30.0, "macd": 25.0}
         _, body = build_report_body([], self._account(), "NORMAL", "", weights)
         assert "rsi: 30.00%" in body
