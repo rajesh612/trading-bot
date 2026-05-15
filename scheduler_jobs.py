@@ -150,14 +150,14 @@ def job_force_close():
 
 def job_evaluate_eod_holds():
     logger.info("━━━ SWING EOD EVALUATION ━━━")
-    from swing_manager import evaluate_eod_holds
+    from trading.swing_manager import evaluate_eod_holds
     _job_guard("evaluate_eod_holds", evaluate_eod_holds)
 
 
 def job_swing_gap_check():
     logger.info("━━━ SWING GAP CHECK ━━━")
     def _run():
-        from swing_manager import run_gap_check
+        from trading.swing_manager import run_gap_check
         from broker.alpaca_client import AlpacaClient
         run_gap_check(AlpacaClient())
     _job_guard("swing_gap_check", _run)

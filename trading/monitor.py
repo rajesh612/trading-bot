@@ -139,7 +139,7 @@ def run_position_monitor():
     flush_profit_lock_updates(open_positions)
 
     try:
-        from swing_manager import monitor_swing_positions
+        from trading.swing_manager import monitor_swing_positions
         monitor_swing_positions(alpaca)
     except Exception as exc:
         logger.warning("Swing position monitor failed: %s", exc)

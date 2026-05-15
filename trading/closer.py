@@ -143,7 +143,7 @@ def _force_close_body() -> None:
     alpaca.cancel_all_orders()
 
     try:
-        from swing_manager import load_swing_positions
+        from trading.swing_manager import load_swing_positions
         swing_symbols = set(load_swing_positions().keys())
     except Exception:
         swing_symbols = set()

@@ -110,7 +110,7 @@ def _trigger_flash_crash_lockout() -> None:
     from trading.closer import force_close_all  # lazy import to avoid circular dependency
     force_close_all()
     try:
-        from swing_manager import load_swing_positions, _execute_full_close
+        from trading.swing_manager import load_swing_positions, _execute_full_close
         from broker.alpaca_client import AlpacaClient
         alpaca = AlpacaClient()
         for sym, pos in list(load_swing_positions().items()):

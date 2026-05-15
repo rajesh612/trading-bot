@@ -81,7 +81,7 @@ def reconcile_positions() -> None:
 
         # Swing positions are held overnight intentionally — skip them in all checks
         try:
-            from swing_manager import load_swing_positions
+            from trading.swing_manager import load_swing_positions
             swing_symbols = set(load_swing_positions().keys())
         except Exception:
             swing_symbols = set()
