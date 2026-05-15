@@ -240,7 +240,7 @@ class TestFlashCrash:
 @pytest.mark.unit
 class TestEconomicCalendar:
     def test_nfp_is_first_friday(self):
-        from economic_calendar import _first_friday, _hardcoded_events
+        from macro.economic_calendar import _first_friday, _hardcoded_events
         # Jan 2026: first Friday is the 2nd
         assert _first_friday(2026, 1) == 2
         events = _hardcoded_events(2026, 1)
@@ -249,12 +249,12 @@ class TestEconomicCalendar:
         assert nfp[0]["date"] == "2026-01-02"
 
     def test_may_2026_nfp(self):
-        from economic_calendar import _first_friday
+        from macro.economic_calendar import _first_friday
         # May 2026: first Friday is the 1st
         assert _first_friday(2026, 5) == 1
 
     def test_event_risk_window_inside_45min(self):
-        from economic_calendar import is_event_risk_window
+        from macro.economic_calendar import is_event_risk_window
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             today = datetime.now(ET).strftime("%Y-%m-%d")
             json.dump({
@@ -270,7 +270,7 @@ class TestEconomicCalendar:
                                                         "__fspath__": lambda s: tmp})()
         try:
             # Patch the file path to our temp file
-            import economic_calendar as ec
+            import macro.economic_calendar as ec
             _orig_load = ec._load_todays_events
 
             def _patched():
@@ -291,7 +291,7 @@ class TestEconomicCalendar:
             os.unlink(tmp)
 
     def test_event_risk_window_outside_45min(self):
-        import economic_calendar as ec
+        import macro.economic_calendar as ec
         # Patch _load_todays_events to return a 10:00 AM event
         today = datetime.now(ET).strftime("%Y-%m-%d")
         _orig = ec._load_todays_events
@@ -305,7 +305,7 @@ class TestEconomicCalendar:
             ec._load_todays_events = _orig
 
     def test_fomc_2026_dates_present(self):
-        from economic_calendar import _hardcoded_events
+        from macro.economic_calendar import _hardcoded_events
         # May 2026 FOMC is on 2026-05-07
         events = _hardcoded_events(2026, 5)
         fomc = [e for e in events if "FOMC" in e["name"]]
@@ -705,12 +705,12 @@ class TestEconomicCalendarLogic:
     """Tests for pure functions in economic_calendar — no network, no file I/O."""
 
     def test_first_friday_returns_correct_day(self):
-        from economic_calendar import _first_friday
+        from macro.economic_calendar import _first_friday
         # May 2026: first Friday is the 1st
         assert _first_friday(2026, 5) == 1
 
     def test_hardcoded_events_includes_nfp_and_cpi(self):
-        from economic_calendar import _hardcoded_events
+        from macro.economic_calendar import _hardcoded_events
         events = _hardcoded_events(2026, 5)
         names = [e["name"] for e in events]
         assert "Non-Farm Payrolls" in names
@@ -730,7 +730,7 @@ class TestEconomicCalendarLogic:
             cache_file.write_text(json.dumps(payload))
             config.ECONOMIC_CALENDAR_FILE = cache_file
 
-            from economic_calendar import is_event_risk_window
+            from macro.economic_calendar import is_event_risk_window
             # Construct a datetime exactly at 08:30 ET today — within window
             now_et = datetime.now(ET).replace(hour=8, minute=30, second=0, microsecond=0)
             in_window, name = is_event_risk_window(now_et)
@@ -752,7 +752,7 @@ class TestEconomicCalendarLogic:
             cache_file.write_text(json.dumps(payload))
             config.ECONOMIC_CALENDAR_FILE = cache_file
 
-            from economic_calendar import is_event_risk_window
+            from macro.economic_calendar import is_event_risk_window
             # 2 hours after the event — well outside 45-minute window
             now_et = datetime.now(ET).replace(hour=10, minute=30, second=0, microsecond=0)
             in_window, name = is_event_risk_window(now_et)
@@ -924,7 +924,7 @@ class TestPostEventDay:
     def test_fomc_in_prior_events_returns_true(self, tmp_path):
         self._write_calendar(tmp_path, [{"name": "FOMC Rate Decision", "time": "14:00"}])
         try:
-            from economic_calendar import is_post_major_event_day
+            from macro.economic_calendar import is_post_major_event_day
             result, name = is_post_major_event_day(datetime.now(ET))
             assert result is True
             assert "FOMC" in name
@@ -935,7 +935,7 @@ class TestPostEventDay:
         # The function matches the literal "NFP" substring; the stored name must contain it.
         self._write_calendar(tmp_path, [{"name": "NFP Report", "time": "08:30"}])
         try:
-            from economic_calendar import is_post_major_event_day
+            from macro.economic_calendar import is_post_major_event_day
             result, name = is_post_major_event_day(datetime.now(ET))
             assert result is True
             assert name == "NFP Report"
@@ -945,7 +945,7 @@ class TestPostEventDay:
     def test_cpi_in_prior_events_returns_true(self, tmp_path):
         self._write_calendar(tmp_path, [{"name": "CPI Release", "time": "08:30"}])
         try:
-            from economic_calendar import is_post_major_event_day
+            from macro.economic_calendar import is_post_major_event_day
             result, _ = is_post_major_event_day(datetime.now(ET))
             assert result is True
         finally:
@@ -954,7 +954,7 @@ class TestPostEventDay:
     def test_empty_prior_events_returns_false(self, tmp_path):
         self._write_calendar(tmp_path, [])
         try:
-            from economic_calendar import is_post_major_event_day
+            from macro.economic_calendar import is_post_major_event_day
             result, name = is_post_major_event_day(datetime.now(ET))
             assert result is False
             assert name == ""
@@ -964,7 +964,7 @@ class TestPostEventDay:
     def test_unknown_event_returns_false(self, tmp_path):
         self._write_calendar(tmp_path, [{"name": "ISM Manufacturing", "time": "10:00"}])
         try:
-            from economic_calendar import is_post_major_event_day
+            from macro.economic_calendar import is_post_major_event_day
             result, _ = is_post_major_event_day(datetime.now(ET))
             assert result is False
         finally:
@@ -973,7 +973,7 @@ class TestPostEventDay:
     def test_missing_file_returns_false(self, tmp_path, monkeypatch):
         import config
         monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "nonexistent.json")
-        from economic_calendar import is_post_major_event_day
+        from macro.economic_calendar import is_post_major_event_day
         result, name = is_post_major_event_day(datetime.now(ET))
         assert result is False
         assert name == ""

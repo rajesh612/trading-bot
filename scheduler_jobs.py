@@ -56,7 +56,7 @@ def job_earnings_calendar():
 
 def job_economic_calendar():
     logger.info("━━━ ECONOMIC CALENDAR ━━━")
-    from economic_calendar import refresh_economic_calendar
+    from macro.economic_calendar import refresh_economic_calendar
     _job_guard("economic_calendar", refresh_economic_calendar)
 
 

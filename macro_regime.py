@@ -121,7 +121,7 @@ def fetch_macro_regime() -> dict:
 
         event_risk, event_details = False, ""
         try:
-            from economic_calendar import is_event_risk_window
+            from macro.economic_calendar import is_event_risk_window
             event_risk, event_details = is_event_risk_window(now)
         except Exception:
             pass

@@ -57,7 +57,7 @@ def get_intraday_context(now: datetime) -> "IntradayContext | None":
 def _fetch_intraday_context(now: datetime) -> "IntradayContext | None":
     try:
         from data.market_data import get_intraday_bars, get_daily_bars
-        from economic_calendar import is_post_major_event_day
+        from macro.economic_calendar import is_post_major_event_day
 
         spy_bars = get_intraday_bars("SPY", lookback=80)
         qqq_bars = get_intraday_bars("QQQ", lookback=80)

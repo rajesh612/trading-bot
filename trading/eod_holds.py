@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 import config
 from earnings_calendar import is_earnings_imminent
-from economic_calendar import is_event_risk_window
+from macro.economic_calendar import is_event_risk_window
 from utils.io_utils import load_json
 from trading.tiered_tp import _compute_tier_quantities
 

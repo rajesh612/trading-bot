@@ -188,7 +188,7 @@ class TestBuildMarketContextBlock:
 
     def _patch_context(self, monkeypatch):
         """Patch intraday context and breadth to avoid HTTP calls."""
-        monkeypatch.setattr("economic_calendar.is_event_risk_window", lambda now: (False, ""))
+        monkeypatch.setattr("macro.economic_calendar.is_event_risk_window", lambda now: (False, ""))
         monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda now: None)
         monkeypatch.setattr("macro.breadth_signals.build_breadth_context_line", lambda s: "Breadth: HYG=+0.3%")
 
@@ -227,7 +227,7 @@ class TestBuildMarketContextBlock:
         assert "elevated" in block
 
     def test_active_event_risk_flagged(self, monkeypatch):
-        monkeypatch.setattr("economic_calendar.is_event_risk_window", lambda now: (True, "Non-Farm Payrolls"))
+        monkeypatch.setattr("macro.economic_calendar.is_event_risk_window", lambda now: (True, "Non-Farm Payrolls"))
         monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda now: None)
         monkeypatch.setattr("macro.breadth_signals.build_breadth_context_line", lambda s: "Breadth: HYG=+0.3%")
         from trading.context_builder import build_stable_system_context, build_dynamic_user_context

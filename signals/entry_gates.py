@@ -88,7 +88,7 @@ def check_all_gates(
         return GateResult(False, f"earnings within {earnings_days} day(s)")
 
     # 5. Event risk window
-    from economic_calendar import is_event_risk_window
+    from macro.economic_calendar import is_event_risk_window
     event_risk, event_name = is_event_risk_window(now)
     if event_risk:
         return GateResult(False, f"event risk window: {event_name}")

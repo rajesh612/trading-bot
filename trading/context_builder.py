@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import config
-import economic_calendar as _ec_mod
+import macro.economic_calendar as _ec_mod
 from indicators.values import IndicatorValues
 
 
