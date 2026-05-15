@@ -142,6 +142,19 @@ def notify_close(
     )
 
 
+# ── Morning watch list ────────────────────────────────────────────────────────
+
+def notify_watch_list(symbols: list[str], regime: str) -> None:
+    if not symbols:
+        _send("<b>⚠️ Watch list empty</b> — no tradeable candidates found for today.")
+        return
+    tickers = "  ".join(symbols)
+    _send(
+        f"<b>📋 Watch list ({len(symbols)} stocks) — {regime}</b>\n"
+        f"<code>{tickers}</code>"
+    )
+
+
 # ── Midday health check ───────────────────────────────────────────────────────
 
 def notify_no_trades_midday(regime: str, cycles_run: int, budget_pct: float) -> None:
