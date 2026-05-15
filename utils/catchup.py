@@ -73,8 +73,7 @@ def catchup_missed_agents() -> None:
     # 4. Watch list agent (needed by research + trading agents)
     if not _file_is_from_today(config.WATCH_LIST_FILE):
         logger.info("CATCHUP: running watch list agent (watch_list.txt is stale)…")
-        from agents.watch_list import run_watch_list_agent
-        run_watch_list_agent(notify=False)
+        _sj.job_watch_list()
     else:
         logger.info("CATCHUP: watch list already built today — skipping.")
 

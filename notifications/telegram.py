@@ -6,10 +6,13 @@ never raise, so a Telegram outage never interrupts the trading loop.
 """
 
 import logging
+from datetime import datetime
 
 import requests
 
 import config
+from utils.constants import ET
+from utils.io_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +148,13 @@ def notify_close(
 # ── Morning watch list ────────────────────────────────────────────────────────
 
 def notify_watch_list(symbols: list[str], regime: str) -> None:
+    today = datetime.now(ET).date().isoformat()
+    sentinel = load_json(config.WATCH_LIST_NOTIF_FILE, {})
+    if sentinel.get("date") == today:
+        logger.info("notify_watch_list: already sent today — suppressed duplicate.")
+        return
+    save_json(config.WATCH_LIST_NOTIF_FILE, {"date": today})
+
     if not symbols:
         _send("<b>⚠️ Watch list empty</b> — no tradeable candidates found for today.")
         return

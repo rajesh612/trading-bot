@@ -74,7 +74,8 @@ DAILY_BARS_LOOKBACK = 30
 EMAIL_SENDER       = os.getenv("EMAIL_SENDER", "")
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "")
 EMAIL_RECIPIENT    = os.getenv("EMAIL_RECIPIENT", "")
-DAILY_REPORT_SENT_FILE = STATE_DIR / "daily_report_sent.json"
+DAILY_REPORT_SENT_FILE    = STATE_DIR / "daily_report_sent.json"
+WATCH_LIST_NOTIF_FILE     = STATE_DIR / "watch_list_notif_sent.json"
 
 # Telegram notifications (optional — leave blank to disable)
 # Setup: message @BotFather → /newbot → get token.
