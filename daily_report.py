@@ -136,7 +136,7 @@ def send_daily_report() -> None:
 
     account = {"portfolio_value": 0.0, "last_equity": 0.0}
     try:
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
         acct = AlpacaClient().get_account()
         account = {
             "portfolio_value": float(acct.portfolio_value),

@@ -179,8 +179,8 @@ class TestAlpacaClientHelpers:
         monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
         monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
         from unittest.mock import patch, MagicMock
-        with patch("alpaca_client.TradingClient"):
-            from alpaca_client import AlpacaClient
+        with patch("broker.alpaca_client.TradingClient"):
+            from broker.alpaca_client import AlpacaClient
             client = AlpacaClient()
             assert client is not None
 
@@ -189,8 +189,8 @@ class TestAlpacaClientHelpers:
         monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
         monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
         from unittest.mock import patch, MagicMock
-        with patch("alpaca_client.TradingClient"):
-            import alpaca_client
+        with patch("broker.alpaca_client.TradingClient"):
+            import broker.alpaca_client as alpaca_client
             client = alpaca_client.AlpacaClient()
             with patch("data.market_data.get_latest_price", return_value=200.5):
                 price = client.get_latest_price("AAPL")

@@ -47,7 +47,7 @@ def load_bot_net_pnl() -> float:
             return 0.0
         total = sum(recent)
         try:
-            from alpaca_client import AlpacaClient
+            from broker.alpaca_client import AlpacaClient
             portfolio = AlpacaClient().get_portfolio_value()
         except Exception:
             portfolio = 100_000.0

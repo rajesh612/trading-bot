@@ -54,7 +54,7 @@ def _synthetic_bars(n: int = 100, start_price: float = 150.0) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def alpaca():
-    from alpaca_client import AlpacaClient
+    from broker.alpaca_client import AlpacaClient
     return AlpacaClient()
 
 
@@ -476,7 +476,7 @@ class TestTradingAgent:
         from trading.claude_caller import _ask_claude_batch
         from trading.cycle_context import CycleSnapshot
         from indicators.engine import compute_indicators
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
         import anthropic as ant
 
         alpaca = AlpacaClient()
@@ -541,7 +541,7 @@ class TestTradingAgent:
         orders_placed = []
 
         original_place = None
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
 
         def mock_place(self, symbol, qty, side):
             orders_placed.append({"symbol": symbol, "qty": qty, "side": side})
@@ -644,7 +644,7 @@ class TestEndToEnd:
     @pytest.mark.live
     def test_indicator_pipeline_aapl(self):
         """Pull live bars → compute indicators → verify sane values."""
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
         from indicators.engine import compute_indicators
 
         client = AlpacaClient()

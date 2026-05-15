@@ -97,7 +97,7 @@ class TestOrphanOrderDrain:
         import config
         config.ALPACA_API_KEY = "test-key"
         config.ALPACA_SECRET_KEY = "test-secret"
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
         client = AlpacaClient.__new__(AlpacaClient)
         mock_trading = MagicMock()
         mock_trading.get_orders.return_value = orders
@@ -127,7 +127,7 @@ class TestOrphanOrderDrain:
         import config
         config.ALPACA_API_KEY = "test-key"
         config.ALPACA_SECRET_KEY = "test-secret"
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
         client = AlpacaClient.__new__(AlpacaClient)
         mock_trading = MagicMock()
         client._trading = mock_trading

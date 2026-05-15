@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from alpaca_client import AlpacaClient
+from broker.alpaca_client import AlpacaClient
 
 logger = logging.getLogger(__name__)
 

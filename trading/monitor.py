@@ -9,7 +9,7 @@ from datetime import datetime
 
 import config
 import notifications.telegram as telegram_notify
-from alpaca_client import AlpacaClient
+from broker.alpaca_client import AlpacaClient
 from trading.closer import close_position, _apply_profit_lock
 from trading.journal import (
     _POSITIONS_LOCK,

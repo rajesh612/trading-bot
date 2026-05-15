@@ -18,7 +18,7 @@ from datetime import datetime
 import anthropic
 
 import config
-from alpaca_client import AlpacaClient
+from broker.alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
 from indicators.engine import compute_indicators
 from trading.cycle_context import CycleSnapshot

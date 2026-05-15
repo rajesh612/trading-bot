@@ -77,7 +77,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
     for symbol, pos in open_positions.items():
         try:
             entry = pos["entry_price"]
-            from alpaca_client import AlpacaClient
+            from broker.alpaca_client import AlpacaClient
             alpaca = AlpacaClient()
             current_price = alpaca.get_latest_price(symbol)
             pnl_pct = (current_price - entry) / entry * 100

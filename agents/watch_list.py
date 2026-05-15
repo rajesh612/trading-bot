@@ -8,7 +8,7 @@ import anthropic
 import config
 import notifications.telegram as telegram_notify
 from trading import risk_manager
-from alpaca_client import AlpacaClient
+from broker.alpaca_client import AlpacaClient
 
 logger = logging.getLogger(__name__)
 

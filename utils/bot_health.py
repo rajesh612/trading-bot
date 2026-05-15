@@ -67,7 +67,7 @@ def reconcile_positions() -> None:
     always skipped — swing_manager owns them.
     """
     from trading.journal import load_open_positions, save_open_positions, append_trade
-    from alpaca_client import AlpacaClient
+    from broker.alpaca_client import AlpacaClient
     # Deferred import to avoid circular reference at module load
     import scheduler_jobs as _sj
 

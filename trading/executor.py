@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime
 import config
 import notifications.telegram as telegram_notify
-from alpaca_client import AlpacaClient
+from broker.alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
 from data.market_data import get_intraday_bars
 from utils.io_utils import load_json, save_json

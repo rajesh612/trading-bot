@@ -158,7 +158,7 @@ def job_swing_gap_check():
     logger.info("━━━ SWING GAP CHECK ━━━")
     def _run():
         from swing_manager import run_gap_check
-        from alpaca_client import AlpacaClient
+        from broker.alpaca_client import AlpacaClient
         run_gap_check(AlpacaClient())
     _job_guard("swing_gap_check", _run)
 
