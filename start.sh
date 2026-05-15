@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 PID_FILE="$SCRIPT_DIR/trading_bot.pid"
-LOG_FILE="$SCRIPT_DIR/trading_bot.log"
+LOG_FILE="$SCRIPT_DIR/logs/trading_bot.log"
 
 HASH_FILE="$VENV_DIR/requirements.hash"
 REQ_HASH="$(md5 -q "$SCRIPT_DIR/requirements.txt" 2>/dev/null || md5sum "$SCRIPT_DIR/requirements.txt" | awk '{print $1}')"

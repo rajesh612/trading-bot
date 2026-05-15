@@ -32,9 +32,9 @@
     </array>
 
     <key>StandardOutPath</key>
-    <string>PLACEHOLDER_PROJECT_DIR/launchd_trading_bot.log</string>
+    <string>PLACEHOLDER_PROJECT_DIR/logs/launchd_trading_bot.log</string>
     <key>StandardErrorPath</key>
-    <string>PLACEHOLDER_PROJECT_DIR/launchd_trading_bot.log</string>
+    <string>PLACEHOLDER_PROJECT_DIR/logs/launchd_trading_bot.log</string>
 
     <!-- Do NOT use KeepAlive here. If bash is blocked by TCC (no FDA) launchd
          would restart every ThrottleInterval seconds, flooding the log. The bot's

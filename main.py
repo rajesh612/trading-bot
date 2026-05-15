@@ -46,11 +46,15 @@ _check_crash_loop = check_crash_loop
 _reset_bot_health = reset_bot_health
 _exit_with_alert  = exit_with_alert
 
+# Ensure runtime directories exist before any file I/O
+config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+(config.BASE_DIR / "logs").mkdir(exist_ok=True)
+
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
 
 # Rotate at 5 MB, keep 5 backups (trading_bot.log.1 … .5); oldest auto-deleted
 _file_handler = logging.handlers.RotatingFileHandler(
-    config.BASE_DIR / "trading_bot.log",
+    config.BASE_DIR / "logs" / "trading_bot.log",
     maxBytes=5 * 1024 * 1024,
     backupCount=5,
     encoding="utf-8",
