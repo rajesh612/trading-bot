@@ -302,7 +302,8 @@ class TestAgentBudgetRecording:
 
         with patch("agents.watch_list.AlpacaClient", return_value=mock_alpaca), \
              patch("anthropic.Anthropic") as MockAI, \
-             patch("trading.risk_manager.record_usage", side_effect=fake_record):
+             patch("trading.risk_manager.record_usage", side_effect=fake_record), \
+             patch("agents.watch_list.telegram_notify.notify_watch_list"):
             MockAI.return_value.messages.create.return_value = fake_resp
             # scored list is empty so Claude picks from fallback — still calls messages.create
             # Force scored to have one entry so the Claude call is reached
