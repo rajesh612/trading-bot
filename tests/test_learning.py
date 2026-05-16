@@ -521,3 +521,16 @@ class TestLearningAgentOrchestration:
         result = _compute_regime_winrate(trades)
         assert result["BULL_TREND"] == pytest.approx(0.5)
         assert result["CHOPPY"] == pytest.approx(1.0)
+
+
+# ── learning/agent.py: prompt content checks ─────────────────────────────────
+
+@pytest.mark.unit
+def test_learning_agent_rsi_prompt_range_allows_momentum_entries():
+    """Learning prompt must allow rsi_buy_max up to 80 so trending stocks aren't blocked."""
+    import learning.agent as la
+    import inspect
+    src = inspect.getsource(la)
+    assert "30–50" not in src, "Learning prompt must not restrict rsi_buy_max to 30–50"
+    assert "25–40" not in src, "Learning prompt must not restrict rsi_buy_max_high_vol to 25–40"
+    assert "40–80" in src or "40-80" in src, "Learning prompt must use range 40–80 for rsi_buy_max"
