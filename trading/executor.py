@@ -47,6 +47,9 @@ def execute_buy(
     params: dict,
     now: datetime,
     entries_this_cycle: int,
+    daily_pnl_pct: float = 0.0,
+    sector_today: dict | None = None,
+    symbol_sector_etf: str | None = None,
 ) -> dict | None:
     """
     Validate and place a single BUY order.
@@ -62,6 +65,18 @@ def execute_buy(
     if mode == "CASH":
         logger.info("SKIP %s — CASH mode (CRISIS regime).", symbol)
         return None
+
+    # Per-fill daily-loss circuit breaker
+    loss_warn_pct = -(config.DAILY_LOSS_WARN_PCT * 100)
+    loss_halt_pct = -(config.MAX_DAILY_LOSS_PCT * 100)
+    if daily_pnl_pct <= loss_halt_pct:
+        logger.warning(
+            "SKIP %s — per-fill daily-loss halt (%.2f%% <= %.2f%%)",
+            symbol, daily_pnl_pct, loss_halt_pct,
+        )
+        return None
+    if daily_pnl_pct <= loss_warn_pct:
+        telegram_notify.notify_daily_loss_warning(daily_pnl_pct, config.MAX_DAILY_LOSS_PCT * 100)
 
     if mode in _MODE_POSITION_LIMITS:
         count = sum(1 for p in open_positions.values() if p.get("mode_at_entry") == mode)
@@ -85,6 +100,8 @@ def execute_buy(
         entries_this_cycle=entries_this_cycle,
         spy_ret5d=spy_ret5d, symbol_ret5d=symbol_ret5d, mode=mode,
         rsi_max=rsi_max,
+        sector_today=sector_today,
+        symbol_sector_etf=symbol_sector_etf,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)

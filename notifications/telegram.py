@@ -98,6 +98,20 @@ def notify_budget_warning(used_usd: float, ceiling_usd: float) -> None:
     )
 
 
+_daily_loss_warned: dict = {"date": None}  # warn once per day only
+
+def notify_daily_loss_warning(daily_pnl_pct: float, ceiling_pct: float) -> None:
+    """Warn once per day when daily P&L hits -DAILY_LOSS_WARN_PCT (approaching halt)."""
+    today = datetime.now(ET).date().isoformat()
+    if _daily_loss_warned.get("date") == today:
+        return
+    _daily_loss_warned["date"] = today
+    _send(
+        f"<b>⚠️ Daily loss warning: {daily_pnl_pct:.2f}%</b>\n"
+        f"Approaching daily halt at -{ceiling_pct:.0f}%. New entries continuing but monitor closely."
+    )
+
+
 # ── Regime ────────────────────────────────────────────────────────────────────
 
 def notify_regime_change(old: str, new: str, health: int) -> None:

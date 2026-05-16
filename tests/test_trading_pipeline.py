@@ -75,23 +75,26 @@ class TestTradingPipeline:
             intraday_news={},
         )
 
-    def test_research_staleness_skip_when_too_old(self, monkeypatch):
-        """pipeline.run() returns skipped=True when research > RESEARCH_STALE_BLOCK_MIN."""
+    def test_research_staleness_continues_when_too_old(self, monkeypatch):
+        """pipeline.run() does NOT skip when research > RESEARCH_STALE_BLOCK_MIN — soft fallback."""
         from datetime import timedelta
+        from unittest.mock import MagicMock, patch
         import config
         from trading.pipeline import TradingPipeline
 
         stale_ts = (datetime.now(ET) - timedelta(minutes=config.RESEARCH_STALE_BLOCK_MIN + 10)).isoformat()
         research = {"__meta__": {"timestamp": stale_ts}}
 
-        pipeline = TradingPipeline()
-        result = pipeline.run(
-            symbols=[], snap=self._snap(research=research),
-            ai=None, now=datetime.now(ET), alpaca=None,
-            portfolio_value=10000.0, buying_power=5000.0, can_open=True,
-        )
-        assert result.skipped is True
-        assert "stale" in result.reason
+        with patch("trading.pipeline.load_open_positions", return_value={}), \
+             patch("trading.pipeline.load_daily_closed", return_value=set()), \
+             patch("notifications.telegram.notify_alert"):
+            pipeline = TradingPipeline()
+            result = pipeline.run(
+                symbols=[], snap=self._snap(research=research),
+                ai=None, now=datetime.now(ET), alpaca=MagicMock(),
+                portfolio_value=10000.0, buying_power=5000.0, can_open=True,
+            )
+        assert result.skipped is False
 
     def test_research_staleness_no_skip_when_fresh(self, monkeypatch):
         """pipeline.run() does not skip when research is within acceptable age."""
@@ -721,3 +724,78 @@ def test_pre_claude_filter_passes_vwap_overextended(monkeypatch):
     snap = _make_snap_pipeline()
     result = pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision != "SKIP", f"Option A violated: VWAP overextension caused SKIP: {result.reason}"
+
+
+@pytest.mark.unit
+def test_execute_buy_blocks_at_max_daily_loss(monkeypatch, tmp_path):
+    """execute_buy returns None when daily_pnl_pct hits MAX_DAILY_LOSS_PCT."""
+    from unittest.mock import MagicMock
+    from trading.executor import execute_buy
+    import config
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
+    monkeypatch.setattr("notifications.telegram.notify_daily_loss_warning", lambda *a: None)
+
+    iv = _make_iv_pipeline(composite_score=30.0)
+    alpaca_mock = MagicMock()
+
+    result = execute_buy(
+        symbol="AAPL", iv=iv,
+        decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0, "take_profit_pct": 5.0},
+        regime="NORMAL", regime_info={}, research={},
+        open_positions={}, alpaca=alpaca_mock,
+        portfolio_value=100_000, pos_mult=1.0,
+        spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
+        params={}, now=datetime.now(ET).replace(hour=11),
+        entries_this_cycle=0,
+        daily_pnl_pct=-3.5,   # exceeds MAX_DAILY_LOSS_PCT = 0.03 → -3%
+        sector_today={},
+        symbol_sector_etf=None,
+    )
+    assert result is None
+    alpaca_mock.place_bracket_order.assert_not_called()
+
+
+@pytest.mark.unit
+def test_execute_buy_warns_at_daily_loss_warn_threshold(monkeypatch, tmp_path):
+    """execute_buy fires loss warning notification when daily_pnl_pct between -2% and -3%."""
+    from unittest.mock import MagicMock
+    from trading.executor import execute_buy
+    import config
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr(config, "MAX_DAILY_LOSS_PCT", 0.03)
+    monkeypatch.setattr(config, "DAILY_LOSS_WARN_PCT", 0.02)
+    monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
+
+    warned = []
+    monkeypatch.setattr(
+        "notifications.telegram.notify_daily_loss_warning",
+        lambda pct, ceil: warned.append(pct)
+    )
+
+    iv = _make_iv_pipeline(composite_score=30.0)
+    alpaca_mock = MagicMock()
+    alpaca_mock.place_bracket_order.return_value = {
+        "id": "ord1", "stop_loss_price": 96.0, "take_profit_price": 105.0
+    }
+    monkeypatch.setattr("trading.risk_manager.correct_bracket_after_fill", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.executor.append_trade", lambda d: None)
+
+    execute_buy(
+        symbol="AAPL", iv=iv,
+        decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0, "take_profit_pct": 5.0},
+        regime="NORMAL", regime_info={}, research={},
+        open_positions={}, alpaca=alpaca_mock,
+        portfolio_value=100_000, pos_mult=1.0,
+        spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
+        params={}, now=datetime.now(ET).replace(hour=11),
+        entries_this_cycle=0,
+        daily_pnl_pct=-2.5,   # between warn (-2%) and halt (-3%)
+        sector_today={},
+        symbol_sector_etf=None,
+    )
+    assert warned, "Expected daily_loss_warning notification to fire"

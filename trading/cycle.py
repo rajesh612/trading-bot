@@ -128,6 +128,7 @@ def run_trading_cycle() -> None:
         portfolio_value=portfolio_value,
         buying_power=buying_power,
         can_open=can_open,
+        daily_pnl_pct=daily_pnl_pct,
     )
 
     today_str = now.strftime("%Y-%m-%d")

@@ -56,6 +56,20 @@ def _record_telemetry(ts: str, symbol: str, decision: str, reason: str, iv) -> N
         pass
 
 
+_SECTOR_ETF_MAP: dict[str, str] = {
+    "AAPL": "XLK", "MSFT": "XLK", "NVDA": "XLK", "AMD": "XLK", "INTC": "XLK",
+    "GOOGL": "XLK", "META": "XLK", "AVGO": "XLK", "QCOM": "XLK", "MU": "XLK",
+    "AMAT": "XLK", "KLAC": "XLK", "LRCX": "XLK", "MRVL": "XLK", "ON": "XLK",
+    "JPM": "XLF", "BAC": "XLF", "WFC": "XLF", "GS": "XLF", "MS": "XLF",
+    "C": "XLF", "BLK": "XLF", "AXP": "XLF", "V": "XLF", "MA": "XLF",
+    "XOM": "XLE", "CVX": "XLE", "COP": "XLE", "EOG": "XLE", "SLB": "XLE",
+    "JNJ": "XLV", "UNH": "XLV", "PFE": "XLV", "ABBV": "XLV", "MRK": "XLV",
+    "LLY": "XLV", "AMGN": "XLV", "GILD": "XLV",
+    "GE": "XLI", "CAT": "XLI", "BA": "XLI", "HON": "XLI", "UPS": "XLI",
+    "AMZN": "XLK", "TSLA": "XLK",
+}
+
+
 @dataclass
 class CycleResult:
     entries: int = 0
@@ -98,6 +112,7 @@ class TradingPipeline:
         portfolio_value: float,
         buying_power: float,
         can_open: bool,
+        daily_pnl_pct: float = 0.0,
     ) -> CycleResult:
         t0 = time.monotonic()
         result = CycleResult()
@@ -116,10 +131,15 @@ class TradingPipeline:
                 age_min = (datetime.now(ET) - report_dt).total_seconds() / 60
                 if age_min > config.RESEARCH_STALE_BLOCK_MIN:
                     logger.error(
-                        "Research report is %.0f min old (limit=%d) — skipping cycle.",
+                        "Research report is %.0f min old (limit=%d) — using stale data with neutral sentiment override.",
                         age_min, config.RESEARCH_STALE_BLOCK_MIN,
                     )
-                    return CycleResult(skipped=True, reason=f"research stale ({age_min:.0f}m)")
+                    from notifications import telegram as _tg
+                    _tg.notify_alert(
+                        f"⚠️ Research report is {age_min:.0f} min old — running with neutral sentiment. "
+                        "Investigate research job failure."
+                    )
+                    # Do NOT skip — continue cycle with stale research; per-symbol sentiment falls back to 0 (neutral)
                 if age_min > config.RESEARCH_STALE_WARN_MIN:
                     logger.warning("Research report is %.0f min old — sentiment may be stale.", age_min)
             except Exception as exc:
@@ -259,6 +279,9 @@ class TradingPipeline:
                     symbol_ret5d=0.0, rsi_max=rsi_max,
                     params=snap.params, now=now,
                     entries_this_cycle=entries_this_cycle,
+                    daily_pnl_pct=daily_pnl_pct,
+                    sector_today=snap.sector_today,
+                    symbol_sector_etf=_SECTOR_ETF_MAP.get(symbol),
                 )
                 if pos_data is not None:
                     entries_this_cycle += 1
@@ -285,6 +308,9 @@ class TradingPipeline:
                         symbol_ret5d=symbol_ret5d, rsi_max=rsi_max,
                         params=snap.params, now=now,
                         entries_this_cycle=entries_this_cycle,
+                        daily_pnl_pct=daily_pnl_pct,
+                        sector_today=snap.sector_today,
+                        symbol_sector_etf=_SECTOR_ETF_MAP.get(symbol),
                     )
                     if pos_data is not None:
                         entries_this_cycle += 1
