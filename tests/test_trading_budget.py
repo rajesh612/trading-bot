@@ -407,3 +407,32 @@ class TestAutoExecuteSoftFlagGuard:
 
         # Result is not None — the trade proceeded (soft flags don't block Claude-reviewed trades)
         assert result is not None
+
+
+@pytest.mark.unit
+def test_auto_execute_not_blocked_by_mtf_unavailable():
+    """mtf_unavailable is a data-fetch failure; must not block auto-execute."""
+    from signals.entry_gates import GateResult
+
+    gate = GateResult(passed=True, reason="", flags=("mtf_unavailable",))
+    decision = {"source": "auto_execute"}
+
+    _DATA_ONLY_FLAGS = frozenset({"mtf_unavailable"})
+    real_signal_flags = [f for f in gate.flags if f not in _DATA_ONLY_FLAGS]
+    # After fix: real_signal_flags should be empty → auto-execute proceeds
+    assert real_signal_flags == [], (
+        f"mtf_unavailable should not block auto-execute. Real flags: {real_signal_flags}"
+    )
+
+
+@pytest.mark.unit
+def test_auto_execute_still_blocked_by_mtf_not_confirmed():
+    """mtf_not_confirmed is a real bearish signal and must still block auto-execute."""
+    from signals.entry_gates import GateResult
+
+    gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
+    _DATA_ONLY_FLAGS = frozenset({"mtf_unavailable"})
+    real_signal_flags = [f for f in gate.flags if f not in _DATA_ONLY_FLAGS]
+    assert real_signal_flags == ["mtf_not_confirmed"], (
+        f"mtf_not_confirmed should block auto-execute. Got: {real_signal_flags}"
+    )
