@@ -52,9 +52,10 @@
 - PEAD/earnings exception: composite ≥ 65 + confirmed beat → Stochastic up to 95 acceptable
 
 ### VWAP Filter
-- VWAP slope < −0.2%: **soft warning only** — not a block; use judgment
+- VWAP slope < −0.2%: **hard block at pre-filter stage** — these stocks never reach Claude; do not adjust
 - Price > VWAP+2σ: hard block (overextension — trust code gate)
-- Earnings exception: sentiment > 70 may override VWAP slope caution
+- VWAP slope ≥ −0.2%: standard entry; rising VWAP preferred
+- Earnings exception: not applicable (VWAP slope block is pre-Claude; cannot override here)
 
 ### Volume Confirmation
 - Volume ratio < 0.8x: reduce size 50%
