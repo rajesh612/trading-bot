@@ -245,16 +245,17 @@ class TestPreClaudeFilter:
         assert "VWAP slope" in result.reason
 
     @pytest.mark.unit
-    def test_layer_2_5_blocks_vwap_overextension(self):
-        """Price above VWAP+2σ blocks before Claude."""
+    def test_layer_2_5_vwap_overextension_not_blocked_in_filter(self, monkeypatch):
+        """Option A: price > VWAP+2σ is a safety gate, not a quality signal — must pass filter."""
+        import config
+        monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
         from trading.pre_claude_filter import pre_claude_filter
-        from unittest.mock import patch
         snap = self._snap()
         iv = self._iv(composite=40.0)
-        with patch("trading.pre_claude_filter.passes_vwap_guard", return_value=False):
-            result = pre_claude_filter("TEST", iv, snap)
-        assert result.decision == "SKIP"
-        assert "VWAP" in result.reason
+        result = pre_claude_filter("TEST", iv, snap)
+        assert result.decision != "SKIP", (
+            f"Option A violated: VWAP overextension blocked in pre_claude_filter: {result.reason}"
+        )
 
 
 # ─── budget_guard ────────────────────────────────────────────────────────────

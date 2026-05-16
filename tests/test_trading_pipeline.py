@@ -663,3 +663,61 @@ def test_stock_block_includes_sl_tp_for_existing_position():
 
     assert "SL=3.5%" in block, f"SL missing from pos_block: {block}"
     assert "TP=6.0%" in block, f"TP missing from pos_block: {block}"
+
+
+# ── Option A pre_claude_filter quality-only tests ────────────────────────────
+
+def _make_iv_pipeline(**kwargs):
+    from indicators.values import IndicatorValues
+    defaults = dict(
+        symbol="AAPL", timestamp="2026-01-01T10:00:00",
+        current_price=100.0, vwap=99.0,
+        vwap_std1_upper=100.5, vwap_std1_lower=97.5,
+        vwap_std2_upper=101.5, vwap_std2_lower=96.5,
+        rsi=60.0, macd=0.1, macd_signal=0.05, macd_hist=0.05,
+        bb_upper=102.0, bb_mid=100.0, bb_lower=98.0,
+        ema9=100.2, ema21=99.8, atr=1.5, volume_ratio=1.0,
+        stoch_k=60.0, stoch_d=60.0, obv=1000.0,
+        vwap_slope=0.1, rsi_slope=0.0,
+        daily_volume_ratio=1.0, daily_volume_trend=0.0, daily_volume_mean=1_000_000.0,
+        composite_score=25.0, signal="BUY", confidence=0.7,
+    )
+    defaults.update(kwargs)
+    return IndicatorValues(**defaults)
+
+
+def _make_snap_pipeline(regime="NORMAL"):
+    from unittest.mock import MagicMock
+    snap = MagicMock()
+    snap.regime = regime
+    snap.params = {}
+    snap.regime_info = {"macro_health_score": 0}
+    snap.research_meta = {"macro_shock_score": 0}
+    snap.research = {}
+    snap.intraday_news = {}
+    snap.sector_today = {}
+    return snap
+
+
+@pytest.mark.unit
+def test_pre_claude_filter_passes_stoch_95(monkeypatch):
+    """Option A: Stoch 95 must NOT cause SKIP in pre_claude_filter (only in check_all_gates)."""
+    import config
+    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
+    from trading.pre_claude_filter import pre_claude_filter
+    iv = _make_iv_pipeline(composite_score=25.0, stoch_d=95.0)
+    snap = _make_snap_pipeline()
+    result = pre_claude_filter("AAPL", iv, snap, set())
+    assert result.decision != "SKIP", f"Option A violated: Stoch 95 caused SKIP: {result.reason}"
+
+
+@pytest.mark.unit
+def test_pre_claude_filter_passes_vwap_overextended(monkeypatch):
+    """Option A: price > VWAP+2σ must NOT cause SKIP in pre_claude_filter."""
+    import config
+    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
+    from trading.pre_claude_filter import pre_claude_filter
+    iv = _make_iv_pipeline(composite_score=25.0, current_price=104.0, vwap_std2_upper=101.5)
+    snap = _make_snap_pipeline()
+    result = pre_claude_filter("AAPL", iv, snap, set())
+    assert result.decision != "SKIP", f"Option A violated: VWAP overextension caused SKIP: {result.reason}"
