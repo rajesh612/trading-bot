@@ -10,7 +10,7 @@
 .venv/bin/python3 backtest.py          # 7-day backtest
 ```
 
-Bot runs weekdays 9:30 AM – 3:55 PM ET. Auto-start: `./setup_launchagent.sh` (macOS) or `./setup_cron.sh` (Linux).
+Bot runs weekdays 9:30 AM – 3:55 PM ET. Auto-start: `./scripts/setup_launchagent.sh` (macOS) or `./scripts/setup_cron.sh` (Linux).
 
 ---
 

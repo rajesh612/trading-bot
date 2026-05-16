@@ -2,6 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
 START_SRC="$SCRIPT_DIR/trading_bot_start.plist"
@@ -16,7 +17,7 @@ STOP_DEST="$LAUNCH_AGENTS_DIR/trading_bot_stop.plist"
 # /bin/bash must hold Full Disk Access; otherwise launchd silently fails and
 # (if KeepAlive is set) spams the log with EPERM errors every ThrottleInterval.
 _check_fda() {
-    case "$SCRIPT_DIR" in
+    case "$PROJECT_DIR" in
         "$HOME/Documents/"*|"$HOME/Desktop/"*|"$HOME/Downloads/"*)
             echo ""
             echo "  ┌─────── IMPORTANT: macOS Full Disk Access required ────────────────┐"
@@ -59,8 +60,8 @@ fi
 echo "[setup_launchagent] Installing Trading Bot LaunchAgents..."
 _remove_old_plist
 
-sed "s|PLACEHOLDER_PROJECT_DIR|$SCRIPT_DIR|g" "$START_SRC" > "$START_DEST"
-sed "s|PLACEHOLDER_PROJECT_DIR|$SCRIPT_DIR|g" "$STOP_SRC"  > "$STOP_DEST"
+sed "s|PLACEHOLDER_PROJECT_DIR|$PROJECT_DIR|g" "$START_SRC" > "$START_DEST"
+sed "s|PLACEHOLDER_PROJECT_DIR|$PROJECT_DIR|g" "$STOP_SRC"  > "$STOP_DEST"
 
 launchctl unload "$START_DEST" 2>/dev/null || true
 launchctl unload "$STOP_DEST"  2>/dev/null || true
@@ -71,8 +72,8 @@ echo "[setup_launchagent] Installed."
 echo "  Auto-start : 5:30 AM PT (8:30 AM ET), Monday–Friday"
 echo "  Auto-stop  : 1:30 PM PT (4:30 PM ET), Monday–Friday"
 echo "  If laptop is asleep at the scheduled time, launchd fires on next wake."
-echo "  Logs: $SCRIPT_DIR/logs/launchd_trading_bot.log"
+echo "  Logs: $PROJECT_DIR/logs/launchd_trading_bot.log"
 echo ""
-echo "  To uninstall: ./setup_launchagent.sh uninstall"
+echo "  To uninstall: ./scripts/setup_launchagent.sh uninstall"
 
 _check_fda

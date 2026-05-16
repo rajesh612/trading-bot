@@ -2,7 +2,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CRON_LOG="$SCRIPT_DIR/logs/cron_trading_bot.log"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CRON_LOG="$PROJECT_DIR/logs/cron_trading_bot.log"
 BLOCK_START="# trading-bot-begin"
 BLOCK_END="# trading-bot-end"
 
@@ -12,7 +13,7 @@ BLOCK_END="# trading-bot-end"
 # The cron entries use absolute paths (/bin/bash + full venv python path) so
 # they are immune to the environment, but the scripts themselves must also use
 # absolute paths (BASH_SOURCE / $0 resolution handles this in start.sh/stop.sh).
-# Verify the setup with: crontab -l && bash -c "$SCRIPT_DIR/start.sh --foreground"
+# Verify the setup with: crontab -l && bash -c "$PROJECT_DIR/start.sh --foreground"
 
 _remove_block() {
     local current
@@ -37,8 +38,8 @@ _remove_block
 (crontab -l 2>/dev/null || true; cat <<EOF
 $BLOCK_START
 CRON_TZ=America/New_York
-30 8 * * 1-5 /bin/bash $SCRIPT_DIR/start.sh >> $CRON_LOG 2>&1
-30 16 * * 1-5 /bin/bash $SCRIPT_DIR/stop.sh >> $CRON_LOG 2>&1
+30 8 * * 1-5 /bin/bash $PROJECT_DIR/start.sh >> $CRON_LOG 2>&1
+30 16 * * 1-5 /bin/bash $PROJECT_DIR/stop.sh >> $CRON_LOG 2>&1
 $BLOCK_END
 EOF
 ) | crontab -
@@ -51,5 +52,5 @@ echo "  Shell      : /bin/bash (explicit, not cron's default /bin/sh)"
 echo "  Logs: $CRON_LOG"
 echo ""
 echo "  To verify:    crontab -l"
-echo "  To test now:  /bin/bash $SCRIPT_DIR/start.sh --foreground"
-echo "  To uninstall: ./setup_cron.sh uninstall"
+echo "  To test now:  /bin/bash $PROJECT_DIR/start.sh --foreground"
+echo "  To uninstall: ./scripts/setup_cron.sh uninstall"

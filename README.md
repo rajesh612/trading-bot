@@ -146,7 +146,7 @@ ExecStart=/path/to/trading-bot/start.sh --foreground
 Restart=on-failure
 RestartSec=15
 ```
-The provided `setup_cron.sh` handles scheduled start/stop only and does not restart on crash.
+The provided `scripts/setup_cron.sh` handles scheduled start/stop only and does not restart on crash.
 
 ---
 
@@ -254,7 +254,7 @@ Once installed, the bot starts and stops **automatically every weekday — no da
 
 **Step 1 — Install (one-time):**
 ```bash
-./setup_launchagent.sh
+./scripts/setup_launchagent.sh
 ```
 
 **Step 2 — Grant Full Disk Access to bash (one-time, required if project is in ~/Documents):**
@@ -275,7 +275,7 @@ launchctl list | grep trading_bot
 
 **Uninstall:**
 ```bash
-./setup_launchagent.sh uninstall
+./scripts/setup_launchagent.sh uninstall
 ```
 
 ---
@@ -308,8 +308,8 @@ If you started via LaunchAgent but see nothing in `logs/launchd_trading_bot.log`
 ### Linux — cron
 
 ```bash
-./setup_cron.sh            # Install (CRON_TZ=America/New_York, DST-aware)
-./setup_cron.sh uninstall  # Remove
+./scripts/setup_cron.sh            # Install (CRON_TZ=America/New_York, DST-aware)
+./scripts/setup_cron.sh uninstall  # Remove
 ```
 
 ---
