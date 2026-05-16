@@ -139,7 +139,7 @@ EARNINGS_CALENDAR_FILE = STATE_DIR / "earnings_calendar.json"
 PARABOLIC_5DAY_RETURN_PCT     = 15.0   # 5-day return % to flag as parabolic
 VOLUME_EXHAUSTION_RATIO       = 0.8    # vol < this × 20d avg at 5d high → exhaustion
 STOP_HUNT_ROUND_PROXIMITY_PCT = 0.4    # within 0.4% of round number ($X.00 / $X.50)
-STOP_HUNT_HILOW_PROXIMITY_PCT = 0.3    # within 0.3% of 5-day high or low
+STOP_HUNT_HILOW_PROXIMITY_PCT = 0.5    # within 0.5% of 5-day high or low
 
 # PEAD (post-earnings announcement drift) detection thresholds
 PEAD_EPS_SURPRISE_MIN   = 5.0    # ≥ 5% EPS beat required
@@ -220,7 +220,7 @@ STOCH_HARD_VETO_THRESHOLD  = 93    # Stochastic %D above this → hard gate befo
 POST_EVENT_POSITION_MULT    = 0.6     # 60% sizing on post-FOMC/NFP/CPI days
 INTRADAY_CONTEXT_TTL_SEC    = 300     # cache SPY intraday context 5 min
 RESEARCH_STALE_WARN_MIN     = 120     # warn if research report > 2h old
-RESEARCH_STALE_BLOCK_MIN    = 480     # skip cycle if research > 8h old
+RESEARCH_STALE_BLOCK_MIN    = 600     # skip cycle if research > 10h old
 FETCH_WORKERS               = 6       # parallel fetch threads in pipeline Phase 1
 ECONOMIC_CALENDAR_HOUR      = 8
 ECONOMIC_CALENDAR_MINUTE    = 20      # moved from 8:30 → 8:20 to avoid race with startup
@@ -269,3 +269,4 @@ WATCH_LIST_STOCH_FILTER       = 80    # exclude if Stochastic %D > this at 9 AM 
 WATCH_LIST_MIN_AFTER_FILTER   = 6     # relax filter thresholds if fewer symbols remain
 
 INTRADAY_NEWS_CACHE_FILE      = STATE_DIR / "intraday_news_cache.json"
+CYCLE_TELEMETRY_FILE          = STATE_DIR / "cycle_telemetry.jsonl"

@@ -10,6 +10,7 @@ Phase 4  — Execute BUY / CLOSE decisions
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -35,6 +36,24 @@ from trading.pre_claude_filter import pre_claude_filter
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
+
+
+def _record_telemetry(ts: str, symbol: str, decision: str, reason: str, iv) -> None:
+    """Append one symbol decision to cycle_telemetry.jsonl for post-hoc debugging."""
+    try:
+        record = json.dumps({
+            "ts": ts, "symbol": symbol, "decision": decision, "reason": reason,
+            "composite": round(iv.composite_score, 1),
+            "rsi": round(iv.rsi, 1),
+            "vwap_slope": round(iv.vwap_slope, 3),
+            "stoch_d": round(iv.stoch_d, 1),
+            "parabolic": iv.parabolic,
+            "stop_hunt_zone": iv.stop_hunt_zone,
+        })
+        with open(config.CYCLE_TELEMETRY_FILE, "a") as f:
+            f.write(record + "\n")
+    except Exception:
+        pass
 
 
 @dataclass
@@ -151,6 +170,7 @@ class TradingPipeline:
         needs_claude:  list[tuple[str, IndicatorValues, dict | None]] = []
         auto_execute:  list[tuple[str, IndicatorValues]] = []
 
+        ts_str = now.strftime("%Y-%m-%dT%H:%M:%S")
         for symbol, iv, existing_pos, _ret5d in stock_data:
             if existing_pos:
                 pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
@@ -159,13 +179,17 @@ class TradingPipeline:
             filt = pre_claude_filter(symbol, iv, snap, daily_closed)
             if filt.decision == "SKIP":
                 logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
+                _record_telemetry(ts_str, symbol, "SKIP", filt.reason, iv)
             elif filt.decision == "AUTO_EXECUTE":
                 auto_execute.append((symbol, iv))
                 logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
+                _record_telemetry(ts_str, symbol, "AUTO_EXECUTE", filt.reason, iv)
             elif not risk_manager.is_entry_budget_exhausted():
                 needs_claude.append((symbol, iv, None))
+                _record_telemetry(ts_str, symbol, "CLAUDE", "", iv)
             else:
                 logger.info("BUDGET-EXHAUSTED HOLD %s: would need Claude", symbol)
+                _record_telemetry(ts_str, symbol, "BUDGET_HOLD", "entry_budget_exhausted", iv)
 
         result.candidates = len(needs_claude) + len(auto_execute)
         gates_elapsed = time.monotonic() - t_gates

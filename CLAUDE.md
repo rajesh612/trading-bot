@@ -88,7 +88,8 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `RISK_PER_TRADE_PCT` | 0.005 | 0.5% ATR-based sizing |
 | `STOP_LOSS_PCT` / `TAKE_PROFIT_PCT` | 4.0 / 5.0 | Defaults (Claude can override) |
 | `MAX_DAILY_LOSS_PCT` | 0.03 | 3% daily loss circuit breaker |
-| `AUTO_BUY_COMPOSITE_THRESHOLD` | 35 | Auto-BUY threshold (composite score) |
+| `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 20 / 35 | Pre-Claude composite threshold (regime-adjusted) |
+| `AUTO_EXECUTE_COMPOSITE_MIN` | 55 | Auto-execute (skip Claude) composite threshold |
 | `ENTRY_START_HOUR` / `ENTRY_END_HOUR` | 10 / 15 | ET entry window |
 | `BAR_TIMEFRAME_MINUTES` / `BARS_LOOKBACK` | 5 / 100 | Bar config |
 

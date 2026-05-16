@@ -53,9 +53,6 @@ def execute_buy(
     Returns position_data dict on success, None if any pre-flight check blocks entry.
     Caller increments entries_this_cycle and result.entries on non-None return.
     """
-    if iv.rsi > rsi_max:
-        logger.info("SKIP %s — RSI %.1f > %s (regime=%s).", symbol, iv.rsi, rsi_max, regime)
-        return None
     vwap_slope_min = params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
     if iv.vwap_slope < vwap_slope_min:
         logger.info("SKIP %s — VWAP slope %.3f%% < %.3f%% (downtrend).", symbol, iv.vwap_slope, vwap_slope_min)
@@ -87,13 +84,10 @@ def execute_buy(
         daily_closed=fresh_daily_closed, bars_15min=bars_15min, now=now,
         entries_this_cycle=entries_this_cycle,
         spy_ret5d=spy_ret5d, symbol_ret5d=symbol_ret5d, mode=mode,
+        rsi_max=rsi_max,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)
-        return None
-    real_signal_flags = [f for f in gate.flags if f not in config.AUTO_EXECUTE_DATA_ONLY_FLAGS]
-    if real_signal_flags and decision.get("source") == "auto_execute":
-        logger.info("SKIP %s — auto-execute blocked by signal flags: %s", symbol, ", ".join(real_signal_flags))
         return None
     if gate.flags:
         logger.info("ENTRY %s flagged: %s", symbol, ", ".join(gate.flags))

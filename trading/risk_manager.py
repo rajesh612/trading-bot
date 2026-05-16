@@ -161,7 +161,10 @@ def record_usage(
     cache_read_tokens: int = 0,
     kind: str = "entry",
 ) -> None:
-    """Route token cost to entry or exit pool. kind='entry' default for backward compat."""
+    """Route token cost to entry or exit pool.
+    kind='entry' → entry pool; 'exit' → exit pool; 'other' → total only (no pool deduction).
+    """
+    global _entry_exhausted_flag
     b = load_budget()
 
     b["calls_made"]         += 1
@@ -181,9 +184,14 @@ def record_usage(
     if kind == "exit":
         b["exit_calls"]    += 1
         b["exit_spent_usd"] = round(b.get("exit_spent_usd", 0.0) + call_cost, 6)
-    else:
+    elif kind == "entry":
         b["entry_calls"]    += 1
         b["entry_spent_usd"] = round(b.get("entry_spent_usd", 0.0) + call_cost, 6)
+    # kind="other" → only estimated_cost_usd updated; no pool deduction
+
+    # Sync in-process flag to disk state so flag never outlives a budget reset (new day)
+    if not b.get("entry_exhausted"):
+        _entry_exhausted_flag = False
 
     logger.debug(
         "API budget: $%.4f total | entry=$%.4f exit=$%.4f | calls=%d",

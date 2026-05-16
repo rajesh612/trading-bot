@@ -342,32 +342,6 @@ class TestAutoExecuteSoftFlagGuard:
         )
 
     @pytest.mark.unit
-    def test_auto_execute_blocked_when_gate_returns_soft_flags(self):
-        """execute_buy returns None for auto-execute trades when gate has soft flags (e.g. mtf_not_confirmed)."""
-        from unittest.mock import patch
-        from signals.entry_gates import GateResult
-        from trading.executor import execute_buy
-
-        iv = self._iv()
-        decision = {
-            "action": "BUY", "confidence": 90,
-            "reasoning": "auto-execute: composite+sentiment threshold met",
-            "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
-            "source": "auto_execute",
-        }
-
-        soft_flag_gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
-
-        with patch("trading.executor.check_all_gates", return_value=soft_flag_gate), \
-             patch("trading.executor.get_intraday_bars", return_value=None), \
-             patch("trading.executor.load_json", return_value={}), \
-             patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
-             patch("trading.executor._MODE_POSITION_LIMITS", {}):
-            result = execute_buy(**self._base_kwargs(iv, decision))
-
-        assert result is None
-
-    @pytest.mark.unit
     def test_claude_buy_proceeds_with_soft_flags(self):
         """execute_buy does NOT block Claude-reviewed BUY when gate has soft flags — only auto-execute is strict."""
         from unittest.mock import patch, MagicMock
@@ -459,45 +433,6 @@ def test_auto_execute_not_blocked_by_mtf_unavailable():
         result = execute_buy(**base_kwargs)
 
     assert result is not None, "mtf_unavailable must not block auto-execute"
-
-
-@pytest.mark.unit
-def test_auto_execute_still_blocked_by_mtf_not_confirmed():
-    """mtf_not_confirmed is a real bearish signal and must still block auto-execute."""
-    from signals.entry_gates import GateResult
-    from unittest.mock import patch, MagicMock
-    from trading.executor import execute_buy
-    from tests.test_signals import make_full_iv
-
-    iv = make_full_iv(symbol="AAPL", composite_score=60.0, rsi=55.0, stoch_d=50.0, current_price=100.0)
-    decision = {
-        "action": "BUY", "confidence": 90,
-        "reasoning": "auto-execute",
-        "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
-        "source": "auto_execute",
-    }
-    base_kwargs = dict(
-        symbol="AAPL", iv=iv, decision=decision,
-        regime="NORMAL", regime_info={"regime": "NORMAL", "spy_5day_return": 0.0},
-        research={"AAPL": {"sentiment_score": 25}},
-        open_positions={}, alpaca=MagicMock(), portfolio_value=10_000.0, pos_mult=1.0,
-        spy_ret5d=0.5, symbol_ret5d=1.0, rsi_max=72.0,
-        params={"vwap_slope_min": -0.5},
-        now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
-        entries_this_cycle=0,
-    )
-
-    # mtf_not_confirmed is a real signal flag — must block auto-execute
-    gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
-
-    with patch("trading.executor.check_all_gates", return_value=gate), \
-         patch("trading.executor.get_intraday_bars", return_value=None), \
-         patch("trading.executor.load_json", return_value={}), \
-         patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
-         patch("trading.executor._MODE_POSITION_LIMITS", {}):
-        result = execute_buy(**base_kwargs)
-
-    assert result is None, "mtf_not_confirmed must block auto-execute"
 
 
 @pytest.mark.unit

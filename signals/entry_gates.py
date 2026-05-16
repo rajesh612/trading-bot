@@ -13,12 +13,14 @@ from datetime import datetime
 import pandas as pd
 
 import config
+import macro.economic_calendar as ecc
 from indicators.values import IndicatorValues
 from signals.time_gate import is_entry_allowed
 from signals.relative_strength import rs_rank, passes_rs_filter
 from signals.correlation_guard import passes_correlation_guard
 from signals.mtf_confirm import passes_mtf_filter
 from signals.vwap_guard import passes_vwap_guard
+from calendars.earnings import is_earnings_imminent
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ def check_all_gates(
     spy_ret5d: float = 0.0,
     symbol_ret5d: float = 0.0,
     mode: str = "DAY_TRADE",
+    rsi_max: float = config.RSI_BUY_MAX,
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -81,15 +84,13 @@ def check_all_gates(
     if symbol in open_positions:
         return GateResult(False, "position already open")
 
-    # 4. Earnings imminent — imported lazily to avoid circular import
-    from calendars.earnings import is_earnings_imminent
+    # 4. Earnings imminent
     earnings_days = 1 if mode not in ("HYBRID", "SHORT_TERM") else 2
     if mode not in ("CAPITULATION", "PEAD") and is_earnings_imminent(symbol, days=earnings_days):
         return GateResult(False, f"earnings within {earnings_days} day(s)")
 
     # 5. Event risk window
-    from macro.economic_calendar import is_event_risk_window
-    event_risk, event_name = is_event_risk_window(now)
+    event_risk, event_name = ecc.is_event_risk_window(now)
     if event_risk:
         return GateResult(False, f"event risk window: {event_name}")
 
@@ -115,8 +116,8 @@ def check_all_gates(
 
     # 10. RSI overbought hard skip — saves Claude tokens on conditions that will HOLD anyway
     # Exempted for PEAD: earnings-momentum stocks legitimately run above normal RSI bounds
-    if mode != "PEAD" and iv.rsi > config.RSI_BUY_MAX:
-        return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {config.RSI_BUY_MAX})")
+    if mode != "PEAD" and iv.rsi > rsi_max:
+        return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {rsi_max:.0f})")
 
     # 11. Stochastic overbought hard veto
     if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:

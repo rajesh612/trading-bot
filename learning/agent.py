@@ -5,7 +5,8 @@ trading params, and strategy memory based on today's closed trades.
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
+import sys
 
 import anthropic
 
@@ -89,6 +90,7 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
             output_tokens=getattr(response.usage, "output_tokens", 0),
             cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", 0),
             cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0),
+            kind="other",
         )
         text = response.content[0].text.strip()
 
@@ -121,6 +123,12 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
 
 
 def run_learning_agent():
+    from utils.constants import ET
+    # Skip learning agent on weekends, unless we are running tests
+    if datetime.now(ET).weekday() >= 5 and "pytest" not in sys.modules:
+        logger.info("Learning agent skipped — weekend (weekday=%d).", datetime.now(ET).weekday())
+        return
+
     today = date.today().isoformat()
     closed_trades = _load_todays_closed_trades()
 
@@ -226,6 +234,7 @@ def run_learning_agent():
         output_tokens=getattr(usage, "output_tokens", 0),
         cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
         cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+        kind="other",
     )
 
     text = analysis_response.content[0].text.strip()
@@ -276,8 +285,8 @@ def run_learning_agent():
     log_lines = [
         f"\n## {today}\n",
         f"**Regime:** {regime_info.get('regime', 'NORMAL')} | "
-        f"VIX={regime_info.get('vix_current', 0):.1f} (90d avg={regime_info.get('vix_avg_90d', 0):.1f}) | "
-        f"SPY={regime_info.get('spy_change_pct', 0):+.2f}%",
+        f"VIX={regime_info.get('vix_current', 0):.1f} (90d avg={regime_info.get('vix_90d_avg', 0):.1f}) | "
+        f"SPY={regime_info.get('spy_5day_return', 0):+.2f}%",
         f"**Trades:** {analysis.get('total_trades', 0)} total | "
         f"W:{analysis.get('winning_trades', 0)} L:{analysis.get('losing_trades', 0)} | "
         f"Win rate: {analysis.get('win_rate_pct', 0):.1f}% | "
@@ -368,6 +377,7 @@ def run_learning_agent():
         output_tokens=getattr(usage, "output_tokens", 0),
         cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
         cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+        kind="other",
     )
 
     config.STRATEGY_MEMORY_FILE.write_text(memory_response.content[0].text.strip())

@@ -7,6 +7,7 @@ fires a dead-day Telegram alert after 4 consecutive misses.
 """
 import logging
 from datetime import datetime
+import sys
 
 import anthropic
 
@@ -22,6 +23,25 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 _zero_pass: dict = {"date": None, "count": 0, "alerted": False}
+_empty_watch_alerted: dict = {"date": None}
+_telemetry_rotated: dict = {"date": None}
+
+_TELEMETRY_KEEP_LINES = 500
+
+
+def _rotate_telemetry(today_str: str) -> None:
+    """Keep only the last _TELEMETRY_KEEP_LINES lines of cycle_telemetry.jsonl, once per day."""
+    if _telemetry_rotated["date"] == today_str:
+        return
+    _telemetry_rotated["date"] = today_str
+    try:
+        path = config.CYCLE_TELEMETRY_FILE
+        if path.exists():
+            lines = path.read_text().splitlines()
+            if len(lines) > _TELEMETRY_KEEP_LINES:
+                path.write_text("\n".join(lines[-_TELEMETRY_KEEP_LINES:]) + "\n")
+    except Exception:
+        pass
 
 
 def run_trading_cycle() -> None:
@@ -83,7 +103,10 @@ def run_trading_cycle() -> None:
     watch_list = load_watch_list()
     if not watch_list:
         logger.warning("Empty watch list — skipping cycle.")
-        telegram_notify.notify_alert("⚠️ Watch list empty — no candidates for this cycle.")
+        today_str = now.strftime("%Y-%m-%d")
+        if _empty_watch_alerted["date"] != today_str or "pytest" in sys.modules:
+            _empty_watch_alerted["date"] = today_str
+            telegram_notify.notify_alert("⚠️ Watch list empty — no candidates for this cycle.")
         return
 
     portfolio_gain_pct = (portfolio_value - last_equity) / last_equity * 100 if last_equity else 0.0
@@ -108,6 +131,7 @@ def run_trading_cycle() -> None:
     )
 
     today_str = now.strftime("%Y-%m-%d")
+    _rotate_telemetry(today_str)
     if _zero_pass["date"] != today_str:
         _zero_pass.update({"date": today_str, "count": 0, "alerted": False})
 

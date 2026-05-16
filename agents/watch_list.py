@@ -61,14 +61,18 @@ def _apply_technical_filter(
     stoch_limit: float,
 ) -> list[str]:
     """
-    Remove symbols that are already technically exhausted at watch-list selection time.
+    Remove symbols that are already technically exhausted or gapped-up beyond entry gates.
     If fewer than WATCH_LIST_MIN_AFTER_FILTER survive, retry with relaxed thresholds
     (+6 RSI, +7 Stochastic) so the list is never catastrophically short.
+    Gap filter is never relaxed — a > GAP_SKIP_PCT gap will be blocked all day.
     """
     def _passes(sym: str, rsi_lim: float, stoch_lim: float) -> bool:
         snap = snapshots.get(sym, {})
         if not snap:
             return True  # no data → assume clean
+        # Hard-filter gap-ups that will hit GAP_SKIP_PCT all day (non-relaxable)
+        if snap.get("gap_pct", 0) > config.GAP_SKIP_PCT:
+            return False
         return snap.get("rsi", 0) <= rsi_lim and snap.get("stoch_d", 0) <= stoch_lim
 
     filtered = [s for s in symbols if _passes(s, rsi_limit, stoch_limit)]
@@ -105,8 +109,10 @@ def run_watch_list_agent() -> list[str]:
                     "You are an expert day trader selecting the best stocks to trade today.\n\n"
                     "Select 10–15 stocks from the list provided. Prefer:\n"
                     "- vol_spike > 1.5 (strong relative volume)\n"
-                    "- atr_pct > 1.5% (meaningful intraday range)\n"
-                    "- Notable gap % (catalyst signal)\n\n"
+                    "- atr_pct 1.5–4% (meaningful range without being extended)\n"
+                    "- Small gap_pct (< 2%): large gaps get blocked by entry gates all day\n\n"
+                    "Avoid stocks with gap_pct > 3% — the entry system will reject them regardless.\n"
+                    "Prefer stocks that have moved on volume but have not yet overextended.\n\n"
                     "Return ONLY a JSON array of ticker symbols. No explanation.\n"
                     "Example: [\"AAPL\", \"TSLA\", \"NVDA\"]"
                 ),
@@ -139,6 +145,7 @@ def run_watch_list_agent() -> list[str]:
             output_tokens=getattr(usage, "output_tokens", 0),
             cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0),
             cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+            kind="other",
         )
     except Exception:
         pass
@@ -164,7 +171,10 @@ def run_watch_list_agent() -> list[str]:
             _bars = _alpaca.get_intraday_bars(_sym)
             _iv = compute_indicators(_sym, _bars)
             if _iv:
-                _snapshots[_sym] = {"rsi": _iv.rsi, "stoch_d": _iv.stoch_d}
+                _gap = 0.0
+                if _iv.prev_close > 0:
+                    _gap = (_iv.current_price - _iv.prev_close) / _iv.prev_close * 100
+                _snapshots[_sym] = {"rsi": _iv.rsi, "stoch_d": _iv.stoch_d, "gap_pct": _gap}
         except Exception:
             pass  # missing snapshot → symbol kept
 

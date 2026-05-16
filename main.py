@@ -64,9 +64,20 @@ _file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 _stream_handler = logging.StreamHandler(sys.stdout)
 _stream_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
+
+def _safe_handler_flush():
+    """Safely flush the file handler stream, guarding against late-stage interpreter teardown."""
+    if _file_handler and getattr(_file_handler, "stream", None):
+        try:
+            _file_handler.stream.flush()
+        except (AttributeError, ValueError):
+            # Catches cases where the stream is closed or cleared during interpreter shutdown
+            pass
+
+
 logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
-# Force flush after every log record
-logging.getLogger().handlers[0].flush = lambda: (_file_handler.stream.flush(), None)[1]
+# Force safe flush after every log record
+logging.getLogger().handlers[0].flush = _safe_handler_flush
 
 logger = logging.getLogger("main")
 scheduler = BlockingScheduler(timezone=ET)
