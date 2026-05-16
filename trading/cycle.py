@@ -83,6 +83,7 @@ def run_trading_cycle() -> None:
     watch_list = load_watch_list()
     if not watch_list:
         logger.warning("Empty watch list — skipping cycle.")
+        telegram_notify.notify_alert("⚠️ Watch list empty — no candidates for this cycle.")
         return
 
     portfolio_gain_pct = (portfolio_value - last_equity) / last_equity * 100 if last_equity else 0.0

@@ -197,10 +197,10 @@ def setup_scheduler():
         max_instances=1,
         misfire_grace_time=60,
     )
-    # Intraday news refresh every 30 min during market hours
+    # Intraday news: 9:05 AM and every 30 min thereafter (avoids 9:00 race with watch_list)
     scheduler.add_job(
         job_intraday_news,
-        CronTrigger(minute="*/30", hour="9-15", **kw),
+        CronTrigger(minute="5,35", hour="9-15", **kw),
         id="intraday_news",
         replace_existing=True,
         max_instances=1,

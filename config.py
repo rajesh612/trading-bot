@@ -40,7 +40,7 @@ WATCH_LIST_MIN = 10
 WATCH_LIST_MAX = 15
 
 # Claude API cost controls
-CLAUDE_BATCH_SIZE = 5            # Stocks per batched Claude call in trading cycle
+CLAUDE_BATCH_SIZE = 10           # Stocks per batched Claude call — matches typical watch-list size
 STRATEGY_MEMORY_MAX_CHARS = 3500 # tighter — still above 1024-token cache minimum
 
 # Risk parameters

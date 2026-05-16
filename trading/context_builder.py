@@ -17,46 +17,46 @@ def build_stock_block(
     research: dict,
     existing_pos: dict | None,
 ) -> str:
-    """Full per-symbol block (~200 tokens) sent to Claude."""
+    """Compact per-symbol block (~130 tokens) sent to Claude."""
     from calendars.earnings import detect_pead_setup
     price           = iv.current_price
     research_sym    = research.get(symbol, {})
     sentiment_score = research_sym.get("sentiment_score", 0)
     sentiment_label = research_sym.get("sentiment_label", "NEUTRAL")
-    risk_flag       = research_sym.get("risk_flag") or "None"
-    catalyst        = research_sym.get("key_catalyst") or "None"
-    news_summary    = research_sym.get("summary") or "No summary."
+    risk_flag       = research_sym.get("risk_flag") or ""
+    catalyst        = research_sym.get("key_catalyst") or ""
+    news_summary    = (research_sym.get("summary") or "").strip()
 
     pos_block = ""
     if existing_pos:
         pnl_pct = (price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
         pos_block = (
-            f" | OPEN POS: entry=${existing_pos['entry_price']:.2f} qty={existing_pos['qty']:.0f}"
-            f" P&L={pnl_pct:+.2f}% SL={existing_pos.get('stop_loss_pct', config.STOP_LOSS_PCT):.1f}%"
-            f" TP={existing_pos.get('take_profit_pct', config.TAKE_PROFIT_PCT):.1f}%"
+            f" POS:${existing_pos['entry_price']:.2f}×{existing_pos['qty']:.0f}"
+            f" P&L={pnl_pct:+.2f}%"
         )
 
     dvol = f"{iv.daily_volume_ratio:.2f}x"
     if iv.daily_volume_ratio < 0.5:
-        dvol += " LOW"
+        dvol += "LOW"
     elif iv.daily_volume_ratio > 3.0:
-        dvol += " HIGH"
+        dvol += "HIGH"
 
     pead_ok, pead_score = detect_pead_setup(symbol)
-    pead_line = (
-        f"\n  PEAD: {pead_score}/100 conditions met — expect multi-day drift"
-        if pead_ok else ""
-    )
+    pead_line = f" PEAD={pead_score}/100" if pead_ok else ""
+
+    vwap_dir = "↑" if price >= iv.vwap else "↓"
+    risk_str  = f" risk={risk_flag}" if risk_flag else ""
+    cat_str   = f' cat="{catalyst}"' if catalyst else ""
+    news_str  = f"\n  {news_summary}" if news_summary else ""
 
     return (
         f"=={symbol}== composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
-        f"  P=${price:.2f} VWAP=${iv.vwap:.2f}({'↑' if price >= iv.vwap else '↓'})"
-        f" RSI={iv.rsi:.1f}(Δ{iv.rsi_slope:+.1f}) MACD={iv.macd_hist:.4f}"
-        f" BB=[{iv.bb_lower:.2f},{iv.bb_upper:.2f}] EMA9={iv.ema9:.2f} EMA21={iv.ema21:.2f}"
-        f" ATR={iv.atr:.4f} Stoch={iv.stoch_k:.1f}/{iv.stoch_d:.1f} Vol={dvol}\n"
-        f"  NEWS: {sentiment_label}({sentiment_score:+d}) catalyst={catalyst} risk={risk_flag}\n"
-        f"  {news_summary}"
-        f"{pead_line}"
+        f"  P=${price:.2f} VWAP{vwap_dir} RSI={iv.rsi:.1f}({iv.rsi_slope:+.1f})"
+        f" MACD={iv.macd_hist:+.4f} BB[{iv.bb_lower:.2f},{iv.bb_upper:.2f}]"
+        f" EMA9/21={iv.ema9:.2f}/{iv.ema21:.2f} Stoch={iv.stoch_k:.0f}/{iv.stoch_d:.0f}"
+        f" Vol={dvol}{pead_line}\n"
+        f"  SENT:{sentiment_label}({sentiment_score:+d}){cat_str}{risk_str}"
+        f"{news_str}"
     )
 
 

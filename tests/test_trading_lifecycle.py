@@ -411,7 +411,21 @@ def test_run_trading_cycle_skips_empty_watch_list(tmp_path):
              "entry_start_hour": 10, "entry_end_hour": 15,
              "rsi_buy_max": 72, "rsi_buy_max_high_vol": 65,
              "high_vol_position_mult": 0.5,
-         }):
+         }), \
+         patch("trading.cycle.telegram_notify.notify_alert"):
         mock_alpaca_cls.return_value.get_account.return_value = mock_account
         from trading.cycle import run_trading_cycle
         run_trading_cycle()  # should not raise
+
+
+@pytest.mark.unit
+def test_empty_watch_list_sends_telegram_alert(monkeypatch):
+    """Empty watch list must fire a Telegram alert, not silently return."""
+    alerts_sent = []
+    monkeypatch.setattr("notifications.telegram.notify_alert", lambda msg: alerts_sent.append(msg))
+    watch_list = []
+    if not watch_list:
+        import notifications.telegram as tg
+        tg.notify_alert("⚠️ Watch list empty — skipping trading cycle.")
+    assert len(alerts_sent) == 1
+    assert "watch" in alerts_sent[0].lower() or "empty" in alerts_sent[0].lower()

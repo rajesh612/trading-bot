@@ -167,6 +167,11 @@ def notify_watch_list(symbols: list[str], regime: str) -> None:
 
 # ── Midday health check ───────────────────────────────────────────────────────
 
+def notify_alert(message: str) -> None:
+    """Send a generic one-off alert message."""
+    _send(message)
+
+
 def notify_no_trades_midday(regime: str, cycles_run: int, budget_pct: float) -> None:
     _send(
         f"<b>⚠️ No trades by 12:00 PM ET</b>\n"

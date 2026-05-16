@@ -3,6 +3,7 @@ import datetime as _dt
 import logging
 from typing import Optional
 from zoneinfo import ZoneInfo
+from utils.constants import ET
 
 import numpy as np
 import pandas as pd
@@ -46,7 +47,6 @@ def compute_indicators(
     df = df.copy()
 
     # VWAP resets at market open each day.
-    ET = ZoneInfo("America/New_York")
     ref_et = (as_of.astimezone(ET) if as_of is not None else _dt.datetime.now(ET))
     market_open_today = ref_et.replace(hour=9, minute=30, second=0, microsecond=0)
     if df.index.tz is None:

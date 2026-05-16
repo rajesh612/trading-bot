@@ -551,3 +551,33 @@ def test_strategy_memory_truncation_keeps_head_not_tail():
     assert truncated.startswith("# General Rules"), "Must keep head (rules section)"
     assert "Tail Section" not in truncated, "Must not keep tail"
     assert len(truncated) <= limit
+
+
+@pytest.mark.unit
+def test_stock_block_is_under_150_tokens():
+    """build_stock_block must stay compact to conserve Claude budget."""
+    from trading.context_builder import build_stock_block
+    from unittest.mock import MagicMock, patch
+
+    iv = MagicMock()
+    iv.composite_score = 42.5; iv.signal = "BUY"
+    iv.current_price = 100.50; iv.vwap = 100.20
+    iv.rsi = 58.3; iv.rsi_slope = 2.1; iv.macd_hist = 0.0023
+    iv.bb_lower = 99.0; iv.bb_upper = 102.0
+    iv.ema9 = 100.2; iv.ema21 = 99.8; iv.atr = 0.05
+    iv.stoch_k = 65.0; iv.stoch_d = 60.0
+    iv.daily_volume_ratio = 1.2
+
+    research = {"TEST": {
+        "sentiment_score": 35, "sentiment_label": "BULLISH",
+        "key_catalyst": "AI chip demand", "risk_flag": None,
+        "summary": "",
+    }}
+
+    with patch("calendars.earnings.detect_pead_setup", return_value=(False, 0)):
+        block = build_stock_block("TEST", iv, research, None)
+
+    approx_tokens = len(block) / 4
+    assert approx_tokens < 150, f"Stock block too large: ~{approx_tokens:.0f} tokens\n{block}"
+    assert "ATR=" not in block, "ATR is not directional — remove from Claude block"
+    assert "No summary" not in block, "Empty summary must be omitted"
