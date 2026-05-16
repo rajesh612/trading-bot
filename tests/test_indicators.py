@@ -612,3 +612,34 @@ class TestPrevCloseField:
         result = compute_indicators("AAPL", intraday, daily_df=None)
         assert result is not None
         assert result.prev_close == 0.0
+
+
+# ── indicator_engine: phantom weight regression ───────────────────────────────
+
+@pytest.mark.unit
+def test_composite_phantom_weights_do_not_suppress_score():
+    """ATR always-zero and missing Volume Ratio must not dilute composite scores."""
+    from indicators.composite import _composite_score
+    vals = {
+        "current_price": 100.0, "vwap": 98.0, "atr": 1.0,
+        "rsi": 75.0, "macd_hist": 0.5,
+        "bb_upper": 102.0, "bb_lower": 97.0,
+        "ema9": 100.5, "ema21": 99.5,
+        "stoch_k": 80.0, "stoch_d": 60.0,
+        "daily_volume_trend": 1.0, "vwap_slope": 0.5,
+        "rsi_slope": 15.0, "obv_trend": 1.0,
+        "daily_volume_ratio": 1.0,
+    }
+    weights = {
+        "VWAP": 19.05, "RSI": 19.46, "Daily Volume Trend": 6.51,
+        "MACD": 2.52, "EMA 9/21 Crossover": 13.40, "Bollinger Bands": 11.82,
+        "VWAP StdDev Bands": 7.69, "Stochastic Oscillator": 5.77,
+        "OBV": 3.84, "RSI Slope": 9.94,
+    }
+    score, signal, _ = _composite_score(vals, weights)
+    # With phantom weights removed, total_w==100 and effective signal sum drives full score.
+    # The analytically expected score is ~88.6 (s_bb=0.2, s_stoch=0.67 cap it below 100).
+    # Pre-fix the same inputs yielded ~82.8 due to phantom ATR+VolumeRatio dilution.
+    assert score > 85.0, f"Expected >85 but got {score} — phantom weights still suppressing"
+    assert "ATR" not in weights
+    assert "Volume Ratio" not in weights

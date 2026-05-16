@@ -1,14 +1,12 @@
 {
-  "VWAP": 17.8,
-  "RSI": 18.18,
-  "Daily Volume Trend": 6.08,
-  "MACD": 2.35,
-  "EMA 9/21 Crossover": 12.52,
-  "Bollinger Bands": 11.05,
-  "VWAP StdDev Bands": 7.19,
-  "ATR": 3.59,
-  "Stochastic Oscillator": 5.39,
-  "OBV": 3.59,
-  "RSI Slope": 9.29,
-  "Volume Ratio": 2.97
+  "VWAP": 19.05,
+  "RSI": 19.46,
+  "Daily Volume Trend": 6.51,
+  "MACD": 2.52,
+  "EMA 9/21 Crossover": 13.40,
+  "Bollinger Bands": 11.82,
+  "VWAP StdDev Bands": 7.69,
+  "Stochastic Oscillator": 5.77,
+  "OBV": 3.84,
+  "RSI Slope": 9.94
 }

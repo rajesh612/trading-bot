@@ -58,9 +58,6 @@ def _composite_score(vals: dict, weights: dict) -> tuple[float, str, float]:
     ema_diff = (vals["ema9"] - vals["ema21"]) / (price * 0.005 + 1e-9)
     s_ema = clamp(ema_diff)
 
-    # ATR: not directional
-    s_atr = 0.0
-
     # Daily Volume Trend: 5-day volume slope — increasing volume = institutional accumulation
     daily_vol_trend = vals.get("daily_volume_trend", 0.0)
     s_daily_vol = clamp(daily_vol_trend)
@@ -88,7 +85,6 @@ def _composite_score(vals: dict, weights: dict) -> tuple[float, str, float]:
         "EMA 9/21 Crossover":    s_ema,
         "Bollinger Bands":       s_bb,
         "VWAP StdDev Bands":     s_vwap_std,
-        "ATR":                   s_atr,
         "Stochastic Oscillator": s_stoch,
         "OBV":                   s_obv,
         "RSI Slope":             s_rsi_slope,
