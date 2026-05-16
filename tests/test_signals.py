@@ -10,6 +10,8 @@ import pandas as pd
 import pytest
 import pytz
 
+import config
+
 _ET_ZONE = pytz.timezone("America/New_York")
 
 
@@ -847,3 +849,20 @@ class TestEffectiveCompositeGate:
         from signals.entry_gates import effective_composite_gate
         iv = self._iv(squeeze_setup=True)
         assert effective_composite_gate(iv, "HIGH_VOL") == 35
+
+
+@pytest.mark.unit
+def test_stoch_hard_veto_threshold_is_97():
+    assert config.STOCH_HARD_VETO_THRESHOLD == 97
+
+
+@pytest.mark.unit
+def test_stoch_soft_flag_threshold_exists_and_is_below_hard_veto():
+    assert hasattr(config, "STOCH_SOFT_FLAG_THRESHOLD")
+    assert config.STOCH_SOFT_FLAG_THRESHOLD < config.STOCH_HARD_VETO_THRESHOLD
+
+
+@pytest.mark.unit
+def test_daily_loss_warn_pct_is_below_max_daily_loss():
+    assert hasattr(config, "DAILY_LOSS_WARN_PCT")
+    assert 0.01 < config.DAILY_LOSS_WARN_PCT < config.MAX_DAILY_LOSS_PCT

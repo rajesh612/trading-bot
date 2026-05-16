@@ -216,7 +216,10 @@ VWAP_OVEREXTENSION_GATE     = True    # block price > VWAP+2σ
 PARABOLIC_ENTRY_BLOCK       = True    # block parabolic=True entries
 
 # ── Entry gate overbought thresholds ──────────────────────────────────────────
-STOCH_HARD_VETO_THRESHOLD  = 93    # Stochastic %D above this → hard gate before Claude
+STOCH_HARD_VETO_THRESHOLD  = 97    # raised from 93 — avoids catch-22 with high-momentum composites
+STOCH_SOFT_FLAG_THRESHOLD  = 85    # soft-flag for Claude review when Stoch is elevated but not at hard veto
+DAILY_LOSS_WARN_PCT        = 0.02  # Telegram warning at -2% daily loss (halt is at MAX_DAILY_LOSS_PCT = 3%)
+SECTOR_ETF_SOFT_DROP_PCT   = -1.5  # sector ETF intraday drop % threshold for soft-flag entry gate
 POST_EVENT_POSITION_MULT    = 0.6     # 60% sizing on post-FOMC/NFP/CPI days
 INTRADAY_CONTEXT_TTL_SEC    = 300     # cache SPY intraday context 5 min
 RESEARCH_STALE_WARN_MIN     = 120     # warn if research report > 2h old
