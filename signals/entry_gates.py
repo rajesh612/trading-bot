@@ -121,7 +121,7 @@ def check_all_gates(
     if mode != "PEAD" and iv.rsi > rsi_max:
         return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {rsi_max:.0f})")
 
-    # 11. Stochastic overbought — hard veto above 97, soft flag between 85 and 97
+    # 11. Stochastic overbought — hard veto above STOCH_HARD_VETO_THRESHOLD, soft flag when elevated
     if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
         return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
     if iv.stoch_d >= config.STOCH_SOFT_FLAG_THRESHOLD:
