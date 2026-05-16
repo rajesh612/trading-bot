@@ -12,7 +12,7 @@ from datetime import datetime
 import config
 import notifications.telegram as telegram_notify
 from indicators.values import IndicatorValues
-from trading.budget_guard import morning_cap_exceeded, midday_cap_exceeded, apply_exit_rollover
+from trading.budget_guard import apply_exit_rollover
 from utils.io_utils import load_json, save_json
 
 from utils.constants import ET
@@ -87,20 +87,6 @@ def check_entry_budget(estimated_cost: float, regime: str) -> bool:
     entry_ceil = b.get("entry_ceiling_usd", round(b["ceiling_usd"] * config.ENTRY_BUDGET_RATIO, 4))
     spent = b.get("entry_spent_usd", 0.0)
     projected = spent + estimated_cost
-
-    _now = datetime.now(ET)
-    if morning_cap_exceeded(spent, entry_ceil, _now):
-        logger.warning(
-            "Morning budget cap reached: $%.4f / $%.4f (35%% of $%.4f) — preserving afternoon window.",
-            spent, entry_ceil * config.BUDGET_MORNING_CAP_PCT, entry_ceil,
-        )
-        return False
-    if midday_cap_exceeded(spent, entry_ceil, _now):
-        logger.warning(
-            "Midday budget cap reached: $%.4f / $%.4f (65%% of $%.4f).",
-            spent, entry_ceil * config.BUDGET_MIDDAY_CAP_PCT, entry_ceil,
-        )
-        return False
 
     if projected > entry_ceil:
         logger.warning(

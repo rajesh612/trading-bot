@@ -265,46 +265,6 @@ class TestBudgetGuard:
         return datetime(2026, 5, 13, hour, minute, tzinfo=ET)
 
     @pytest.mark.unit
-    def test_morning_cap_blocks_at_35pct_during_morning(self):
-        from trading.budget_guard import morning_cap_exceeded
-        result = morning_cap_exceeded(
-            entry_spent=0.36, entry_ceiling=1.0, now=self._now_et(10, 0)
-        )
-        assert result is True
-
-    @pytest.mark.unit
-    def test_morning_cap_allows_under_35pct(self):
-        from trading.budget_guard import morning_cap_exceeded
-        result = morning_cap_exceeded(
-            entry_spent=0.34, entry_ceiling=1.0, now=self._now_et(10, 0)
-        )
-        assert result is False
-
-    @pytest.mark.unit
-    def test_morning_cap_inactive_after_1130(self):
-        from trading.budget_guard import morning_cap_exceeded
-        result = morning_cap_exceeded(
-            entry_spent=0.99, entry_ceiling=1.0, now=self._now_et(11, 45)
-        )
-        assert result is False
-
-    @pytest.mark.unit
-    def test_midday_cap_blocks_at_65pct(self):
-        from trading.budget_guard import midday_cap_exceeded
-        result = midday_cap_exceeded(
-            entry_spent=0.66, entry_ceiling=1.0, now=self._now_et(12, 0)
-        )
-        assert result is True
-
-    @pytest.mark.unit
-    def test_midday_cap_inactive_after_1pm(self):
-        from trading.budget_guard import midday_cap_exceeded
-        result = midday_cap_exceeded(
-            entry_spent=0.99, entry_ceiling=1.0, now=self._now_et(13, 30)
-        )
-        assert result is False
-
-    @pytest.mark.unit
     def test_rollover_applied_at_1230(self):
         from trading.budget_guard import apply_exit_rollover
         b = {
@@ -416,9 +376,7 @@ class TestRiskManagerAdditions:
         }
         budget_file = tmp_path / "api_budget.json"
         budget_file.write_text(json.dumps(budget))
-        with patch("trading.risk_manager.config") as mc, \
-             patch("trading.risk_manager.morning_cap_exceeded", return_value=False), \
-             patch("trading.risk_manager.midday_cap_exceeded", return_value=False):
+        with patch("trading.risk_manager.config") as mc:
             mc.API_BUDGET_FILE = budget_file
             mc.ENTRY_BUDGET_RATIO = 0.7
             mc.EXIT_BUDGET_RATIO  = 0.3
@@ -596,9 +554,7 @@ class TestEntryExhaustedFlagReset:
         budget_file = tmp_path / "api_budget.json"
         budget_file.write_text(json.dumps(budget))
 
-        with patch("trading.risk_manager.config") as mc, \
-             patch("trading.risk_manager.morning_cap_exceeded", return_value=False), \
-             patch("trading.risk_manager.midday_cap_exceeded", return_value=False):
+        with patch("trading.risk_manager.config") as mc:
             mc.API_BUDGET_FILE = budget_file
             mc.ENTRY_BUDGET_RATIO = 0.7
             mc.EXIT_BUDGET_RATIO  = 0.3

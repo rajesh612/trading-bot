@@ -1,5 +1,5 @@
 """
-Time-of-day budget caps and exit-to-entry rollover.
+Exit-to-entry budget rollover at 12:30 PM ET.
 Pure functions — all state is passed in; no disk I/O.
 Imported by trading.risk_manager.
 """
@@ -9,32 +9,6 @@ from datetime import datetime
 
 import config
 from utils.constants import ET
-
-
-def morning_cap_exceeded(entry_spent: float, entry_ceiling: float, now: datetime) -> bool:
-    """
-    True if morning spend cap is reached.
-    Cap applies 9:30–11:30 AM ET only.
-    """
-    et = now.astimezone(ET)
-    h, m = et.hour, et.minute
-    in_window = (h == 9 and m >= 30) or h == 10 or (h == 11 and m < 30)
-    if not in_window:
-        return False
-    return entry_spent >= entry_ceiling * config.BUDGET_MORNING_CAP_PCT
-
-
-def midday_cap_exceeded(entry_spent: float, entry_ceiling: float, now: datetime) -> bool:
-    """
-    True if midday spend cap is reached.
-    Cap applies 11:30 AM–1:00 PM ET only.
-    """
-    et = now.astimezone(ET)
-    h, m = et.hour, et.minute
-    in_window = (h == 11 and m >= 30) or h == 12 or (h == 13 and m == 0)
-    if not in_window:
-        return False
-    return entry_spent >= entry_ceiling * config.BUDGET_MIDDAY_CAP_PCT
 
 
 def apply_exit_rollover(b: dict, now: datetime) -> bool:

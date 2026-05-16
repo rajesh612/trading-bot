@@ -253,9 +253,7 @@ AUTO_EXECUTE_SENTIMENT_MIN    = 20    # intraday sentiment_score must exceed thi
 # Flags that indicate data-fetch failures (not bearish signals) — safe to ignore in auto-execute
 AUTO_EXECUTE_DATA_ONLY_FLAGS: frozenset = frozenset({"mtf_unavailable"})
 
-# ── Budget Time-of-Day Caps ───────────────────────────────────────────────────
-BUDGET_MORNING_CAP_PCT        = 0.35  # max 35% of entry_ceiling by 11:30 AM ET
-BUDGET_MIDDAY_CAP_PCT         = 0.65  # max 65% of entry_ceiling by 1:00 PM ET
+# ── Budget Rollover ───────────────────────────────────────────────────────────
 BUDGET_ROLLOVER_FRACTION      = 0.5   # fraction of unused exit budget to roll into entry
 EXIT_ROLLOVER_MAX_USD         = 0.15  # cap on a single rollover
 BUDGET_ROLLOVER_HOUR          = 12    # ET hour to evaluate rollover

@@ -102,17 +102,13 @@ class TestRiskManagerBudget:
     def test_budget_exhausted_only_when_both_pools_spent(self, tmp_path, monkeypatch):
         """budget_exhausted is True only after both entry and exit are exhausted."""
         import config
-        from unittest.mock import patch
         self._setup(tmp_path, monkeypatch,
                     entry_spent_usd=0.70,
                     exit_spent_usd=0.30,
                     entry_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.ENTRY_BUDGET_RATIO, 4),
                     exit_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.EXIT_BUDGET_RATIO, 4))
         from trading.risk_manager import check_entry_budget, check_exit_budget, load_budget
-        # Bypass time-of-day caps so the ceiling check runs and sets entry_exhausted
-        with patch("trading.risk_manager.morning_cap_exceeded", return_value=False), \
-             patch("trading.risk_manager.midday_cap_exceeded", return_value=False):
-            check_entry_budget(0.01, "NORMAL")   # marks entry_exhausted
+        check_entry_budget(0.01, "NORMAL")   # marks entry_exhausted
         check_exit_budget(0.01, open_position_count=0, regime="NORMAL")  # marks exit_exhausted, no escalation
         b = load_budget()
         assert b["budget_exhausted"] is True
