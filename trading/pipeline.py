@@ -22,6 +22,7 @@ import config
 from broker.alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
 from indicators.engine import compute_indicators
+import notifications.telegram as telegram_notify
 from trading.cycle_context import CycleSnapshot
 from trading.journal import (
     load_daily_closed,
@@ -134,8 +135,7 @@ class TradingPipeline:
                         "Research report is %.0f min old (limit=%d) — using stale data with neutral sentiment override.",
                         age_min, config.RESEARCH_STALE_BLOCK_MIN,
                     )
-                    from notifications import telegram as _tg
-                    _tg.notify_alert(
+                    telegram_notify.notify_alert(
                         f"⚠️ Research report is {age_min:.0f} min old — running with neutral sentiment. "
                         "Investigate research job failure."
                     )
@@ -267,7 +267,7 @@ class TradingPipeline:
             try:
                 pos_data = execute_buy(
                     symbol=symbol, iv=iv,
-                    decision={"action": "BUY", "confidence": 90,
+                    decision={"action": "BUY", "confidence": config.AUTO_EXECUTE_CONFIDENCE,
                               "reasoning": "auto-execute: composite+sentiment threshold met",
                               "stop_loss_pct": config.STOP_LOSS_PCT,
                               "take_profit_pct": config.TAKE_PROFIT_PCT,

@@ -223,7 +223,7 @@ SECTOR_ETF_SOFT_DROP_PCT   = -1.5  # sector ETF intraday drop % threshold for so
 POST_EVENT_POSITION_MULT    = 0.6     # 60% sizing on post-FOMC/NFP/CPI days
 INTRADAY_CONTEXT_TTL_SEC    = 300     # cache SPY intraday context 5 min
 RESEARCH_STALE_WARN_MIN     = 120     # warn if research report > 2h old
-RESEARCH_STALE_BLOCK_MIN    = 600     # skip cycle if research > 10h old
+RESEARCH_STALE_BLOCK_MIN    = 600     # alert and continue (not block) if research > 10h old
 FETCH_WORKERS               = 6       # parallel fetch threads in pipeline Phase 1
 ECONOMIC_CALENDAR_HOUR      = 8
 ECONOMIC_CALENDAR_MINUTE    = 20      # moved from 8:30 → 8:20 to avoid race with startup
@@ -253,6 +253,7 @@ INTRADAY_SENTIMENT_BLOCK      = -10   # intraday sentiment_score below this = sk
 # ── Auto-Execute (skip Claude for textbook setups) ────────────────────────────
 AUTO_EXECUTE_COMPOSITE_MIN    = 55    # composite must exceed this for auto-execute
 AUTO_EXECUTE_SENTIMENT_MIN    = 20    # intraday sentiment_score must exceed this
+AUTO_EXECUTE_CONFIDENCE       = 90    # confidence score assigned to auto-execute decisions
 # Flags that indicate data-fetch failures (not bearish signals) — safe to ignore in auto-execute
 AUTO_EXECUTE_DATA_ONLY_FLAGS: frozenset = frozenset({"mtf_unavailable"})
 

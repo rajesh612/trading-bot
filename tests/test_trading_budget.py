@@ -494,3 +494,207 @@ def test_is_entry_budget_exhausted_does_not_re_read_disk_on_subsequent_calls(tmp
     rm.is_entry_budget_exhausted()
     rm.is_entry_budget_exhausted()
     assert len(disk_reads) == 1, "Subsequent calls must not re-read disk"
+
+
+def _make_iv_budget(**kwargs):
+    from indicators.values import IndicatorValues
+    defaults = dict(
+        symbol="AAPL", timestamp="2026-01-01T10:00:00",
+        current_price=100.0, vwap=99.0,
+        vwap_std1_upper=100.5, vwap_std1_lower=97.5,
+        vwap_std2_upper=101.5, vwap_std2_lower=96.5,
+        rsi=60.0, macd=0.1, macd_signal=0.05, macd_hist=0.05,
+        bb_upper=102.0, bb_mid=100.0, bb_lower=98.0,
+        ema9=100.2, ema21=99.8, atr=1.5, volume_ratio=1.0,
+        stoch_k=60.0, stoch_d=60.0, obv=1000.0,
+        vwap_slope=0.1, rsi_slope=0.0,
+        daily_volume_ratio=1.0, daily_volume_trend=0.0, daily_volume_mean=1_000_000.0,
+        composite_score=25.0, signal="BUY", confidence=0.7,
+    )
+    defaults.update(kwargs)
+    return IndicatorValues(**defaults)
+
+
+@pytest.mark.unit
+class TestAgentBudgetRecording:
+    """Verify that watch_list_agent and research/analyzer call risk_manager.record_usage()."""
+
+    def _fake_response(self, input_tok=100, output_tok=50, cache_write=200, cache_read=0):
+        """Build a minimal mock of the anthropic Messages response."""
+        from unittest.mock import MagicMock
+        usage = MagicMock()
+        usage.input_tokens = input_tok
+        usage.output_tokens = output_tok
+        usage.cache_creation_input_tokens = cache_write
+        usage.cache_read_input_tokens = cache_read
+        resp = MagicMock()
+        resp.usage = usage
+        resp.content = [MagicMock(text='["AAPL", "NVDA"]')]
+        return resp
+
+    def test_watch_list_agent_records_budget(self, monkeypatch, tmp_path):
+        """run_watch_list_agent records token usage after its Claude call."""
+        from agents import watch_list as watch_list_agent
+
+        fake_resp = self._fake_response(input_tok=300, output_tok=80, cache_write=500)
+        fake_ticker = tmp_path / "tickers.txt"
+        fake_ticker.write_text("AAPL\n")
+        monkeypatch.setattr("config.DAILY_TRADEABLE_FILE", tmp_path / "nonexistent.txt")
+        monkeypatch.setattr("config.TICKERS_FILE", fake_ticker)
+        monkeypatch.setattr("config.WATCH_LIST_FILE", tmp_path / "watch_list.txt")
+        monkeypatch.setattr("config.STRATEGY_MEMORY_FILE", tmp_path / "strategy_memory.md")
+        monkeypatch.setattr("config.WATCH_LIST_MAX", 15)
+
+        from unittest.mock import MagicMock, patch
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_daily_bars.return_value = None  # _score_stock returns None → scored=[]
+
+        recorded = {}
+        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0, **kwargs):
+            recorded["input"] = input_tokens
+            recorded["output"] = output_tokens
+            recorded["cache_write"] = cache_write_tokens
+
+        with patch("agents.watch_list.AlpacaClient", return_value=mock_alpaca), \
+             patch("anthropic.Anthropic") as MockAI, \
+             patch("trading.risk_manager.record_usage", side_effect=fake_record), \
+             patch("agents.watch_list.telegram_notify.notify_watch_list"):
+            MockAI.return_value.messages.create.return_value = fake_resp
+            monkeypatch.setattr(watch_list_agent, "_load_universe", lambda: ["AAPL"])
+            mock_score = {"symbol": "AAPL", "price": 100.0, "vol_spike": 2.0, "atr_pct": 2.0, "gap_pct": 0.5}
+            monkeypatch.setattr(watch_list_agent, "_score_stock", lambda sym, client: mock_score)
+            watch_list_agent.run_watch_list_agent()
+
+        assert recorded.get("input") == 300
+        assert recorded.get("output") == 80
+        assert recorded.get("cache_write") == 500
+
+    def test_research_analyzer_records_budget(self, monkeypatch):
+        """_analyze_stock records token usage after its Claude call."""
+        from unittest.mock import MagicMock, patch
+        from research.analyzer import _analyze_stock
+
+        usage = MagicMock()
+        usage.input_tokens = 400
+        usage.output_tokens = 60
+        usage.cache_creation_input_tokens = 800
+        usage.cache_read_input_tokens = 0
+        resp = MagicMock()
+        resp.usage = usage
+        resp.content = [MagicMock(text='{"news_sentiment_score": 10, "news_sentiment_label": "BULLISH", "social_sentiment_score": 5, "social_sentiment_label": "BULLISH", "combined_sentiment_score": 8, "combined_sentiment_label": "BULLISH", "key_catalyst": null, "risk_flag": null, "divergence_alert": null, "summary": "ok", "strategy": "hold"}')]
+        ai = MagicMock()
+        ai.messages.create.return_value = resp
+        recorded = {}
+        def fake_record(input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0, **kwargs):
+            recorded["input"] = input_tokens
+            recorded["output"] = output_tokens
+            recorded["cache_write"] = cache_write_tokens
+
+        with patch("trading.risk_manager.record_usage", side_effect=fake_record):
+            _analyze_stock("AAPL", [], "ctx", {}, {}, {}, ai, [])
+
+        assert recorded.get("input") == 400
+        assert recorded.get("output") == 60
+        assert recorded.get("cache_write") == 800
+
+
+@pytest.mark.unit
+class TestBudgetEscalationNotify:
+    def _patch_fake_token(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "fake_token")
+        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "12345")
+
+    def test_notify_budget_escalation_calls_send(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import notifications.telegram as telegram_notify
+        with patch("requests.post") as mock_post:
+            telegram_notify.notify_budget_escalation(0.25, 1.50)
+            mock_post.assert_called_once()
+            text = mock_post.call_args[1]["json"]["text"]
+            assert "escalated" in text.lower()
+
+    def test_notify_budget_escalation_swallows_exceptions(self, monkeypatch):
+        self._patch_fake_token(monkeypatch)
+        from unittest.mock import patch
+        import notifications.telegram as telegram_notify
+        with patch("requests.post", side_effect=Exception("network error")):
+            telegram_notify.notify_budget_escalation(0.25, 1.50)
+            # Must not raise — function should return normally
+
+
+@pytest.mark.unit
+def test_execute_buy_blocks_at_max_daily_loss(monkeypatch, tmp_path):
+    """execute_buy returns None when daily_pnl_pct hits MAX_DAILY_LOSS_PCT."""
+    from unittest.mock import MagicMock
+    from trading.executor import execute_buy
+    import config
+
+    monkeypatch.setattr(config, "MAX_DAILY_LOSS_PCT", 0.03)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
+    monkeypatch.setattr("notifications.telegram.notify_daily_loss_warning", lambda *a: None)
+
+    iv = _make_iv_budget(composite_score=30.0)
+    alpaca_mock = MagicMock()
+
+    result = execute_buy(
+        symbol="AAPL", iv=iv,
+        decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0, "take_profit_pct": 5.0},
+        regime="NORMAL", regime_info={}, research={},
+        open_positions={}, alpaca=alpaca_mock,
+        portfolio_value=100_000, pos_mult=1.0,
+        spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
+        params={}, now=datetime.now(ET).replace(hour=11),
+        entries_this_cycle=0,
+        daily_pnl_pct=-3.5,   # exceeds MAX_DAILY_LOSS_PCT = 0.03 → -3%
+        sector_today={},
+        symbol_sector_etf=None,
+    )
+    assert result is None
+    alpaca_mock.place_bracket_order.assert_not_called()
+
+
+@pytest.mark.unit
+def test_execute_buy_warns_at_daily_loss_warn_threshold(monkeypatch, tmp_path):
+    """execute_buy fires loss warning notification when daily_pnl_pct between -2% and -3%."""
+    from unittest.mock import MagicMock
+    from trading.executor import execute_buy
+    import config
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr(config, "MAX_DAILY_LOSS_PCT", 0.03)
+    monkeypatch.setattr(config, "DAILY_LOSS_WARN_PCT", 0.02)
+    monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
+
+    warned = []
+    monkeypatch.setattr(
+        "notifications.telegram.notify_daily_loss_warning",
+        lambda pct, ceil: warned.append(pct)
+    )
+
+    iv = _make_iv_budget(composite_score=30.0)
+    alpaca_mock = MagicMock()
+    alpaca_mock.place_bracket_order.return_value = {
+        "id": "ord1", "stop_loss_price": 96.0, "take_profit_price": 105.0
+    }
+    monkeypatch.setattr("trading.risk_manager.correct_bracket_after_fill", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.executor.append_trade", lambda d: None)
+
+    execute_buy(
+        symbol="AAPL", iv=iv,
+        decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0, "take_profit_pct": 5.0},
+        regime="NORMAL", regime_info={}, research={},
+        open_positions={}, alpaca=alpaca_mock,
+        portfolio_value=100_000, pos_mult=1.0,
+        spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
+        params={}, now=datetime.now(ET).replace(hour=11),
+        entries_this_cycle=0,
+        daily_pnl_pct=-2.5,   # between warn (-2%) and halt (-3%)
+        sector_today={},
+        symbol_sector_etf=None,
+    )
+    assert warned, "Expected daily_loss_warning notification to fire"
