@@ -95,7 +95,7 @@ def build_cycle_snapshot(
         else:
             raw_mem = strat_path.read_text()
             if len(raw_mem) > config.STRATEGY_MEMORY_MAX_CHARS:
-                raw_mem = raw_mem[-config.STRATEGY_MEMORY_MAX_CHARS:]
+                raw_mem = raw_mem[:config.STRATEGY_MEMORY_MAX_CHARS]
     except FileNotFoundError:
         pass
 

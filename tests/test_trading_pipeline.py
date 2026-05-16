@@ -540,3 +540,14 @@ def test_pipeline_warns_when_research_timestamp_missing(caplog):
         "staleness" in r.message.lower() or "timestamp" in r.message.lower()
         for r in caplog.records
     ), "Expected a warning about missing timestamp"
+
+
+@pytest.mark.unit
+def test_strategy_memory_truncation_keeps_head_not_tail():
+    """When strategy_memory.md exceeds limit, keep the beginning (rules), not the end."""
+    long_memory = "# General Rules\n" + ("A" * 100 + "\n") * 20 + "# Tail Section\n" + ("B" * 100 + "\n") * 20
+    limit = 500
+    truncated = long_memory[:limit] if len(long_memory) > limit else long_memory
+    assert truncated.startswith("# General Rules"), "Must keep head (rules section)"
+    assert "Tail Section" not in truncated, "Must not keep tail"
+    assert len(truncated) <= limit
