@@ -47,11 +47,11 @@ def pre_claude_filter(
         return FilterResult("SKIP",
             f"composite {iv.composite_score:+.1f} < {composite_min} ({snap.regime})")
 
-    # Layer 2 — RSI maximum (same constants as executor rsi_max)
+    # Layer 2 — RSI maximum (must match executor rsi_max exactly — uses learned threshold)
     rsi_max = (
-        config.RSI_BUY_MAX_HIGH_VOL
-        if snap.regime in ("HIGH_VOL", "DEFENSIVE")
-        else config.RSI_BUY_MAX
+        snap.params.get("rsi_buy_max_high_vol", config.RSI_BUY_MAX_HIGH_VOL)
+        if snap.regime in ("HIGH_VOL", "CRISIS", "DEFENSIVE")
+        else snap.params.get("rsi_buy_max", config.RSI_BUY_MAX)
     )
     if iv.rsi > rsi_max:
         return FilterResult("SKIP",

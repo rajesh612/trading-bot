@@ -247,3 +247,44 @@ class TestBuildMarketContextBlock:
         block = build_stable_system_context(self._regime(), self._fred(), self._meta(capitulation_candidates=["SMCI", "PLTR"])) + "\n" + build_dynamic_user_context(now)
         assert "SMCI" in block
         assert "PLTR" in block
+
+
+# ── Pre-Claude Filter RSI threshold alignment ─────────────────────────────────
+
+
+@pytest.mark.unit
+def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
+    """Filter Layer 2 must use snap.params rsi_buy_max, not config.RSI_BUY_MAX."""
+    from trading.pre_claude_filter import pre_claude_filter
+    from unittest.mock import MagicMock
+    import config
+
+    # Ensure config.RSI_BUY_MAX is 72 (default) so the test is meaningful
+    monkeypatch.setattr(config, "RSI_BUY_MAX", 72)
+
+    # Build a minimal snap with learned threshold = 60
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.regime_info = {"macro_health_score": 50}
+    snap.research_meta = {"macro_shock_score": 0}
+    snap.research = {}
+    snap.intraday_news = {}
+    snap.params = {"rsi_buy_max": 60, "vwap_slope_min": -0.3}
+
+    # Build minimal iv: RSI=62 (above learned 60, below config 72) — should SKIP
+    iv = MagicMock()
+    iv.composite_score = 40.0
+    iv.rsi = 62.0
+    iv.stoch_d = 50.0
+    iv.vwap_slope = 0.1
+    iv.current_price = 100.0
+    iv.vwap = 99.0
+    iv.squeeze_setup = False
+    iv.bot_herding_score = 0
+    iv.vwap_std2_upper = 110.0
+
+    result = pre_claude_filter("TEST", iv, snap, set())
+    assert result.decision == "SKIP", (
+        f"Expected SKIP (RSI 62 > learned 60) but got {result.decision}: {result.reason}"
+    )
+    assert "RSI" in result.reason
