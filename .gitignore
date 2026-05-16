@@ -260,3 +260,5 @@ backtest_equity.json
 
 # ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
+logs/
+data/state/
