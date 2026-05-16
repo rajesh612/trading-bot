@@ -165,6 +165,8 @@ Source files: 300 lines max. Test files: 700 lines max (split by sub-domain befo
 - No network calls. Patch paths via `tmp_path`
 - Assert on return value **and** its content — not just `assert result is not None`
 - One logical assertion per test method
+- **Never mutate `config.*` file paths directly** (`config.SOME_FILE = ...`). Always use `monkeypatch.setattr(config, "SOME_FILE", tmp_path / "file.json")`. Direct mutations persist across tests, write to real `data/state/` files, and produce unstaged git changes on every test run.
+- **Always patch Telegram when calling production entry points.** Functions like `run_watch_list_agent()`, `run_trading_cycle()`, `run_learning_agent()` fire `telegram_notify.*` which writes sentinel files to disk. Patch the relevant `telegram_notify` symbol before calling any such function in tests.
 
 ### 19. Test file naming
 Split by domain, sub-domain when > 700 lines:

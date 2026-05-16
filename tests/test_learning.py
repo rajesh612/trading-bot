@@ -161,16 +161,16 @@ class TestClassifyLossSource:
 
 @pytest.mark.unit
 class TestLearningAgentHelpers:
-    def test_load_todays_closed_trades_missing_file(self, tmp_path):
+    def test_load_todays_closed_trades_missing_file(self, tmp_path, monkeypatch):
         import config
-        config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
         from learning.data import _load_todays_closed_trades
         assert _load_todays_closed_trades() == []
 
-    def test_load_todays_closed_trades_filters_by_today(self, tmp_path):
+    def test_load_todays_closed_trades_filters_by_today(self, tmp_path, monkeypatch):
         import config, json
         from datetime import date
-        config.TRADE_JOURNAL_FILE = tmp_path / "trade_journal.json"
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
         today = date.today().isoformat()
         journal = [
             {"type": "CLOSE", "timestamp": f"{today}T10:30:00", "symbol": "NVDA",
@@ -179,28 +179,29 @@ class TestLearningAgentHelpers:
              "pnl_pct": -1.0, "pnl_dollar": -50.0, "close_reason": "sl"},
             {"type": "BUY", "timestamp": f"{today}T09:30:00", "symbol": "AMD"},
         ]
-        config.TRADE_JOURNAL_FILE.write_text(json.dumps(journal))
+        (tmp_path / "trade_journal.json").write_text(json.dumps(journal))
         from learning.data import _load_todays_closed_trades
         result = _load_todays_closed_trades()
         assert len(result) == 1
         assert result[0]["symbol"] == "NVDA"
 
-    def test_save_and_load_weights(self, tmp_path):
+    def test_save_and_load_weights(self, tmp_path, monkeypatch):
         import config
-        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", tmp_path / "weights.json")
         from learning.data import _save_weights, _load_weights
         weights = {"RSI": 20.0, "MACD": 15.0}
         _save_weights(weights)
         loaded = _load_weights()
         assert loaded == weights
 
-    def test_save_trading_params_adds_last_updated(self, tmp_path):
+    def test_save_trading_params_adds_last_updated(self, tmp_path, monkeypatch):
         import config, json
         from datetime import date
-        config.TRADING_PARAMS_FILE = tmp_path / "trading_params.json"
+        params_file = tmp_path / "trading_params.json"
+        monkeypatch.setattr(config, "TRADING_PARAMS_FILE", params_file)
         from learning.data import _save_trading_params
         _save_trading_params({"stop_loss_pct": 4.0})
-        saved = json.loads(config.TRADING_PARAMS_FILE.read_text())
+        saved = json.loads(params_file.read_text())
         assert saved["last_updated"] == date.today().isoformat()
 
 

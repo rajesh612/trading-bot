@@ -206,47 +206,39 @@ class TestEconomicCalendarLogic:
         assert "Non-Farm Payrolls" in names
         assert "CPI Release" in names
 
-    def test_is_event_risk_window_detects_nearby_event(self, tmp_path):
+    def test_is_event_risk_window_detects_nearby_event(self, tmp_path, monkeypatch):
         import config
-        original = config.ECONOMIC_CALENDAR_FILE
-        try:
-            today = datetime.now(ET).strftime("%Y-%m-%d")
-            payload = {
-                "date": today,
-                "events": [{"date": today, "time": "08:30", "name": "CPI Release", "impact": "high"}],
-            }
-            cache_file = tmp_path / "economic_calendar.json"
-            cache_file.write_text(json.dumps(payload))
-            config.ECONOMIC_CALENDAR_FILE = cache_file
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        payload = {
+            "date": today,
+            "events": [{"date": today, "time": "08:30", "name": "CPI Release", "impact": "high"}],
+        }
+        cache_file = tmp_path / "economic_calendar.json"
+        cache_file.write_text(json.dumps(payload))
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", cache_file)
 
-            from macro.economic_calendar import is_event_risk_window
-            now_et = datetime.now(ET).replace(hour=8, minute=30, second=0, microsecond=0)
-            in_window, name = is_event_risk_window(now_et)
-            assert in_window is True
-            assert name == "CPI Release"
-        finally:
-            config.ECONOMIC_CALENDAR_FILE = original
+        from macro.economic_calendar import is_event_risk_window
+        now_et = datetime.now(ET).replace(hour=8, minute=30, second=0, microsecond=0)
+        in_window, name = is_event_risk_window(now_et)
+        assert in_window is True
+        assert name == "CPI Release"
 
-    def test_is_event_risk_window_outside_returns_false(self, tmp_path):
+    def test_is_event_risk_window_outside_returns_false(self, tmp_path, monkeypatch):
         import config
-        original = config.ECONOMIC_CALENDAR_FILE
-        try:
-            today = datetime.now(ET).strftime("%Y-%m-%d")
-            payload = {
-                "date": today,
-                "events": [{"date": today, "time": "08:30", "name": "NFP", "impact": "high"}],
-            }
-            cache_file = tmp_path / "economic_calendar.json"
-            cache_file.write_text(json.dumps(payload))
-            config.ECONOMIC_CALENDAR_FILE = cache_file
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        payload = {
+            "date": today,
+            "events": [{"date": today, "time": "08:30", "name": "NFP", "impact": "high"}],
+        }
+        cache_file = tmp_path / "economic_calendar.json"
+        cache_file.write_text(json.dumps(payload))
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", cache_file)
 
-            from macro.economic_calendar import is_event_risk_window
-            now_et = datetime.now(ET).replace(hour=10, minute=30, second=0, microsecond=0)
-            in_window, name = is_event_risk_window(now_et)
-            assert in_window is False
-            assert name == ""
-        finally:
-            config.ECONOMIC_CALENDAR_FILE = original
+        from macro.economic_calendar import is_event_risk_window
+        now_et = datetime.now(ET).replace(hour=10, minute=30, second=0, microsecond=0)
+        in_window, name = is_event_risk_window(now_et)
+        assert in_window is False
+        assert name == ""
 
 
 # ── macro/breadth_signals ─────────────────────────────────────────────────────
@@ -397,64 +389,44 @@ class TestIntradayContext:
 class TestPostEventDay:
     """Tests for is_post_major_event_day() using tmp_path — no network."""
 
-    def _write_calendar(self, tmp_path, prior_events: list) -> None:
+    def _write_calendar(self, tmp_path, monkeypatch, prior_events: list) -> None:
         import config
-        self._original = config.ECONOMIC_CALENDAR_FILE
         cache = tmp_path / "economic_calendar.json"
         cache.write_text(json.dumps({"date": "2026-05-08", "events": [], "prior_events": prior_events}))
-        config.ECONOMIC_CALENDAR_FILE = cache
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", cache)
 
-    def _restore(self):
-        import config
-        config.ECONOMIC_CALENDAR_FILE = self._original
+    def test_fomc_in_prior_events_returns_true(self, tmp_path, monkeypatch):
+        self._write_calendar(tmp_path, monkeypatch, [{"name": "FOMC Rate Decision", "time": "14:00"}])
+        from macro.economic_calendar import is_post_major_event_day
+        result, name = is_post_major_event_day(datetime.now(ET))
+        assert result is True
+        assert "FOMC" in name
 
-    def test_fomc_in_prior_events_returns_true(self, tmp_path):
-        self._write_calendar(tmp_path, [{"name": "FOMC Rate Decision", "time": "14:00"}])
-        try:
-            from macro.economic_calendar import is_post_major_event_day
-            result, name = is_post_major_event_day(datetime.now(ET))
-            assert result is True
-            assert "FOMC" in name
-        finally:
-            self._restore()
+    def test_nfp_in_prior_events_returns_true(self, tmp_path, monkeypatch):
+        self._write_calendar(tmp_path, monkeypatch, [{"name": "NFP Report", "time": "08:30"}])
+        from macro.economic_calendar import is_post_major_event_day
+        result, name = is_post_major_event_day(datetime.now(ET))
+        assert result is True
+        assert name == "NFP Report"
 
-    def test_nfp_in_prior_events_returns_true(self, tmp_path):
-        self._write_calendar(tmp_path, [{"name": "NFP Report", "time": "08:30"}])
-        try:
-            from macro.economic_calendar import is_post_major_event_day
-            result, name = is_post_major_event_day(datetime.now(ET))
-            assert result is True
-            assert name == "NFP Report"
-        finally:
-            self._restore()
+    def test_cpi_in_prior_events_returns_true(self, tmp_path, monkeypatch):
+        self._write_calendar(tmp_path, monkeypatch, [{"name": "CPI Release", "time": "08:30"}])
+        from macro.economic_calendar import is_post_major_event_day
+        result, _ = is_post_major_event_day(datetime.now(ET))
+        assert result is True
 
-    def test_cpi_in_prior_events_returns_true(self, tmp_path):
-        self._write_calendar(tmp_path, [{"name": "CPI Release", "time": "08:30"}])
-        try:
-            from macro.economic_calendar import is_post_major_event_day
-            result, _ = is_post_major_event_day(datetime.now(ET))
-            assert result is True
-        finally:
-            self._restore()
+    def test_empty_prior_events_returns_false(self, tmp_path, monkeypatch):
+        self._write_calendar(tmp_path, monkeypatch, [])
+        from macro.economic_calendar import is_post_major_event_day
+        result, name = is_post_major_event_day(datetime.now(ET))
+        assert result is False
+        assert name == ""
 
-    def test_empty_prior_events_returns_false(self, tmp_path):
-        self._write_calendar(tmp_path, [])
-        try:
-            from macro.economic_calendar import is_post_major_event_day
-            result, name = is_post_major_event_day(datetime.now(ET))
-            assert result is False
-            assert name == ""
-        finally:
-            self._restore()
-
-    def test_unknown_event_returns_false(self, tmp_path):
-        self._write_calendar(tmp_path, [{"name": "ISM Manufacturing", "time": "10:00"}])
-        try:
-            from macro.economic_calendar import is_post_major_event_day
-            result, _ = is_post_major_event_day(datetime.now(ET))
-            assert result is False
-        finally:
-            self._restore()
+    def test_unknown_event_returns_false(self, tmp_path, monkeypatch):
+        self._write_calendar(tmp_path, monkeypatch, [{"name": "ISM Manufacturing", "time": "10:00"}])
+        from macro.economic_calendar import is_post_major_event_day
+        result, _ = is_post_major_event_day(datetime.now(ET))
+        assert result is False
 
     def test_missing_file_returns_false(self, tmp_path, monkeypatch):
         import config

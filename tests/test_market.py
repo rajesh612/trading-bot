@@ -19,26 +19,19 @@ from utils.constants import ET
 
 @pytest.mark.unit
 class TestApiBudget:
-    def _fresh_tmp_budget(self, tmp_path, date_str="2026-05-01"):
-        """Write a fresh budget file and patch config to use it."""
-        import config
-        budget_file = tmp_path / "api_budget.json"
-        config.API_BUDGET_FILE = budget_file
-        return budget_file
-
-    def test_fresh_budget_starts_at_zero(self, tmp_path):
+    def test_fresh_budget_starts_at_zero(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         budget = risk_manager.load_budget()
         assert budget["estimated_cost_usd"] == 0.0
         assert budget["calls_made"] == 0
 
-    def test_budget_resets_on_new_day(self, tmp_path):
+    def test_budget_resets_on_new_day(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        # Write stale budget
+        budget_file = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", budget_file)
         stale = {
             "date": "2026-01-01",
             "calls_made": 10,
@@ -51,52 +44,52 @@ class TestApiBudget:
             "ceiling_mode": "normal",
             "budget_exhausted": False,
         }
-        with open(config.API_BUDGET_FILE, "w") as f:
+        with open(budget_file, "w") as f:
             json.dump(stale, f)
         budget = risk_manager.load_budget()
         assert budget["estimated_cost_usd"] == 0.0
         assert budget["calls_made"] == 0
 
-    def test_normal_ceiling_default(self, tmp_path):
+    def test_normal_ceiling_default(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         assert risk_manager.get_ceiling() == config.API_BUDGET_NORMAL_CEILING
 
-    def test_elevated_ceiling_when_mode_elevated(self, tmp_path):
+    def test_elevated_ceiling_when_mode_elevated(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         b = risk_manager.load_budget()
         b["ceiling_mode"] = "elevated"
         risk_manager._save_budget(b)
         assert risk_manager.get_ceiling() == config.API_BUDGET_ELEVATED_CEILING
 
-    def test_normal_ceiling_when_mode_normal(self, tmp_path):
+    def test_normal_ceiling_when_mode_normal(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         assert risk_manager.get_ceiling() == config.API_BUDGET_NORMAL_CEILING
 
-    def test_check_budget_allows_within_ceiling(self, tmp_path):
+    def test_check_budget_allows_within_ceiling(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         assert risk_manager.check_entry_budget(0.50, "NORMAL") is True
 
-    def test_check_budget_blocks_over_ceiling(self, tmp_path):
+    def test_check_budget_blocks_over_ceiling(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         # Record usage that fills entry pool (70% of $1.00 = $0.70)
         risk_manager.record_usage(input_tokens=290_000, output_tokens=0)
         # Now try to add more than remaining
         assert risk_manager.check_entry_budget(0.50, "NORMAL") is False
 
-    def test_record_usage_accumulates(self, tmp_path):
+    def test_record_usage_accumulates(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         risk_manager.record_usage(input_tokens=1000, output_tokens=100)
         risk_manager.record_usage(input_tokens=1000, output_tokens=100)
         budget = risk_manager.load_budget()
@@ -105,12 +98,12 @@ class TestApiBudget:
         assert budget["calls_made"] == 2
         assert budget["estimated_cost_usd"] > 0
 
-    def test_corrupt_file_resets_cleanly(self, tmp_path):
+    def test_corrupt_file_resets_cleanly(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
-        with open(config.API_BUDGET_FILE, "w") as f:
-            f.write("not json{{{")
+        budget_file = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", budget_file)
+        budget_file.write_text("not json{{{")
         budget = risk_manager.load_budget()
         assert budget["calls_made"] == 0
 
@@ -201,20 +194,20 @@ class TestAlpacaClientHelpers:
 
 @pytest.mark.unit
 class TestApiBudgetRemaining:
-    def test_record_call_increases_cost(self, tmp_path):
+    def test_record_call_increases_cost(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         risk_manager.record_usage(input_tokens=1000, output_tokens=100,
                                   cache_write_tokens=0, cache_read_tokens=0)
         budget = risk_manager.load_budget()
         assert budget["estimated_cost_usd"] > 0
         assert budget["calls_made"] == 1
 
-    def test_check_budget_not_exhausted_returns_true(self, tmp_path):
+    def test_check_budget_not_exhausted_returns_true(self, tmp_path, monkeypatch):
         from trading import risk_manager
         import config
-        config.API_BUDGET_FILE = tmp_path / "api_budget.json"
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
         assert risk_manager.check_entry_budget(estimated_cost=0.0, regime="NORMAL") is True
 
     def test_ceiling_exhausted_after_many_calls(self, tmp_path, monkeypatch):
