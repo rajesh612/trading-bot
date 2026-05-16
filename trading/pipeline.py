@@ -85,7 +85,11 @@ class TradingPipeline:
 
         # Research staleness check
         ts_str = snap.research_meta.get("timestamp")
-        if ts_str:
+        if not ts_str:
+            logger.warning(
+                "Research report has no timestamp (__meta__ missing) — staleness check skipped."
+            )
+        else:
             try:
                 report_dt = datetime.fromisoformat(ts_str)
                 if report_dt.tzinfo is None:
@@ -99,8 +103,8 @@ class TradingPipeline:
                     return CycleResult(skipped=True, reason=f"research stale ({age_min:.0f}m)")
                 if age_min > config.RESEARCH_STALE_WARN_MIN:
                     logger.warning("Research report is %.0f min old — sentiment may be stale.", age_min)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Research timestamp parse failed (%s) — staleness check skipped.", exc)
 
         regime    = snap.regime
         spy_ret5d = snap.regime_info.get("spy_5day_return", 0.0)
@@ -199,10 +203,13 @@ class TradingPipeline:
         # ── Phase 3: Claude batch ─────────────────────────────────────────────
         t_claude = time.monotonic()
         decisions: dict[str, dict] = {}
-        for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
-            batch = needs_claude[i : i + config.CLAUDE_BATCH_SIZE]
-            batch_decisions = _ask_claude_batch(batch, snap, ai)
-            decisions.update(batch_decisions)
+        if not can_open:
+            logger.info("[CYCLE] can_open=False — skipping Claude entry calls (entry window not open yet)")
+        else:
+            for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
+                batch = needs_claude[i : i + config.CLAUDE_BATCH_SIZE]
+                batch_decisions = _ask_claude_batch(batch, snap, ai)
+                decisions.update(batch_decisions)
         claude_elapsed = time.monotonic() - t_claude
 
         # ── Phase 4: Execute ──────────────────────────────────────────────────

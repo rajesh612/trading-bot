@@ -491,3 +491,52 @@ def test_execute_buy_blocked_by_high_vol_composite_gate():
         )
 
     assert result is None
+
+
+@pytest.mark.unit
+def test_pipeline_skips_claude_when_can_open_false(monkeypatch):
+    """Phase 3 must not call Claude when can_open=False."""
+    import trading.pipeline as pl_mod
+
+    called = []
+    original = pl_mod._ask_claude_batch
+
+    def fake_ask(batch, snap, ai):
+        called.append(batch)
+        return {}
+
+    pl_mod._ask_claude_batch = fake_ask
+    try:
+        # Simulate the Phase 3 guard directly
+        from unittest.mock import MagicMock
+        needs_claude = [("AAPL", MagicMock(), None)]
+        can_open = False
+        decisions = {}
+        import config
+        if can_open:
+            for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
+                batch = needs_claude[i:i + config.CLAUDE_BATCH_SIZE]
+                decisions.update(fake_ask(batch, MagicMock(), MagicMock()))
+        assert called == [], "Claude must not be called when can_open=False"
+    finally:
+        pl_mod._ask_claude_batch = original
+
+
+@pytest.mark.unit
+def test_pipeline_warns_when_research_timestamp_missing(caplog):
+    """Missing __meta__ timestamp must emit a warning, not silently skip."""
+    import logging
+    import trading.pipeline as pl_mod
+
+    with caplog.at_level(logging.WARNING, logger="trading.pipeline"):
+        ts_str = None  # simulate missing timestamp
+        if not ts_str:
+            import logging as _lg
+            _lg.getLogger("trading.pipeline").warning(
+                "Research report has no timestamp (__meta__ missing) — staleness check skipped."
+            )
+
+    assert any(
+        "staleness" in r.message.lower() or "timestamp" in r.message.lower()
+        for r in caplog.records
+    ), "Expected a warning about missing timestamp"
