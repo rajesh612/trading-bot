@@ -31,7 +31,7 @@ _check_fda() {
             echo "  │                                                                   │"
             echo "  │   To verify after granting:                                       │"
             echo "  │     launchctl start trading_bot_start                             │"
-            echo "  │     sleep 5 && tail launchd_trading_bot.log                       │"
+            echo "  │     sleep 5 && tail logs/launchd_trading_bot.log                  │"
             echo "  └───────────────────────────────────────────────────────────────────┘"
             echo ""
             ;;
@@ -71,7 +71,7 @@ echo "[setup_launchagent] Installed."
 echo "  Auto-start : 5:30 AM PT (8:30 AM ET), Monday–Friday"
 echo "  Auto-stop  : 1:30 PM PT (4:30 PM ET), Monday–Friday"
 echo "  If laptop is asleep at the scheduled time, launchd fires on next wake."
-echo "  Logs: $SCRIPT_DIR/launchd_trading_bot.log"
+echo "  Logs: $SCRIPT_DIR/logs/launchd_trading_bot.log"
 echo ""
 echo "  To uninstall: ./setup_launchagent.sh uninstall"
 

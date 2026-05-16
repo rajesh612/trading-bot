@@ -259,7 +259,6 @@ BUDGET_ROLLOVER_HOUR          = 12    # ET hour to evaluate rollover
 BUDGET_ROLLOVER_MINUTE        = 30    # ET minute to evaluate rollover
 
 # ── Intraday News ─────────────────────────────────────────────────────────────
-INTRADAY_NEWS_REFRESH_MIN     = 30    # scheduler cadence in minutes
 INTRADAY_NEWS_SHOCK_BLOCK     = 60    # shock_score >= this → hard-block entry
 INTRADAY_NEWS_STALE_MIN       = 45    # cache older than this → treat as missing
 

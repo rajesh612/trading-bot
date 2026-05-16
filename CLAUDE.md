@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-./start.sh && tail -f trading_bot.log   # start + monitor
+./start.sh && tail -f logs/trading_bot.log   # start + monitor
 ./stop.sh                               # graceful stop
 .venv/bin/python3 main.py              # foreground (dev)
 .venv/bin/python -m pytest tests/ -m unit -q  # run tests

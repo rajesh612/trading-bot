@@ -299,7 +299,7 @@ X_BEARER_TOKEN=         # optional, requires X Basic API $100/mo
 ```bash
 ./start.sh        # start in background (creates .venv if missing)
 ./stop.sh         # stop all instances cleanly
-tail -f trading_bot.log   # monitor live
+tail -f logs/trading_bot.log   # monitor live
 ```
 
 The bot is fully manual — no auto-start on login. Start and stop it yourself on trading days.

@@ -218,7 +218,7 @@ def setup_scheduler():
     # Budget rollover at 12:30 PM ET
     scheduler.add_job(
         job_budget_rollover,
-        CronTrigger(hour=12, minute=30, **kw),
+        CronTrigger(hour=config.BUDGET_ROLLOVER_HOUR, minute=config.BUDGET_ROLLOVER_MINUTE, **kw),
         id="budget_rollover",
         replace_existing=True,
         max_instances=1,

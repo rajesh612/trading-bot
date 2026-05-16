@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CRON_LOG="$SCRIPT_DIR/cron_trading_bot.log"
+CRON_LOG="$SCRIPT_DIR/logs/cron_trading_bot.log"
 BLOCK_START="# trading-bot-begin"
 BLOCK_END="# trading-bot-end"
 

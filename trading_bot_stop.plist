@@ -30,9 +30,9 @@
     </array>
 
     <key>StandardOutPath</key>
-    <string>PLACEHOLDER_PROJECT_DIR/launchd_trading_bot.log</string>
+    <string>PLACEHOLDER_PROJECT_DIR/logs/launchd_trading_bot.log</string>
     <key>StandardErrorPath</key>
-    <string>PLACEHOLDER_PROJECT_DIR/launchd_trading_bot.log</string>
+    <string>PLACEHOLDER_PROJECT_DIR/logs/launchd_trading_bot.log</string>
 
     <key>KeepAlive</key>
     <false/>
