@@ -14,9 +14,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import logging
+from datetime import datetime
+
 import config
 from research.intraday import load_intraday_news
 from macro.regime import load_macro_regime, load_trading_params
+from macro.intraday_context import get_intraday_context
+from utils.constants import ET
 from utils.io_utils import load_json
 
 _logger = logging.getLogger(__name__)
@@ -64,6 +68,7 @@ class CycleSnapshot:
     params: dict
     portfolio_gain_pct: float
     intraday_news: dict = field(default_factory=dict)  # populated in Task 9
+    sector_today: dict = field(default_factory=dict)
 
 
 def build_cycle_snapshot(
@@ -98,6 +103,9 @@ def build_cycle_snapshot(
     except FileNotFoundError:
         pass
 
+    intraday_ctx = get_intraday_context(datetime.now(ET))
+    sector_today = intraday_ctx.sector_today if intraday_ctx is not None else {}
+
     return CycleSnapshot(
         regime_info=regime_info,
         regime=regime_info.get("regime", "NORMAL"),
@@ -109,4 +117,5 @@ def build_cycle_snapshot(
         params=params,
         portfolio_gain_pct=portfolio_gain_pct,
         intraday_news=load_intraday_news(),
+        sector_today=sector_today,
     )

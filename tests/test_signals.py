@@ -866,3 +866,76 @@ def test_stoch_soft_flag_threshold_exists_and_is_below_hard_veto():
 def test_daily_loss_warn_pct_is_below_max_daily_loss():
     assert hasattr(config, "DAILY_LOSS_WARN_PCT")
     assert 0.01 < config.DAILY_LOSS_WARN_PCT < config.MAX_DAILY_LOSS_PCT
+
+
+def _gates_iv(**overrides):
+    """Build a SimpleNamespace that passes every hard gate by default."""
+    base = dict(
+        current_price=100.0,
+        vwap=99.0,
+        vwap_std2_upper=110.0,
+        stop_hunt_zone=False,
+        parabolic=False,
+        momentum_exhaustion=False,
+        bot_herding_score=0,
+        squeeze_setup=False,
+        rsi=50.0,
+        stoch_d=50.0,
+        prev_close=100.0,
+    )
+    base.update(overrides)
+    return types.SimpleNamespace(**base)
+
+
+def _gates_now() -> datetime:
+    from zoneinfo import ZoneInfo
+    return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def _patch_cals(monkeypatch):
+    import calendars.earnings as ec
+    import macro.economic_calendar as ecc
+    monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+    monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+
+@pytest.mark.unit
+def test_stoch_soft_flag_when_between_thresholds(monkeypatch):
+    """Stoch at STOCH_SOFT_FLAG_THRESHOLD produces stoch_elevated flag and still passes."""
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(stoch_d=float(config.STOCH_SOFT_FLAG_THRESHOLD))
+    result = check_all_gates(
+        "AAPL", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+    )
+    assert result.passed
+    assert any("stoch_elevated" in f for f in result.flags)
+
+
+@pytest.mark.unit
+def test_stoch_above_hard_veto_still_blocks(monkeypatch):
+    """Stoch above STOCH_HARD_VETO_THRESHOLD must still hard-block."""
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(stoch_d=float(config.STOCH_HARD_VETO_THRESHOLD) + 1)
+    result = check_all_gates(
+        "AAPL", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+    )
+    assert not result.passed
+    assert "Stochastic hard veto" in result.reason
+
+
+@pytest.mark.unit
+def test_sector_etf_soft_gate_flags_weak_sector(monkeypatch):
+    """Gate 16: sector ETF drop below SECTOR_ETF_SOFT_DROP_PCT appends sector_weak flag."""
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv()
+    result = check_all_gates(
+        "AAPL", iv, {}, set(), None, _gates_now(),
+        entries_this_cycle=0,
+        sector_today={"XLK": config.SECTOR_ETF_SOFT_DROP_PCT - 0.5},
+        symbol_sector_etf="XLK",
+    )
+    assert result.passed
+    assert any("sector_weak" in f for f in result.flags)

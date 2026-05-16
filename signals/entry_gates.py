@@ -59,6 +59,8 @@ def check_all_gates(
     symbol_ret5d: float = 0.0,
     mode: str = "DAY_TRADE",
     rsi_max: float = config.RSI_BUY_MAX,
+    sector_today: dict | None = None,
+    symbol_sector_etf: str | None = None,
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -119,9 +121,11 @@ def check_all_gates(
     if mode != "PEAD" and iv.rsi > rsi_max:
         return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {rsi_max:.0f})")
 
-    # 11. Stochastic overbought hard veto
+    # 11. Stochastic overbought — hard veto above 97, soft flag between 85 and 97
     if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
         return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
+    if iv.stoch_d >= config.STOCH_SOFT_FLAG_THRESHOLD:
+        flags.append(f"stoch_elevated(%D={iv.stoch_d:.1f})")
 
     # 12. Gap-up skip — exempted for PEAD (post-earnings drift stocks gap intentionally)
     if mode != "PEAD" and iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
@@ -146,5 +150,11 @@ def check_all_gates(
     # 15. Correlation guard
     if not passes_correlation_guard(symbol, open_positions):
         flags.append("sector_limit_soft")
+
+    # 16. Sector ETF soft gate
+    if sector_today and symbol_sector_etf:
+        chg = sector_today.get(symbol_sector_etf)
+        if chg is not None and chg < config.SECTOR_ETF_SOFT_DROP_PCT:
+            flags.append(f"sector_weak({symbol_sector_etf}={chg:+.1f}%)")
 
     return GateResult(True, "", tuple(flags))
