@@ -436,3 +436,32 @@ def test_auto_execute_still_blocked_by_mtf_not_confirmed():
     assert real_signal_flags == ["mtf_not_confirmed"], (
         f"mtf_not_confirmed should block auto-execute. Got: {real_signal_flags}"
     )
+
+
+@pytest.mark.unit
+def test_entry_exhausted_flag_rehydrated_from_disk(tmp_path, monkeypatch):
+    """After restart, is_entry_budget_exhausted() must read disk if in-memory flag is False."""
+    import trading.risk_manager as rm
+
+    budget = {
+        "date": "2026-05-15", "entry_exhausted": True,
+        "entry_spent_usd": 0.87, "entry_ceiling_usd": 0.85,
+        "exit_exhausted": False, "budget_exhausted": False, "escalated": False,
+        "calls_made": 49, "entry_calls": 49, "exit_calls": 0,
+        "input_tokens": 0, "output_tokens": 0,
+        "cache_write_tokens": 0, "cache_read_tokens": 0,
+        "estimated_cost_usd": 0.87, "exit_spent_usd": 0.0,
+        "ceiling_usd": 0.70, "entry_ceiling_usd": 0.85, "exit_ceiling_usd": 0.35,
+        "ceiling_mode": "normal",
+    }
+    budget_file = tmp_path / "api_budget.json"
+    from utils.io_utils import save_json
+    save_json(str(budget_file), budget)
+
+    monkeypatch.setattr("config.API_BUDGET_FILE", str(budget_file))
+
+    # Simulate fresh module state (flag = False, as after restart)
+    rm._entry_exhausted_flag = False
+
+    result = rm.is_entry_budget_exhausted()
+    assert result is True, "Must read disk when in-memory flag is False and disk shows exhausted"

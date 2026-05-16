@@ -206,8 +206,16 @@ def record_usage(
 
 
 def is_entry_budget_exhausted() -> bool:
-    """O(1) check — no disk I/O. Set by check_entry_budget() when ceiling hit."""
-    return _entry_exhausted_flag
+    """Check entry budget exhaustion. Falls back to disk read on first call after restart."""
+    global _entry_exhausted_flag
+    if _entry_exhausted_flag:
+        return True
+    # In-memory flag is False — verify against disk (handles mid-day restart scenario)
+    b = load_budget()
+    if b.get("entry_exhausted", False):
+        _entry_exhausted_flag = True
+        return True
+    return False
 
 
 def try_rollover_exit_to_entry(now: datetime) -> None:
