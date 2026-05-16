@@ -30,10 +30,9 @@ logger = logging.getLogger(__name__)
 
 def _refresh_strategy_memory_no_trades(today: str) -> None:
     """
-    On zero-trade days the main learning loop exits early, but strategy_memory still
-    needs a daily refresh so stale rules don't accumulate and freeze the bot.
-    Asks Claude to review current rules against today's market and relax any that
-    have been blocking entries without evidence of losses.
+    On zero-trade days: refresh strategy_memory AND update trading_params.
+    Without the params update, stale rsi_buy_max / vwap_slope values survive
+    indefinitely and cause self-reinforcing zero-trade streaks.
     """
     current_memory = (
         config.STRATEGY_MEMORY_FILE.read_text()
@@ -44,6 +43,7 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
         return
 
     regime_info = load_macro_regime()
+    current_params = load_trading_params()
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
     try:
@@ -53,13 +53,20 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
             system=[{
                 "type": "text",
                 "text": (
-                    "You maintain a living trading strategy memory document.\n"
+                    "You maintain a living trading strategy memory document and trading params.\n"
                     "Today zero trades were executed — all candidates were filtered out.\n"
-                    "Your job: review the current rules and identify which ones may be "
-                    "too restrictive given today's market conditions. "
-                    "Relax rules that lack loss evidence. Hard vetos should be reserved "
-                    "for conditions that historically caused losses, not theoretical risk.\n"
-                    "Keep the document under 1000 words. Update the '# Last updated' date.\n"
+                    "Your job:\n"
+                    "1. Review the current rules and relax any that lack loss evidence.\n"
+                    "2. Return updated trading_params as a JSON block — suggest rsi_buy_max "
+                    "in range 40–80 (normal regime) and 35–65 (high vol). "
+                    "Tighten only with evidence of losses at that value. "
+                    "Relax if the current value has been blocking entries with no loss data.\n"
+                    "Format: first the complete updated strategy_memory.md text, "
+                    "then a JSON block like: {\"rsi_buy_max\": 70, \"rsi_buy_max_high_vol\": 65, "
+                    "\"vwap_slope_min\": -0.3, \"high_vol_position_mult\": 0.5, "
+                    "\"stop_loss_pct\": 3.0, \"take_profit_pct\": 5.0, "
+                    "\"entry_start_hour\": 10, \"entry_end_hour\": 15}\n"
+                    "Keep strategy_memory under 1000 words. Update the 'Last updated' date.\n"
                     "Required sections: General Rules, Market Regime Playbook, "
                     "Entry Filter Rules, Per-Stock Notes, Weight Rationale, Recent Lessons."
                 ),
@@ -68,11 +75,12 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
                 "role": "user",
                 "content": (
                     f"Date: {today} — ZERO TRADES EXECUTED TODAY\n"
-                    f"Market regime: {json.dumps(regime_info, indent=2)}\n\n"
+                    f"Market regime: {json.dumps(regime_info, indent=2)}\n"
+                    f"Current params: {json.dumps(current_params)}\n\n"
                     f"Current strategy memory:\n{current_memory}\n\n"
                     "Review each hard rule. If a rule has been in place for > 5 days "
                     "with zero supporting loss data, relax it to a soft warning. "
-                    "Write the complete updated strategy_memory.md."
+                    "Then output the updated strategy_memory.md followed by the JSON params block."
                 ),
             }],
         )
@@ -82,8 +90,32 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
             cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", 0),
             cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0),
         )
-        config.STRATEGY_MEMORY_FILE.write_text(response.content[0].text.strip())
-        logger.info("strategy_memory.md refreshed (zero-trade rule-review pass).")
+        text = response.content[0].text.strip()
+
+        # Extract and apply trading_params JSON block
+        match = re.search(r"\{[^{}]*\"rsi_buy_max\"[^{}]*\}", text, re.DOTALL)
+        if match:
+            try:
+                suggested = json.loads(match.group())
+                new_params = dict(current_params)
+                param_keys = [
+                    "entry_start_hour", "entry_end_hour", "rsi_buy_max", "rsi_buy_max_high_vol",
+                    "vwap_slope_min", "high_vol_position_mult", "stop_loss_pct", "take_profit_pct",
+                ]
+                for key in param_keys:
+                    if key in suggested:
+                        new_params[key] = _clamp_threshold(key, suggested[key])
+                from learning.data import _save_trading_params
+                _save_trading_params(new_params)
+                logger.info("trading_params updated on zero-trade day: %s", new_params)
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning("Zero-trade params parse failed: %s", exc)
+
+        # Strip the JSON block before saving strategy_memory
+        mem_text = re.sub(r"\{[^{}]*\"rsi_buy_max\"[^{}]*\}", "", text).strip()
+        if mem_text:
+            config.STRATEGY_MEMORY_FILE.write_text(mem_text)
+            logger.info("strategy_memory.md refreshed (zero-trade rule-review pass).")
     except Exception as exc:
         logger.warning("Zero-trade strategy_memory refresh failed: %s", exc)
 
