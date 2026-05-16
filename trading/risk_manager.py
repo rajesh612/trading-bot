@@ -26,6 +26,7 @@ _CACHE_READ_COST_PER_TOKEN  = 0.30    / 1_000_000
 _OUTPUT_COST_PER_TOKEN      = 15.00   / 1_000_000
 
 _entry_exhausted_flag: bool = False
+_disk_rehydrated: bool = False  # True after one-time disk check on first call after restart
 
 
 # ── Budget management ─────────────────────────────────────────────────────────
@@ -206,15 +207,16 @@ def record_usage(
 
 
 def is_entry_budget_exhausted() -> bool:
-    """Check entry budget exhaustion. Falls back to disk read on first call after restart."""
-    global _entry_exhausted_flag
+    """O(1) after first call. Reads disk exactly once after restart to sync with pre-crash state."""
+    global _entry_exhausted_flag, _disk_rehydrated
     if _entry_exhausted_flag:
         return True
-    # In-memory flag is False — verify against disk (handles mid-day restart scenario)
-    b = load_budget()
-    if b.get("entry_exhausted", False):
-        _entry_exhausted_flag = True
-        return True
+    if not _disk_rehydrated:
+        _disk_rehydrated = True
+        b = load_budget()
+        if b.get("entry_exhausted", False):
+            _entry_exhausted_flag = True
+            return True
     return False
 
 

@@ -91,8 +91,7 @@ def execute_buy(
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)
         return None
-    _DATA_ONLY_FLAGS = frozenset({"mtf_unavailable"})
-    real_signal_flags = [f for f in gate.flags if f not in _DATA_ONLY_FLAGS]
+    real_signal_flags = [f for f in gate.flags if f not in config.AUTO_EXECUTE_DATA_ONLY_FLAGS]
     if real_signal_flags and decision.get("source") == "auto_execute":
         logger.info("SKIP %s — auto-execute blocked by signal flags: %s", symbol, ", ".join(real_signal_flags))
         return None

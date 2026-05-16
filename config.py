@@ -42,6 +42,7 @@ WATCH_LIST_MAX = 15
 # Claude API cost controls
 CLAUDE_BATCH_SIZE = 10           # Stocks per batched Claude call — matches typical watch-list size
 STRATEGY_MEMORY_MAX_CHARS = 3500 # tighter — still above 1024-token cache minimum
+STRATEGY_MEMORY_MAX_AGE_DAYS = 7  # reset strategy_memory if unchanged for > N days
 
 # Risk parameters
 MAX_POSITION_PCT = 0.05        # Max 5% of portfolio per position
@@ -249,6 +250,8 @@ INTRADAY_SENTIMENT_BLOCK      = -10   # intraday sentiment_score below this = sk
 # ── Auto-Execute (skip Claude for textbook setups) ────────────────────────────
 AUTO_EXECUTE_COMPOSITE_MIN    = 55    # composite must exceed this for auto-execute
 AUTO_EXECUTE_SENTIMENT_MIN    = 20    # intraday sentiment_score must exceed this
+# Flags that indicate data-fetch failures (not bearish signals) — safe to ignore in auto-execute
+AUTO_EXECUTE_DATA_ONLY_FLAGS: frozenset = frozenset({"mtf_unavailable"})
 
 # ── Budget Time-of-Day Caps ───────────────────────────────────────────────────
 BUDGET_MORNING_CAP_PCT        = 0.35  # max 35% of entry_ceiling by 11:30 AM ET

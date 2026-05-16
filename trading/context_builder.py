@@ -30,9 +30,11 @@ def build_stock_block(
     pos_block = ""
     if existing_pos:
         pnl_pct = (price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
+        sl = existing_pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
+        tp = existing_pos.get("take_profit_pct", config.TAKE_PROFIT_PCT)
         pos_block = (
             f" POS:${existing_pos['entry_price']:.2f}×{existing_pos['qty']:.0f}"
-            f" P&L={pnl_pct:+.2f}%"
+            f" P&L={pnl_pct:+.2f}% SL={sl:.1f}% TP={tp:.1f}%"
         )
 
     dvol = f"{iv.daily_volume_ratio:.2f}x"

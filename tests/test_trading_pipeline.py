@@ -495,62 +495,115 @@ def test_execute_buy_blocked_by_high_vol_composite_gate():
 
 @pytest.mark.unit
 def test_pipeline_skips_claude_when_can_open_false(monkeypatch):
-    """Phase 3 must not call Claude when can_open=False."""
+    """Phase 3 must not call Claude entry calls when can_open=False."""
     import trading.pipeline as pl_mod
+    from trading.claude_caller import _ask_claude_batch
+    from unittest.mock import MagicMock, patch
+    from trading.cycle_context import CycleSnapshot
+    from trading.pipeline import TradingPipeline
+    from datetime import datetime
 
     called = []
-    original = pl_mod._ask_claude_batch
 
-    def fake_ask(batch, snap, ai):
-        called.append(batch)
-        return {}
+    snap = MagicMock(spec=CycleSnapshot)
+    snap.regime = "NORMAL"
+    snap.regime_info = {"spy_5day_return": 0.0}
+    snap.research = {}
+    snap.research_meta = {}
+    snap.intraday_news = {}
+    snap.params = {}
+    snap.strategy_memory = ""
+    snap.weights = {}
+    snap.fred_cache = {}
 
-    pl_mod._ask_claude_batch = fake_ask
-    try:
-        # Simulate the Phase 3 guard directly
-        from unittest.mock import MagicMock
-        needs_claude = [("AAPL", MagicMock(), None)]
-        can_open = False
-        decisions = {}
-        import config
-        if can_open:
-            for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
-                batch = needs_claude[i:i + config.CLAUDE_BATCH_SIZE]
-                decisions.update(fake_ask(batch, MagicMock(), MagicMock()))
-        assert called == [], "Claude must not be called when can_open=False"
-    finally:
-        pl_mod._ask_claude_batch = original
+    with patch("trading.pipeline._ask_claude_batch", side_effect=lambda *a, **k: called.append(a) or {}), \
+         patch("trading.pipeline.load_open_positions", return_value={}), \
+         patch("trading.pipeline.load_daily_closed", return_value=set()), \
+         patch("trading.pipeline._fetch_symbol_data", return_value=None), \
+         patch("trading.pipeline.pre_claude_filter"):
+        pipeline = TradingPipeline()
+        pipeline.run(
+            symbols=["AAPL"],
+            snap=snap,
+            ai=MagicMock(),
+            now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+            alpaca=MagicMock(),
+            portfolio_value=10_000.0,
+            buying_power=5_000.0,
+            can_open=False,
+        )
+
+    assert called == [], "Claude must not be called when can_open=False"
 
 
 @pytest.mark.unit
 def test_pipeline_warns_when_research_timestamp_missing(caplog):
     """Missing __meta__ timestamp must emit a warning, not silently skip."""
     import logging
-    import trading.pipeline as pl_mod
+    from unittest.mock import MagicMock, patch
+    from trading.cycle_context import CycleSnapshot
+    from trading.pipeline import TradingPipeline
+    from datetime import datetime
 
-    with caplog.at_level(logging.WARNING, logger="trading.pipeline"):
-        ts_str = None  # simulate missing timestamp
-        if not ts_str:
-            import logging as _lg
-            _lg.getLogger("trading.pipeline").warning(
-                "Research report has no timestamp (__meta__ missing) — staleness check skipped."
-            )
+    snap = MagicMock(spec=CycleSnapshot)
+    snap.regime = "NORMAL"
+    snap.regime_info = {"spy_5day_return": 0.0}
+    snap.research = {}
+    snap.research_meta = {}  # no __meta__ timestamp → missing timestamp
+    snap.intraday_news = {}
+    snap.params = {}
+    snap.strategy_memory = ""
+    snap.weights = {}
+    snap.fred_cache = {}
+
+    with caplog.at_level(logging.WARNING, logger="trading.pipeline"), \
+         patch("trading.pipeline.load_open_positions", return_value={}), \
+         patch("trading.pipeline.load_daily_closed", return_value=set()):
+        pipeline = TradingPipeline()
+        pipeline.run(
+            symbols=[],
+            snap=snap,
+            ai=MagicMock(),
+            now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+            alpaca=MagicMock(),
+            portfolio_value=10_000.0,
+            buying_power=5_000.0,
+            can_open=True,
+        )
 
     assert any(
         "staleness" in r.message.lower() or "timestamp" in r.message.lower()
         for r in caplog.records
-    ), "Expected a warning about missing timestamp"
+    ), "Expected a warning about missing research timestamp"
 
 
 @pytest.mark.unit
-def test_strategy_memory_truncation_keeps_head_not_tail():
-    """When strategy_memory.md exceeds limit, keep the beginning (rules), not the end."""
+def test_strategy_memory_truncation_keeps_head_not_tail(tmp_path, monkeypatch):
+    """build_cycle_snapshot must truncate strategy_memory from the head, not the tail."""
+    import config
+    from unittest.mock import patch
+    from trading.cycle_context import build_cycle_snapshot
+
     long_memory = "# General Rules\n" + ("A" * 100 + "\n") * 20 + "# Tail Section\n" + ("B" * 100 + "\n") * 20
-    limit = 500
-    truncated = long_memory[:limit] if len(long_memory) > limit else long_memory
-    assert truncated.startswith("# General Rules"), "Must keep head (rules section)"
-    assert "Tail Section" not in truncated, "Must not keep tail"
-    assert len(truncated) <= limit
+    mem_file = tmp_path / "strategy_memory.md"
+    mem_file.write_text(long_memory)
+
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", mem_file)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_MAX_CHARS", 500)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_MAX_AGE_DAYS", 365)
+
+    import trading.cycle_context as _cc
+    with patch("trading.cycle_context.load_macro_regime", return_value={"regime": "NORMAL"}), \
+         patch("trading.cycle_context.load_trading_params", return_value={}), \
+         patch("trading.cycle_context.load_json", return_value={}), \
+         patch("trading.cycle_context._get_fred_cache", return_value={}), \
+         patch("trading.cycle_context.load_intraday_news", return_value={}), \
+         patch.object(_cc, "config", config):
+        snap = build_cycle_snapshot(portfolio_gain_pct=0.0)
+
+    assert snap.strategy_memory.startswith("# General Rules"), "Must keep head (rules section)"
+    assert "Tail Section" not in snap.strategy_memory, "Must not keep tail"
+    assert len(snap.strategy_memory) <= 500
 
 
 @pytest.mark.unit
@@ -581,3 +634,31 @@ def test_stock_block_is_under_150_tokens():
     assert approx_tokens < 150, f"Stock block too large: ~{approx_tokens:.0f} tokens\n{block}"
     assert "ATR=" not in block, "ATR is not directional — remove from Claude block"
     assert "No summary" not in block, "Empty summary must be omitted"
+
+
+@pytest.mark.unit
+def test_stock_block_includes_sl_tp_for_existing_position():
+    """build_stock_block pos_block must include SL/TP so Claude can assess whether to hold."""
+    from trading.context_builder import build_stock_block
+    from unittest.mock import MagicMock, patch
+
+    iv = MagicMock()
+    iv.composite_score = 30.0; iv.signal = "HOLD"
+    iv.current_price = 105.0; iv.vwap = 104.0
+    iv.rsi = 55.0; iv.rsi_slope = 0.5; iv.macd_hist = 0.001
+    iv.bb_lower = 103.0; iv.bb_upper = 107.0
+    iv.ema9 = 104.5; iv.ema21 = 104.0
+    iv.stoch_k = 60.0; iv.stoch_d = 55.0
+    iv.daily_volume_ratio = 1.0
+
+    existing_pos = {
+        "entry_price": 100.0, "qty": 10,
+        "stop_loss_pct": 3.5, "take_profit_pct": 6.0,
+    }
+    research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL", "key_catalyst": None, "risk_flag": None, "summary": ""}}
+
+    with patch("calendars.earnings.detect_pead_setup", return_value=(False, 0)):
+        block = build_stock_block("TEST", iv, research, existing_pos)
+
+    assert "SL=3.5%" in block, f"SL missing from pos_block: {block}"
+    assert "TP=6.0%" in block, f"TP missing from pos_block: {block}"

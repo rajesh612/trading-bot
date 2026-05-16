@@ -335,3 +335,51 @@ def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
         f"Expected SKIP (RSI 62 > learned 60) but got {result.decision}: {result.reason}"
     )
     assert "RSI" in result.reason
+
+
+@pytest.mark.unit
+def test_rsi_gate_exempts_pead_mode():
+    """PEAD stocks often show elevated RSI on earnings momentum; gate 10 must not block them."""
+    from signals.entry_gates import check_all_gates
+    from unittest.mock import patch, MagicMock
+    import pandas as pd
+    import config
+
+    now = datetime(2026, 5, 15, 10, 30, tzinfo=ET)
+
+    iv = MagicMock()
+    iv.prev_close = 100.0
+    iv.current_price = 102.0  # no gap
+    iv.composite_score = 70.0
+    iv.rsi = 75.0  # above RSI_BUY_MAX=72 — would block non-PEAD
+    iv.stoch_d = 70.0
+    iv.vwap_slope = 0.2
+    iv.squeeze_setup = False
+    iv.bot_herding_score = 0
+    iv.momentum_exhaustion = False
+    iv.parabolic = False
+    iv.stop_hunt_zone = False
+    iv.vwap_std2_upper = 106.0
+
+    with patch("signals.entry_gates.is_entry_allowed", return_value=True), \
+         patch("signals.entry_gates.passes_vwap_guard", return_value=True), \
+         patch("signals.entry_gates.passes_rs_filter", return_value=True), \
+         patch("signals.entry_gates.passes_mtf_filter", return_value=True), \
+         patch("signals.entry_gates.passes_correlation_guard", return_value=True), \
+         patch("calendars.earnings.is_earnings_imminent", return_value=False), \
+         patch("macro.economic_calendar.is_event_risk_window", return_value=(False, "")):
+
+        # DAY_TRADE: high RSI should block
+        gate_day = check_all_gates(
+            "NBIS", iv, {}, set(), pd.DataFrame(), now, 0,
+            spy_ret5d=1.0, symbol_ret5d=5.0, mode="DAY_TRADE",
+        )
+        assert not gate_day.passed, "High RSI should block in DAY_TRADE mode"
+        assert "RSI" in gate_day.reason
+
+        # PEAD: high RSI should be allowed
+        gate_pead = check_all_gates(
+            "NBIS", iv, {}, set(), pd.DataFrame(), now, 0,
+            spy_ret5d=1.0, symbol_ret5d=5.0, mode="PEAD",
+        )
+        assert gate_pead.passed, f"High RSI should NOT block in PEAD mode — got: {gate_pead.reason}"

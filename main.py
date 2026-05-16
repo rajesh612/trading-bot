@@ -200,7 +200,7 @@ def setup_scheduler():
     # Intraday news: 9:05 AM and every 30 min thereafter (avoids 9:00 race with watch_list)
     scheduler.add_job(
         job_intraday_news,
-        CronTrigger(minute="5,35", hour="9-15", **kw),
+        CronTrigger(minute="5,35", hour="9-14", **kw),
         id="intraday_news",
         replace_existing=True,
         max_instances=1,

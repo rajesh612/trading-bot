@@ -102,13 +102,17 @@ class TestRiskManagerBudget:
     def test_budget_exhausted_only_when_both_pools_spent(self, tmp_path, monkeypatch):
         """budget_exhausted is True only after both entry and exit are exhausted."""
         import config
+        from unittest.mock import patch
         self._setup(tmp_path, monkeypatch,
                     entry_spent_usd=0.70,
                     exit_spent_usd=0.30,
                     entry_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.ENTRY_BUDGET_RATIO, 4),
                     exit_ceiling_usd=round(config.API_BUDGET_NORMAL_CEILING * config.EXIT_BUDGET_RATIO, 4))
         from trading.risk_manager import check_entry_budget, check_exit_budget, load_budget
-        check_entry_budget(0.01, "NORMAL")   # marks entry_exhausted
+        # Bypass time-of-day caps so the ceiling check runs and sets entry_exhausted
+        with patch("trading.risk_manager.morning_cap_exceeded", return_value=False), \
+             patch("trading.risk_manager.midday_cap_exceeded", return_value=False):
+            check_entry_budget(0.01, "NORMAL")   # marks entry_exhausted
         check_exit_budget(0.01, open_position_count=0, regime="NORMAL")  # marks exit_exhausted, no escalation
         b = load_budget()
         assert b["budget_exhausted"] is True
@@ -413,29 +417,91 @@ class TestAutoExecuteSoftFlagGuard:
 def test_auto_execute_not_blocked_by_mtf_unavailable():
     """mtf_unavailable is a data-fetch failure; must not block auto-execute."""
     from signals.entry_gates import GateResult
+    from unittest.mock import patch, MagicMock
+    from trading.executor import execute_buy
+    from tests.test_signals import make_full_iv
 
-    gate = GateResult(passed=True, reason="", flags=("mtf_unavailable",))
-    decision = {"source": "auto_execute"}
-
-    _DATA_ONLY_FLAGS = frozenset({"mtf_unavailable"})
-    real_signal_flags = [f for f in gate.flags if f not in _DATA_ONLY_FLAGS]
-    # After fix: real_signal_flags should be empty → auto-execute proceeds
-    assert real_signal_flags == [], (
-        f"mtf_unavailable should not block auto-execute. Real flags: {real_signal_flags}"
+    iv = make_full_iv(symbol="AAPL", composite_score=60.0, rsi=55.0, stoch_d=50.0, current_price=100.0)
+    decision = {
+        "action": "BUY", "confidence": 90,
+        "reasoning": "auto-execute",
+        "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+        "source": "auto_execute",
+    }
+    base_kwargs = dict(
+        symbol="AAPL", iv=iv, decision=decision,
+        regime="NORMAL", regime_info={"regime": "NORMAL", "spy_5day_return": 0.0},
+        research={"AAPL": {"sentiment_score": 25}},
+        open_positions={}, portfolio_value=10_000.0, pos_mult=1.0,
+        spy_ret5d=0.5, symbol_ret5d=1.0, rsi_max=72.0,
+        params={"vwap_slope_min": -0.5},
+        now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+        entries_this_cycle=0,
     )
+
+    # Only mtf_unavailable (data-fetch failure) — should NOT block auto-execute
+    gate = GateResult(passed=True, reason="", flags=("mtf_unavailable",))
+
+    with patch("trading.executor.check_all_gates", return_value=gate), \
+         patch("trading.executor.get_intraday_bars", return_value=None), \
+         patch("trading.executor.load_json", return_value={}), \
+         patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
+         patch("trading.executor._MODE_POSITION_LIMITS", {}), \
+         patch("trading.executor.compute_position_size_for_mode", return_value=10), \
+         patch("trading.executor.apply_regime_multiplier", return_value=10), \
+         patch("trading.executor.apply_sentiment_multiplier", return_value=10), \
+         patch("trading.executor.get_sl_tp_for_mode_and_regime", return_value=(4.0, 5.0)), \
+         patch("trading.executor.append_trade"), \
+         patch("trading.executor.save_json"), \
+         patch("trading.executor.risk_manager.correct_bracket_after_fill", return_value=None), \
+         patch("trading.executor.telegram_notify"), \
+         patch("trading.executor._POSITIONS_LOCK"):
+        mock_alpaca = MagicMock()
+        mock_alpaca.place_bracket_order.return_value = MagicMock(id="order-123")
+        mock_alpaca.get_latest_price.return_value = 100.0
+        base_kwargs["alpaca"] = mock_alpaca
+        result = execute_buy(**base_kwargs)
+
+    assert result is not None, "mtf_unavailable must not block auto-execute"
 
 
 @pytest.mark.unit
 def test_auto_execute_still_blocked_by_mtf_not_confirmed():
     """mtf_not_confirmed is a real bearish signal and must still block auto-execute."""
     from signals.entry_gates import GateResult
+    from unittest.mock import patch, MagicMock
+    from trading.executor import execute_buy
+    from tests.test_signals import make_full_iv
 
-    gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
-    _DATA_ONLY_FLAGS = frozenset({"mtf_unavailable"})
-    real_signal_flags = [f for f in gate.flags if f not in _DATA_ONLY_FLAGS]
-    assert real_signal_flags == ["mtf_not_confirmed"], (
-        f"mtf_not_confirmed should block auto-execute. Got: {real_signal_flags}"
+    iv = make_full_iv(symbol="AAPL", composite_score=60.0, rsi=55.0, stoch_d=50.0, current_price=100.0)
+    decision = {
+        "action": "BUY", "confidence": 90,
+        "reasoning": "auto-execute",
+        "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+        "source": "auto_execute",
+    }
+    base_kwargs = dict(
+        symbol="AAPL", iv=iv, decision=decision,
+        regime="NORMAL", regime_info={"regime": "NORMAL", "spy_5day_return": 0.0},
+        research={"AAPL": {"sentiment_score": 25}},
+        open_positions={}, alpaca=MagicMock(), portfolio_value=10_000.0, pos_mult=1.0,
+        spy_ret5d=0.5, symbol_ret5d=1.0, rsi_max=72.0,
+        params={"vwap_slope_min": -0.5},
+        now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+        entries_this_cycle=0,
     )
+
+    # mtf_not_confirmed is a real signal flag — must block auto-execute
+    gate = GateResult(passed=True, reason="", flags=("mtf_not_confirmed",))
+
+    with patch("trading.executor.check_all_gates", return_value=gate), \
+         patch("trading.executor.get_intraday_bars", return_value=None), \
+         patch("trading.executor.load_json", return_value={}), \
+         patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
+         patch("trading.executor._MODE_POSITION_LIMITS", {}):
+        result = execute_buy(**base_kwargs)
+
+    assert result is None, "mtf_not_confirmed must block auto-execute"
 
 
 @pytest.mark.unit
@@ -443,8 +509,9 @@ def test_entry_exhausted_flag_rehydrated_from_disk(tmp_path, monkeypatch):
     """After restart, is_entry_budget_exhausted() must read disk if in-memory flag is False."""
     import trading.risk_manager as rm
 
+    from datetime import date as _date
     budget = {
-        "date": "2026-05-15", "entry_exhausted": True,
+        "date": _date.today().isoformat(), "entry_exhausted": True,
         "entry_spent_usd": 0.87, "entry_ceiling_usd": 0.85,
         "exit_exhausted": False, "budget_exhausted": False, "escalated": False,
         "calls_made": 49, "entry_calls": 49, "exit_calls": 0,
@@ -462,6 +529,37 @@ def test_entry_exhausted_flag_rehydrated_from_disk(tmp_path, monkeypatch):
 
     # Simulate fresh module state (flag = False, as after restart)
     rm._entry_exhausted_flag = False
+    rm._disk_rehydrated = False
 
     result = rm.is_entry_budget_exhausted()
     assert result is True, "Must read disk when in-memory flag is False and disk shows exhausted"
+
+
+@pytest.mark.unit
+def test_is_entry_budget_exhausted_does_not_re_read_disk_on_subsequent_calls(tmp_path, monkeypatch):
+    """After the first disk check, subsequent calls must not read disk again (O(1))."""
+    import trading.risk_manager as rm
+    from utils.io_utils import save_json
+
+    budget_file = tmp_path / "api_budget.json"
+    save_json(str(budget_file), {"date": "2026-05-16", "entry_exhausted": False})
+    monkeypatch.setattr("config.API_BUDGET_FILE", str(budget_file))
+
+    rm._entry_exhausted_flag = False
+    rm._disk_rehydrated = False
+
+    disk_reads = []
+    original_load = rm.load_budget
+    def counting_load():
+        disk_reads.append(1)
+        return original_load()
+    monkeypatch.setattr(rm, "load_budget", counting_load)
+
+    # First call: rehydrates from disk (1 read expected)
+    rm.is_entry_budget_exhausted()
+    assert len(disk_reads) == 1, "First call must read disk once"
+
+    # Second and third call: flag still False, but disk must NOT be re-read
+    rm.is_entry_budget_exhausted()
+    rm.is_entry_budget_exhausted()
+    assert len(disk_reads) == 1, "Subsequent calls must not re-read disk"

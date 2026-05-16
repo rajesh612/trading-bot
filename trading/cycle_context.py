@@ -20,7 +20,6 @@ from macro.regime import load_macro_regime, load_trading_params
 from utils.io_utils import load_json
 
 _logger = logging.getLogger(__name__)
-_STRATEGY_MEMORY_MAX_AGE_DAYS = 7
 
 # ── FRED TTL cache — stable all trading day ───────────────────────────────────
 _fred_cache: dict = {}
@@ -86,11 +85,11 @@ def build_cycle_snapshot(
     raw_mem = ""
     try:
         age_days = (time.time() - strat_path.stat().st_mtime) / 86400
-        if age_days > _STRATEGY_MEMORY_MAX_AGE_DAYS:
+        if age_days > config.STRATEGY_MEMORY_MAX_AGE_DAYS:
             _logger.warning(
                 "strategy_memory.md is %.0f days old (> %d) — skipping stale rules; "
                 "learning agent will refresh it tonight.",
-                age_days, _STRATEGY_MEMORY_MAX_AGE_DAYS,
+                age_days, config.STRATEGY_MEMORY_MAX_AGE_DAYS,
             )
         else:
             raw_mem = strat_path.read_text()

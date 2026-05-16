@@ -419,13 +419,29 @@ def test_run_trading_cycle_skips_empty_watch_list(tmp_path):
 
 
 @pytest.mark.unit
-def test_empty_watch_list_sends_telegram_alert(monkeypatch):
+def test_empty_watch_list_sends_telegram_alert():
     """Empty watch list must fire a Telegram alert, not silently return."""
+    from unittest.mock import patch, MagicMock
     alerts_sent = []
-    monkeypatch.setattr("notifications.telegram.notify_alert", lambda msg: alerts_sent.append(msg))
-    watch_list = []
-    if not watch_list:
-        import notifications.telegram as tg
-        tg.notify_alert("⚠️ Watch list empty — skipping trading cycle.")
-    assert len(alerts_sent) == 1
-    assert "watch" in alerts_sent[0].lower() or "empty" in alerts_sent[0].lower()
+
+    mock_account = MagicMock()
+    mock_account.portfolio_value = "10000"
+    mock_account.buying_power = "5000"
+    mock_account.last_equity = "10000"
+
+    with patch("trading.cycle.AlpacaClient") as mock_alpaca_cls, \
+         patch("trading.cycle.load_watch_list", return_value=[]), \
+         patch("trading.cycle.load_macro_regime", return_value={"regime": "NORMAL"}), \
+         patch("trading.cycle.load_trading_params", return_value={
+             "entry_start_hour": 10, "entry_end_hour": 15,
+             "rsi_buy_max": 72, "rsi_buy_max_high_vol": 65,
+             "high_vol_position_mult": 0.5,
+         }), \
+         patch("trading.cycle.telegram_notify.notify_alert", side_effect=lambda m: alerts_sent.append(m)):
+        mock_alpaca_cls.return_value.get_account.return_value = mock_account
+        from trading.cycle import run_trading_cycle
+        run_trading_cycle()
+
+    assert any("watch" in m.lower() or "empty" in m.lower() for m in alerts_sent), (
+        f"Expected watch-list-empty alert, got: {alerts_sent}"
+    )

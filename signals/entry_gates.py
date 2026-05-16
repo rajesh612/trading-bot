@@ -114,7 +114,8 @@ def check_all_gates(
             return GateResult(False, f"momentum exhaustion + herding ({iv.bot_herding_score})")
 
     # 10. RSI overbought hard skip — saves Claude tokens on conditions that will HOLD anyway
-    if iv.rsi > config.RSI_BUY_MAX:
+    # Exempted for PEAD: earnings-momentum stocks legitimately run above normal RSI bounds
+    if mode != "PEAD" and iv.rsi > config.RSI_BUY_MAX:
         return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {config.RSI_BUY_MAX})")
 
     # 11. Stochastic overbought hard veto
