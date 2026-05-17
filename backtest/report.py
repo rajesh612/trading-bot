@@ -61,6 +61,7 @@ def print_report(state: SimState) -> None:
         sw_wins = (sw["pnl"] > 0).sum()
         print(f"\n── Swing summary ({n_swing} trades, win rate {sw_wins/n_swing*100:.1f}%) ─────")
         print(f"  Total swing P&L : ${sw['pnl'].sum():>+10,.2f}")
+        print(f"  Avg swing trade : ${sw['pnl'].mean():>+.2f}  |  avg hold = {(sw['pnl_pct'].abs() > 0).sum()} trades")
         for sym, grp in sw.groupby("symbol"):
             print(f"    {sym:<6} {len(grp):>2} trades  P&L ${grp['pnl'].sum():>+8,.2f}  win {(grp['pnl']>0).sum()}/{len(grp)}")
 
