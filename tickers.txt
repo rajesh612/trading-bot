@@ -28,6 +28,7 @@ COHR
 LITE
 AAOI
 CIEN
+NET
 
 # ── Hyperscalers & Cloud ──────────────────────────────────────────────────────
 MSFT
@@ -54,6 +55,8 @@ SNOW
 HUBS
 DDOG
 TTD
+TWLO
+MNDY
 
 # ── Emerging AI / High-Growth Tech ────────────────────────────────────────────
 CRWV
@@ -66,6 +69,8 @@ UBER
 SPOT
 PINS
 RDDT
+SOUN
+CELH
 
 # ── Energy & Power (Data Center Demand) ───────────────────────────────────────
 VST
@@ -77,12 +82,12 @@ MPC
 OKLO
 BE
 NLR
+ENPH
 
 # ── Financials ────────────────────────────────────────────────────────────────
 JPM
 GS
 MS
-BRK.B
 V
 MA
 AXP
@@ -90,35 +95,16 @@ PYPL
 HOOD
 SOFI
 COIN
+AFRM
+UPST
 
 # ── Healthcare & Pharma ───────────────────────────────────────────────────────
 LLY
-ABBV
-MRK
 UNH
-JNJ
-PFE
 AMGN
 ISRG
 DXCM
 CRSP
-
-# ── Consumer & Retail ─────────────────────────────────────────────────────────
-WMT
-COST
-PG
-KO
-
-# ── Industrials ───────────────────────────────────────────────────────────────
-CAT
-HON
-BA
-GE
-GEV
-FDX
-CARR
-EME
-URI
 
 # ── Defense ───────────────────────────────────────────────────────────────────
 RTX
@@ -126,30 +112,29 @@ LMT
 NOC
 KTOS
 
-# ── Macro Hedges & Commodities ────────────────────────────────────────────────
-GLD
-SLV
-IAU
-NEM
-SCCO
+# ── Crypto & Digital Assets ───────────────────────────────────────────────────
+MSTR
+MARA
+RIOT
+IBIT
 
 # ── Quantum & Next-Gen Computing ──────────────────────────────────────────────
 IONQ
+QBTS
+RGTI
 
-# ── Space & Advanced Transport ────────────────────────────────────────────────
+# ── Space, EV & Advanced Transport ───────────────────────────────────────────
 RKLB
 ASTS
 ACHR
 JOBY
 LUNR
+RIVN
 
 # ── Sector ETFs & Broad Market (regime/macro signals) ────────────────────────
 SPY
 QQQ
 VOOG
 SMH
-XLE
-REMX
-IBIT
 DRAM
 BAI

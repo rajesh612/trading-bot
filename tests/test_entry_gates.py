@@ -568,10 +568,10 @@ class TestEffectiveCompositeGate:
         iv = self._iv()
         assert effective_composite_gate(iv, "CHOPPY") == 30
 
-    def test_normal_returns_20(self):
+    def test_normal_returns_30(self):
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
-        assert effective_composite_gate(iv, "NORMAL") == 20
+        assert effective_composite_gate(iv, "NORMAL") == 30
 
     def test_high_vol_overrides_squeeze(self):
         """HIGH_VOL safety takes priority over squeeze setup."""

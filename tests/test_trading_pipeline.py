@@ -586,7 +586,7 @@ def test_pre_claude_filter_passes_stoch_95(monkeypatch):
     import config
     monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
     from trading.pre_claude_filter import pre_claude_filter
-    iv = _make_iv_pipeline(composite_score=25.0, stoch_d=95.0)
+    iv = _make_iv_pipeline(composite_score=35.0, stoch_d=95.0)
     snap = _make_snap_pipeline()
     result = pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision != "SKIP", f"Option A violated: Stoch 95 caused SKIP: {result.reason}"
@@ -598,7 +598,7 @@ def test_pre_claude_filter_passes_vwap_overextended(monkeypatch):
     import config
     monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
     from trading.pre_claude_filter import pre_claude_filter
-    iv = _make_iv_pipeline(composite_score=25.0, current_price=104.0, vwap_std2_upper=101.5)
+    iv = _make_iv_pipeline(composite_score=35.0, current_price=104.0, vwap_std2_upper=101.5)
     snap = _make_snap_pipeline()
     result = pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision != "SKIP", f"Option A violated: VWAP overextension caused SKIP: {result.reason}"

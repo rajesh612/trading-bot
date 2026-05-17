@@ -61,21 +61,21 @@ def _get_trading_days(start: date, end: date) -> list[datetime]:
             days.append(datetime(d.year, d.month, d.day, tzinfo=ET))
         d += timedelta(days=1)
     return days
-STARTING_CAPITAL = 100_000.0
-SLIPPAGE_PCT     = 0.0005      # 0.05% each way
-STOP_LOSS_PCT    = 4.0
-TAKE_PROFIT_PCT  = 5.0
-MAX_POSITIONS    = 5
-MAX_POSITION_PCT = 0.05
-RISK_PER_TRADE   = 0.005       # 0.5% of portfolio ATR-sized (matches live)
-MIN_COMPOSITE    = 15.0        # same as live BUY threshold
-MAX_DAILY_LOSS   = 0.03        # halt new entries if down >3% on the day
-RSI_BUY_MAX      = 45.0        # only buy when RSI is not overbought (normal regime)
-RSI_BUY_MAX_HV   = 35.0        # tighter RSI when VIX elevated
-VWAP_SLOPE_MIN   = -0.3        # skip BUY if VWAP trending down by this % over 10 bars
+STARTING_CAPITAL    = 100_000.0
+SLIPPAGE_PCT        = 0.0005      # 0.05% each way
+STOP_LOSS_PCT       = 4.0         # 4% SL
+TAKE_PROFIT_PCT     = 5.0         # 5% TP
+MAX_POSITIONS       = 5
+MAX_POSITION_PCT    = 0.05
+RISK_PER_TRADE      = 0.005       # 0.5% of portfolio ATR-sized (matches live)
+MIN_COMPOSITE       = 30.0        # raised from 15 — filters noise entries
+MAX_DAILY_LOSS      = 0.03        # halt new entries if down >3% on the day
+RSI_BUY_MAX         = 45.0        # only buy when RSI is not overbought (normal regime)
+RSI_BUY_MAX_HV      = 35.0        # tighter RSI when VIX elevated
+VWAP_SLOPE_MIN      = -0.3        # skip BUY if VWAP trending down by this % over 10 bars
 ENTRY_START_H    = 10          # no new entries before 10:00 AM ET
 ENTRY_END_H      = 15          # no new entries at/after 3:00 PM ET
-HIGH_VOL_MULT    = 0.5         # halve position size in HIGH_VOL/CRISIS
+HIGH_VOL_MULT    = 0.75        # raised from 0.5 — capture recovery moves in HIGH_VOL
 MARKET_OPEN_H    = 9
 MARKET_OPEN_M    = 30
 FORCE_CLOSE_H    = 15

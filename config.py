@@ -61,7 +61,7 @@ ENTRY_END_HOUR = 15            # No entries at or after 3:00 PM
 RSI_BUY_MAX = 72               # Max RSI for BUY entry (unified across all gate layers)
 RSI_BUY_MAX_HIGH_VOL = 65      # Tighter gate in high-volatility regimes
 VWAP_SLOPE_MIN = -0.3          # % VWAP drift over 10 bars; below this = downtrend, skip BUY
-HIGH_VOL_POSITION_MULT = 0.5   # Halve position size in HIGH_VOL / CRISIS regimes
+HIGH_VOL_POSITION_MULT = 0.75  # Raised from 0.5 — capture recovery moves in HIGH_VOL regime
 
 # Paths
 TRADING_PARAMS_FILE = STATE_DIR / "trading_params.json"
@@ -244,7 +244,7 @@ PEAD_EPS_BEAT_SOLID         = 10.0    # strong beat threshold (25 pts)
 PEAD_FWD_REVISION_MIN       = 3.0     # forward EPS revision % to qualify as 6th condition
 
 # ── Pre-Claude Filter + Token Efficiency ──────────────────────────────────────
-COMPOSITE_MIN_NORMAL          = 20    # composite entry minimum — NORMAL regime
+COMPOSITE_MIN_NORMAL          = 30    # raised from 20 — filters noise entries, improves win rate
 COMPOSITE_MIN_HIGH_VOL        = 35    # raised composite minimum — HIGH_VOL / DEFENSIVE regime
 MACRO_HEALTH_SKIP_THRESHOLD   = -20   # skip if macro_health_score < this
 MACRO_SHOCK_SKIP_THRESHOLD    = 50    # skip if research macro_shock_score > this
