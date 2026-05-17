@@ -255,7 +255,8 @@ INTRADAY_SENTIMENT_BLOCK      = -10   # intraday sentiment_score below this = sk
 # ── Auto-Execute (skip Claude for textbook setups) ────────────────────────────
 AUTO_EXECUTE_COMPOSITE_MIN    = 55    # composite must exceed this for auto-execute
 AUTO_EXECUTE_SENTIMENT_MIN    = 20    # intraday sentiment_score must exceed this
-AUTO_EXECUTE_CONFIDENCE       = 90    # confidence score assigned to auto-execute decisions
+AUTO_EXECUTE_CONFIDENCE       = 90    # confidence score assigned to auto-execute decisions (legacy fallback)
+AUTO_EXECUTE_CONFIDENCE_BASE  = 75    # base confidence for dynamic auto-execute derivation
 # Flags that indicate data-fetch failures (not bearish signals) — safe to ignore in auto-execute
 AUTO_EXECUTE_DATA_ONLY_FLAGS: frozenset = frozenset({"mtf_unavailable"})
 

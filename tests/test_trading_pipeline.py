@@ -8,6 +8,7 @@ from datetime import datetime
 
 import pytest
 
+import config
 from utils.constants import ET
 
 
@@ -713,4 +714,18 @@ def test_exit_batch_includes_system_prompt(monkeypatch):
         isinstance(b, dict) and b.get("cache_control")
         for b in system_blocks
     ), "System blocks must have cache_control"
+
+
+# ── P4-T5: _compute_auto_execute_confidence ───────────────────────────────────
+
+@pytest.mark.unit
+def test_auto_execute_confidence_scales_with_composite(monkeypatch):
+    from trading.pipeline import _compute_auto_execute_confidence
+    monkeypatch.setattr(config, "AUTO_EXECUTE_CONFIDENCE_BASE", 75)
+    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 55)
+    conf = _compute_auto_execute_confidence(composite_score=60.0, intra_sentiment=30)
+    assert 75 <= conf <= 100
+    conf_low = _compute_auto_execute_confidence(composite_score=55.0, intra_sentiment=0)
+    assert conf_low >= config.AUTO_EXECUTE_CONFIDENCE_BASE
+    assert conf_low <= conf
 

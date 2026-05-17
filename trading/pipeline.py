@@ -39,6 +39,14 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 
+def _compute_auto_execute_confidence(composite_score: float, intra_sentiment: int) -> int:
+    """Derive auto-execute confidence from signal strength. Clamped to [BASE, 95]."""
+    base = config.AUTO_EXECUTE_CONFIDENCE_BASE
+    composite_bonus = min(15, int((composite_score - config.AUTO_EXECUTE_COMPOSITE_MIN) * 0.5))
+    sentiment_bonus = min(5, max(0, int(intra_sentiment / 10)))
+    return min(95, base + composite_bonus + sentiment_bonus)
+
+
 def _record_telemetry(ts: str, symbol: str, decision: str, reason: str, iv) -> None:
     """Append one symbol decision to cycle_telemetry.jsonl for post-hoc debugging."""
     try:
@@ -266,9 +274,11 @@ class TradingPipeline:
             if not can_open or buying_power < config.MIN_BUYING_POWER:
                 continue
             try:
+                intra_sent = snap.research.get("__meta__", {}).get("shock_score", 0)
+                confidence = _compute_auto_execute_confidence(iv.composite_score, intra_sent)
                 pos_data = execute_buy(
                     symbol=symbol, iv=iv,
-                    decision={"action": "BUY", "confidence": config.AUTO_EXECUTE_CONFIDENCE,
+                    decision={"action": "BUY", "confidence": confidence,
                               "reasoning": "auto-execute: composite+sentiment threshold met",
                               "stop_loss_pct": config.STOP_LOSS_PCT,
                               "take_profit_pct": config.TAKE_PROFIT_PCT,
@@ -294,7 +304,7 @@ class TradingPipeline:
                         "price": pos_data["entry_price"],
                         "sl": pos_data["stop_loss_price"], "tp": pos_data["take_profit_price"],
                         "score": iv.composite_score,
-                        "confidence": config.AUTO_EXECUTE_CONFIDENCE,
+                        "confidence": confidence,
                         "mode": pos_data.get("mode_at_entry", "DAY_TRADE"),
                     })
             except Exception as exc:
