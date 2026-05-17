@@ -50,6 +50,7 @@ def execute_buy(
     daily_pnl_pct: float = 0.0,
     sector_today: dict | None = None,
     symbol_sector_etf: str | None = None,
+    suppress_notify: bool = False,
 ) -> dict | None:
     """
     Validate and place a single BUY order.
@@ -191,9 +192,10 @@ def execute_buy(
         qty, symbol, iv.current_price, mode,
         final_sl, final_tp, decision.get("reasoning", ""),
     )
-    telegram_notify.notify_buy(
-        symbol=symbol, qty=qty, price=iv.current_price,
-        sl=final_sl, tp=final_tp,
-        mode=mode, score=iv.composite_score, confidence=decision.get("confidence", 0),
-    )
+    if not suppress_notify:
+        telegram_notify.notify_buy(
+            symbol=symbol, qty=qty, price=iv.current_price,
+            sl=final_sl, tp=final_tp,
+            mode=mode, score=iv.composite_score, confidence=decision.get("confidence", 0),
+        )
     return position_data

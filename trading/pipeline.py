@@ -259,6 +259,7 @@ class TradingPipeline:
         # ── Phase 4: Execute ──────────────────────────────────────────────────
         t_exec = time.monotonic()
         entries_this_cycle = 0
+        _batch_entries: list[dict] = []
 
         # ── Phase 4a: Auto-execute (no Claude) ───────────────────────────────
         for symbol, iv in auto_execute:
@@ -282,11 +283,20 @@ class TradingPipeline:
                     daily_pnl_pct=daily_pnl_pct,
                     sector_today=snap.sector_today,
                     symbol_sector_etf=_SECTOR_ETF_MAP.get(symbol),
+                    suppress_notify=True,
                 )
                 if pos_data is not None:
                     entries_this_cycle += 1
                     result.entries += 1
                     buying_power -= iv.current_price * pos_data["qty"]
+                    _batch_entries.append({
+                        "symbol": symbol, "qty": pos_data["qty"],
+                        "price": pos_data["entry_price"],
+                        "sl": pos_data["stop_loss_price"], "tp": pos_data["take_profit_price"],
+                        "score": iv.composite_score,
+                        "confidence": config.AUTO_EXECUTE_CONFIDENCE,
+                        "mode": pos_data.get("mode_at_entry", "DAY_TRADE"),
+                    })
             except Exception as exc:
                 logger.error("Auto-execute error for %s: %s", symbol, exc, exc_info=True)
 
@@ -311,11 +321,20 @@ class TradingPipeline:
                         daily_pnl_pct=daily_pnl_pct,
                         sector_today=snap.sector_today,
                         symbol_sector_etf=_SECTOR_ETF_MAP.get(symbol),
+                        suppress_notify=True,
                     )
                     if pos_data is not None:
                         entries_this_cycle += 1
                         result.entries += 1
                         buying_power -= iv.current_price * pos_data["qty"]
+                        _batch_entries.append({
+                            "symbol": symbol, "qty": pos_data["qty"],
+                            "price": pos_data["entry_price"],
+                            "sl": pos_data["stop_loss_price"], "tp": pos_data["take_profit_price"],
+                            "score": iv.composite_score,
+                            "confidence": decision.get("confidence", 0),
+                            "mode": pos_data.get("mode_at_entry", "DAY_TRADE"),
+                        })
 
                 elif action == "CLOSE" and existing_pos:
                     close_position(symbol, alpaca, open_positions, iv.current_price, iv, "claude_decision")
@@ -329,6 +348,8 @@ class TradingPipeline:
 
             except Exception as exc:
                 logger.error("Error processing %s: %s", symbol, exc, exc_info=True)
+
+        telegram_notify.notify_buy_batch(_batch_entries, snap.regime)
 
         exec_elapsed = time.monotonic() - t_exec
         total = time.monotonic() - t0
