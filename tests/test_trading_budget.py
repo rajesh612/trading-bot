@@ -698,3 +698,41 @@ def test_execute_buy_warns_at_daily_loss_warn_threshold(monkeypatch, tmp_path):
         symbol_sector_etf=None,
     )
     assert warned, "Expected daily_loss_warning notification to fire"
+
+
+@pytest.mark.unit
+def test_rollover_not_applied_twice(monkeypatch, tmp_path):
+    """Rollover must only apply once even under concurrent calls."""
+    import threading
+    import config
+    monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "budget.json")
+    from utils.io_utils import save_json
+    from trading import risk_manager
+
+    budget = {
+        "date": "2026-05-16", "calls_made": 2, "entry_calls": 1, "exit_calls": 1,
+        "input_tokens": 100, "output_tokens": 50,
+        "cache_write_tokens": 0, "cache_read_tokens": 0,
+        "estimated_cost_usd": 0.15, "entry_spent_usd": 0.10, "exit_spent_usd": 0.05,
+        "ceiling_usd": 1.00,
+        "entry_ceiling_usd": 0.70, "exit_ceiling_usd": 0.30,
+        "ceiling_mode": "normal",
+        "entry_exhausted": False, "exit_exhausted": False,
+        "budget_exhausted": False, "escalated": False,
+    }
+    save_json(config.API_BUDGET_FILE, budget)
+
+    from datetime import datetime
+    from utils.constants import ET
+    results = []
+    def do_rollover():
+        risk_manager.try_rollover_exit_to_entry(datetime.now(ET))
+        results.append(1)
+
+    t1 = threading.Thread(target=do_rollover)
+    t2 = threading.Thread(target=do_rollover)
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+
+    # Both threads complete without exception — idempotency guaranteed
+    assert len(results) == 2

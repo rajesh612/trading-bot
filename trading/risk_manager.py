@@ -13,6 +13,7 @@ import config
 import notifications.telegram as telegram_notify
 from indicators.values import IndicatorValues
 from trading.budget_guard import apply_exit_rollover
+from trading.journal import BUDGET_LOCK
 from utils.io_utils import load_json, save_json
 
 from utils.constants import ET
@@ -218,19 +219,24 @@ def try_rollover_exit_to_entry(now: datetime) -> None:
     """
     Called at 12:30 PM ET by scheduler. Rolls unused exit budget into entry pool.
     Writes result to api_budget.json if rollover applied.
+    Holds BUDGET_LOCK for the entire read-modify-write to prevent TOCTOU races.
     """
     global _entry_exhausted_flag
-    b = load_budget()
-    if apply_exit_rollover(b, now):
-        _save_budget(b)
-        if _entry_exhausted_flag:
-            _entry_exhausted_flag = False
-            b["entry_exhausted"] = False
+    with BUDGET_LOCK:
+        b = load_budget()
+        if b.get("_rollover_applied"):
+            return  # idempotent — already rolled over today
+        if apply_exit_rollover(b, now):
+            b["_rollover_applied"] = True
             _save_budget(b)
-        logger.info(
-            "Exit-to-entry rollover applied: entry_ceiling now $%.4f",
-            b["entry_ceiling_usd"],
-        )
+            if _entry_exhausted_flag:
+                _entry_exhausted_flag = False
+                b["entry_exhausted"] = False
+                _save_budget(b)
+            logger.info(
+                "Exit-to-entry rollover applied: entry_ceiling now $%.4f",
+                b["entry_ceiling_usd"],
+            )
 
 
 # ── Gap guard ─────────────────────────────────────────────────────────────────

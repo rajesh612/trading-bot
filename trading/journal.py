@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _POSITIONS_LOCK     = threading.Lock()   # open_positions.json
 _DAILY_CLOSED_LOCK  = threading.Lock()   # daily_closed.json
 _JOURNAL_LOCK       = threading.Lock()   # trade_journal.json
+BUDGET_LOCK         = threading.Lock()   # api_budget.json
 
 
 # ── Open positions ────────────────────────────────────────────────────────────
