@@ -24,39 +24,39 @@ class TestCrashLoopDetection:
         base.update(overrides)
         (tmp_path / "bot_health.json").write_text(json.dumps(base))
 
-    def test_missing_file_creates_count_of_one(self, tmp_path):
+    def test_missing_file_creates_count_of_one(self, tmp_path, monkeypatch):
         import config
         from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 5
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
+        monkeypatch.setattr(config, "BOT_HEALTH_FILE", tmp_path / "bot_health.json")
+        monkeypatch.setattr(config, "CRASH_LOOP_THRESHOLD", 5)
+        monkeypatch.setattr(config, "CRASH_LOOP_WINDOW_MINUTES", 10)
+        monkeypatch.setattr(config, "CRASH_BACKOFF_MINUTES", 30)
         _check_crash_loop()
         data = json.loads((tmp_path / "bot_health.json").read_text())
         assert data["crash_count"] == 1
         assert data["backoff_until"] is None
 
-    def test_count_increments_within_window(self, tmp_path):
+    def test_count_increments_within_window(self, tmp_path, monkeypatch):
         import config
         from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 5
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
+        monkeypatch.setattr(config, "BOT_HEALTH_FILE", tmp_path / "bot_health.json")
+        monkeypatch.setattr(config, "CRASH_LOOP_THRESHOLD", 5)
+        monkeypatch.setattr(config, "CRASH_LOOP_WINDOW_MINUTES", 10)
+        monkeypatch.setattr(config, "CRASH_BACKOFF_MINUTES", 30)
         self._write_health(tmp_path, crash_count=2)
         _check_crash_loop()
         data = json.loads((tmp_path / "bot_health.json").read_text())
         assert data["crash_count"] == 3
         assert data["backoff_until"] is None
 
-    def test_expired_window_resets_before_increment(self, tmp_path):
+    def test_expired_window_resets_before_increment(self, tmp_path, monkeypatch):
         import config
         from datetime import timedelta
         from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 5
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
+        monkeypatch.setattr(config, "BOT_HEALTH_FILE", tmp_path / "bot_health.json")
+        monkeypatch.setattr(config, "CRASH_LOOP_THRESHOLD", 5)
+        monkeypatch.setattr(config, "CRASH_LOOP_WINDOW_MINUTES", 10)
+        monkeypatch.setattr(config, "CRASH_BACKOFF_MINUTES", 30)
         old = (datetime.now(ET) - timedelta(minutes=15)).isoformat()
         self._write_health(tmp_path, crash_count=4, window_start=old)
         _check_crash_loop()
@@ -67,10 +67,10 @@ class TestCrashLoopDetection:
         import config
         import main as main_mod
         from main import _check_crash_loop
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
-        config.CRASH_LOOP_THRESHOLD = 3
-        config.CRASH_LOOP_WINDOW_MINUTES = 10
-        config.CRASH_BACKOFF_MINUTES = 30
+        monkeypatch.setattr(config, "BOT_HEALTH_FILE", tmp_path / "bot_health.json")
+        monkeypatch.setattr(config, "CRASH_LOOP_THRESHOLD", 3)
+        monkeypatch.setattr(config, "CRASH_LOOP_WINDOW_MINUTES", 10)
+        monkeypatch.setattr(config, "CRASH_BACKOFF_MINUTES", 30)
         monkeypatch.setattr(main_mod.time, "sleep", lambda _: None)
         self._write_health(tmp_path, crash_count=2)
         _check_crash_loop()
@@ -78,10 +78,10 @@ class TestCrashLoopDetection:
         assert data["crash_count"] == 0
         assert data["backoff_until"] is None
 
-    def test_reset_writes_zero_count(self, tmp_path):
+    def test_reset_writes_zero_count(self, tmp_path, monkeypatch):
         import config
         from main import _reset_bot_health
-        config.BOT_HEALTH_FILE = tmp_path / "bot_health.json"
+        monkeypatch.setattr(config, "BOT_HEALTH_FILE", tmp_path / "bot_health.json")
         self._write_health(tmp_path, crash_count=5, backoff_until="sometime")
         _reset_bot_health()
         data = json.loads((tmp_path / "bot_health.json").read_text())
@@ -196,7 +196,7 @@ class TestFlashCrashTwoReading:
 
     def test_no_candidate_writes_stage1(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         self._write_regime(tmp_path, candidate=None)
         from utils.market_monitor import _handle_flash_crash_stage2
         _handle_flash_crash_stage2(-2.7)
@@ -206,7 +206,7 @@ class TestFlashCrashTwoReading:
 
     def test_fresh_candidate_triggers_lockout(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
         self._write_regime(tmp_path, candidate=fresh)
         triggered = []
@@ -219,7 +219,7 @@ class TestFlashCrashTwoReading:
     def test_stale_candidate_overwritten_no_lockout(self, tmp_path, monkeypatch):
         import config
         from datetime import timedelta
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         old_time = (datetime.now(ET) - timedelta(minutes=20)).isoformat()
         stale = {"spy_pct": -2.7, "detected_at": old_time}
         self._write_regime(tmp_path, candidate=stale)
@@ -235,7 +235,7 @@ class TestFlashCrashTwoReading:
 
     def test_spy_recovery_clears_candidate(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         fresh = {"spy_pct": -2.7, "detected_at": datetime.now(ET).isoformat()}
         self._write_regime(tmp_path, candidate=fresh)
         from utils.market_monitor import _clear_flash_crash_candidate
@@ -245,7 +245,7 @@ class TestFlashCrashTwoReading:
 
     def test_set_crisis_lockout_clears_candidate(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         candidate = {"spy_pct": -3.0, "detected_at": datetime.now(ET).isoformat()}
         self._write_regime(tmp_path, candidate=candidate)
         from utils.market_monitor import _set_crisis_lockout
@@ -259,29 +259,30 @@ class TestFlashCrashTwoReading:
 
 @pytest.mark.unit
 class TestTradingAgentHelpers:
-    def test_load_watch_list_returns_empty_when_missing(self, tmp_path):
+    def test_load_watch_list_returns_empty_when_missing(self, tmp_path, monkeypatch):
         import config
-        config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
+        monkeypatch.setattr(config, "WATCH_LIST_FILE", tmp_path / "watch_list.txt")
         from trading.watch_loader import load_watch_list
         assert load_watch_list() == []
 
-    def test_load_watch_list_strips_and_uppercases(self, tmp_path):
+    def test_load_watch_list_strips_and_uppercases(self, tmp_path, monkeypatch):
         import config
-        config.WATCH_LIST_FILE = tmp_path / "watch_list.txt"
-        config.WATCH_LIST_FILE.write_text("nvda\n aapl \nAMD\n")
+        watch_file = tmp_path / "watch_list.txt"
+        monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+        watch_file.write_text("nvda\n aapl \nAMD\n")
         from trading.watch_loader import load_watch_list
         result = load_watch_list()
         assert result == ["NVDA", "AAPL", "AMD"]
 
-    def test_load_open_positions_empty_when_no_file(self, tmp_path):
+    def test_load_open_positions_empty_when_no_file(self, tmp_path, monkeypatch):
         import config
-        config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
         from trading.journal import load_open_positions
         assert load_open_positions() == {}
 
-    def test_save_and_load_open_positions(self, tmp_path):
+    def test_save_and_load_open_positions(self, tmp_path, monkeypatch):
         import config
-        config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
         from trading.journal import save_open_positions, load_open_positions
         positions = {"NVDA": {"entry_price": 100.0, "qty": 5}}
         save_open_positions(positions)

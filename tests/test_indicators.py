@@ -477,13 +477,14 @@ class TestComputeIndicators:
 
     def test_returns_indicator_values_for_valid_df(self, tmp_path, monkeypatch):
         import config
-        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        weights_file = tmp_path / "weights.json"
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", weights_file)
         weights = {
             "VWAP": 10.0, "RSI": 10.0, "Daily Volume Trend": 10.0, "MACD": 10.0,
             "EMA 9/21 Crossover": 10.0, "Bollinger Bands": 10.0, "VWAP StdDev Bands": 10.0,
             "ATR": 10.0, "Stochastic Oscillator": 10.0, "OBV": 10.0, "RSI Slope": 10.0,
         }
-        config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
+        weights_file.write_text(json.dumps(weights))
         from indicators.engine import compute_indicators
         from indicators.values import IndicatorValues
         df = _make_intraday_df(n=100)
@@ -493,15 +494,16 @@ class TestComputeIndicators:
         assert result.symbol == "APP"
         assert -100 <= result.composite_score <= 100
 
-    def test_works_with_daily_df(self, tmp_path):
+    def test_works_with_daily_df(self, tmp_path, monkeypatch):
         import config
-        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        weights_file = tmp_path / "weights.json"
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", weights_file)
         weights = {k: 10.0 for k in [
             "VWAP", "RSI", "Daily Volume Trend", "MACD", "EMA 9/21 Crossover",
             "Bollinger Bands", "VWAP StdDev Bands", "ATR", "Stochastic Oscillator",
             "OBV", "RSI Slope"
         ]}
-        config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
+        weights_file.write_text(json.dumps(weights))
         from indicators.engine import compute_indicators
         df = _make_intraday_df(n=100)
         daily = _make_daily_df(n=10)
@@ -574,20 +576,20 @@ class TestVolumePenultimate:
 
 @pytest.mark.unit
 class TestPrevCloseField:
-    @staticmethod
-    def _make_weights(tmp_path):
+    def _make_weights(self, tmp_path, monkeypatch):
         import config
         import json
-        config.INDICATOR_WEIGHTS_FILE = tmp_path / "weights.json"
+        weights_file = tmp_path / "weights.json"
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", weights_file)
         weights = {k: 10.0 for k in [
             "VWAP", "RSI", "Daily Volume Trend", "MACD", "EMA 9/21 Crossover",
             "Bollinger Bands", "VWAP StdDev Bands", "ATR", "Stochastic Oscillator",
             "OBV", "RSI Slope"
         ]}
-        config.INDICATOR_WEIGHTS_FILE.write_text(json.dumps(weights))
+        weights_file.write_text(json.dumps(weights))
 
-    def test_prev_close_populated_when_daily_bars_available(self, tmp_path):
-        self._make_weights(tmp_path)
+    def test_prev_close_populated_when_daily_bars_available(self, tmp_path, monkeypatch):
+        self._make_weights(tmp_path, monkeypatch)
         from indicators.engine import compute_indicators
         intraday = _make_intraday_df(n=100, close=100.0)
         daily = _make_daily_df(n=10, close=100.0)
@@ -596,8 +598,8 @@ class TestPrevCloseField:
         assert result is not None
         assert result.prev_close == 95.0
 
-    def test_prev_close_zero_when_daily_bars_insufficient(self, tmp_path):
-        self._make_weights(tmp_path)
+    def test_prev_close_zero_when_daily_bars_insufficient(self, tmp_path, monkeypatch):
+        self._make_weights(tmp_path, monkeypatch)
         from indicators.engine import compute_indicators
         intraday = _make_intraday_df(n=100, close=100.0)
         daily = _make_daily_df(n=1, close=88.0)
@@ -605,8 +607,8 @@ class TestPrevCloseField:
         assert result is not None
         assert result.prev_close == 0.0
 
-    def test_prev_close_zero_when_daily_df_none(self, tmp_path):
-        self._make_weights(tmp_path)
+    def test_prev_close_zero_when_daily_df_none(self, tmp_path, monkeypatch):
+        self._make_weights(tmp_path, monkeypatch)
         from indicators.engine import compute_indicators
         intraday = _make_intraday_df(n=100, close=100.0)
         result = compute_indicators("AAPL", intraday, daily_df=None)

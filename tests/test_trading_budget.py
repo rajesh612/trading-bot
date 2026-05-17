@@ -440,9 +440,10 @@ def test_entry_exhausted_flag_rehydrated_from_disk(tmp_path, monkeypatch):
     """After restart, is_entry_budget_exhausted() must read disk if in-memory flag is False."""
     import trading.risk_manager as rm
 
-    from datetime import date as _date
+    from datetime import datetime
+    from utils.constants import ET
     budget = {
-        "date": _date.today().isoformat(), "entry_exhausted": True,
+        "date": datetime.now(ET).strftime("%Y-%m-%d"), "entry_exhausted": True,
         "entry_spent_usd": 0.87, "entry_ceiling_usd": 0.85,
         "exit_exhausted": False, "budget_exhausted": False, "escalated": False,
         "calls_made": 49, "entry_calls": 49, "exit_calls": 0,
@@ -473,7 +474,7 @@ def test_is_entry_budget_exhausted_does_not_re_read_disk_on_subsequent_calls(tmp
     from utils.io_utils import save_json
 
     budget_file = tmp_path / "api_budget.json"
-    save_json(str(budget_file), {"date": "2026-05-16", "entry_exhausted": False})
+    save_json(str(budget_file), {"date": datetime.now(ET).strftime("%Y-%m-%d"), "entry_exhausted": False})
     monkeypatch.setattr("config.API_BUDGET_FILE", str(budget_file))
 
     rm._entry_exhausted_flag = False
@@ -750,7 +751,7 @@ def test_rollover_not_applied_twice(monkeypatch, tmp_path):
     from trading import risk_manager
 
     budget = {
-        "date": "2026-05-16", "calls_made": 2, "entry_calls": 1, "exit_calls": 1,
+        "date": datetime.now(ET).strftime("%Y-%m-%d"), "calls_made": 2, "entry_calls": 1, "exit_calls": 1,
         "input_tokens": 100, "output_tokens": 50,
         "cache_write_tokens": 0, "cache_read_tokens": 0,
         "estimated_cost_usd": 0.15, "entry_spent_usd": 0.10, "exit_spent_usd": 0.05,
@@ -762,8 +763,6 @@ def test_rollover_not_applied_twice(monkeypatch, tmp_path):
     }
     save_json(config.API_BUDGET_FILE, budget)
 
-    from datetime import datetime
-    from utils.constants import ET
     results = []
     def do_rollover():
         risk_manager.try_rollover_exit_to_entry(datetime.now(ET))

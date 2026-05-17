@@ -5,7 +5,6 @@ No API calls — all tests use synthetic fixtures.
 """
 import json
 import os
-import tempfile
 from datetime import datetime
 
 import pytest
@@ -29,41 +28,19 @@ class TestEconomicCalendar:
         from macro.economic_calendar import _first_friday
         assert _first_friday(2026, 5) == 1
 
-    def test_event_risk_window_inside_45min(self):
+    def test_event_risk_window_inside_45min(self, monkeypatch):
         from macro.economic_calendar import is_event_risk_window
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            today = datetime.now(ET).strftime("%Y-%m-%d")
-            json.dump({
-                "date": today,
-                "events": [{"time": "08:30", "name": "NFP", "impact": "high"}],
-                "source": "test",
-            }, f)
-            tmp = f.name
+        import macro.economic_calendar as ec
+        today = datetime.now(ET).strftime("%Y-%m-%d")
 
-        import config
-        original = config.ECONOMIC_CALENDAR_FILE
-        config.ECONOMIC_CALENDAR_FILE = type("P", (), {"exists": lambda s: True,
-                                                        "__fspath__": lambda s: tmp})()
-        try:
-            import macro.economic_calendar as ec
-            _orig_load = ec._load_todays_events
+        def _patched():
+            return [{"time": "08:30", "name": "NFP", "impact": "high"}]
 
-            def _patched():
-                with open(tmp) as fh:
-                    data = json.load(fh)
-                if data.get("date") == today:
-                    return data.get("events", [])
-                return []
-
-            ec._load_todays_events = _patched
-            now_at_risk = datetime.now(ET).replace(hour=8, minute=45, second=0, microsecond=0)
-            result, name = ec.is_event_risk_window(now_at_risk)
-            assert result is True
-            assert "NFP" in name
-        finally:
-            ec._load_todays_events = _orig_load
-            config.ECONOMIC_CALENDAR_FILE = original
-            os.unlink(tmp)
+        monkeypatch.setattr(ec, "_load_todays_events", _patched)
+        now_at_risk = datetime.now(ET).replace(hour=8, minute=45, second=0, microsecond=0)
+        result, name = ec.is_event_risk_window(now_at_risk)
+        assert result is True
+        assert "NFP" in name
 
     def test_event_risk_window_outside_45min(self):
         import macro.economic_calendar as ec

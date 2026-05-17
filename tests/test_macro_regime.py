@@ -397,29 +397,31 @@ class TestMacroSignalScorers:
 
 @pytest.mark.unit
 class TestLoadMacroRegime:
-    def test_missing_file_returns_normal_default(self, tmp_path):
+    def test_missing_file_returns_normal_default(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "NORMAL"
         assert "macro_health_score" in result
 
-    def test_loads_written_regime(self, tmp_path):
+    def test_loads_written_regime(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
+        regime_file = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", regime_file)
         payload = {"regime": "BULL_TREND", "health_score": 55, "capitulation_candidate": []}
-        with open(config.MACRO_REGIME_FILE, "w") as f:
+        with open(regime_file, "w") as f:
             json.dump(payload, f)
         from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "BULL_TREND"
         assert result["health_score"] == 55
 
-    def test_corrupt_file_returns_default(self, tmp_path):
+    def test_corrupt_file_returns_default(self, tmp_path, monkeypatch):
         import config
-        config.MACRO_REGIME_FILE = tmp_path / "macro_regime.json"
-        config.MACRO_REGIME_FILE.write_text("NOT JSON{{")
+        regime_file = tmp_path / "macro_regime.json"
+        monkeypatch.setattr(config, "MACRO_REGIME_FILE", regime_file)
+        regime_file.write_text("NOT JSON{{")
         from macro.regime import load_macro_regime
         result = load_macro_regime()
         assert result["regime"] == "NORMAL"

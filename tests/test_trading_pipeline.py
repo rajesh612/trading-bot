@@ -88,7 +88,8 @@ class TestTradingPipeline:
 
         with patch("trading.pipeline.load_open_positions", return_value={}), \
              patch("trading.pipeline.load_daily_closed", return_value=set()), \
-             patch("notifications.telegram.notify_alert"):
+             patch("notifications.telegram.notify_alert"), \
+             patch("notifications.telegram.notify_stale_research"):
             pipeline = TradingPipeline()
             result = pipeline.run(
                 symbols=[], snap=self._snap(research=research),
@@ -610,9 +611,11 @@ def test_budget_intraday_warning_fired_at_75pct(monkeypatch, tmp_path):
     from utils.io_utils import save_json
     from trading import risk_manager
 
+    from datetime import datetime
+    from utils.constants import ET
     entry_ceil = 0.70
     budget = {
-        "date": "2026-05-16", "calls_made": 5, "entry_calls": 5, "exit_calls": 0,
+        "date": datetime.now(ET).strftime("%Y-%m-%d"), "calls_made": 5, "entry_calls": 5, "exit_calls": 0,
         "input_tokens": 0, "output_tokens": 0,
         "cache_write_tokens": 0, "cache_read_tokens": 0,
         "estimated_cost_usd": 0.536, "entry_spent_usd": 0.536, "exit_spent_usd": 0.0,

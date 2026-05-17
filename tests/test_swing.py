@@ -23,9 +23,10 @@ class TestExecutePartialClose:
         def place_market_order(self, symbol: str, qty: int, side: str) -> None:
             self.orders.append((symbol, qty, side))
 
-    def _write_swing_file(self, tmp_path, symbol: str = "NVDA", **overrides) -> None:
+    def _write_swing_file(self, tmp_path, monkeypatch, symbol: str = "NVDA", **overrides) -> None:
         import config
-        config.SWING_POSITIONS_FILE = tmp_path / "swing_positions.json"
+        swing_file = tmp_path / "swing_positions.json"
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_file)
         pos = {
             "symbol": symbol, "entry_price": 100.0, "qty": 10,
             "tp1_qty": 4, "tp2_qty": 3, "trailing_qty": 3,
@@ -34,12 +35,12 @@ class TestExecutePartialClose:
             "stop_loss_pct": 7.0,
         }
         pos.update(overrides)
-        with open(config.SWING_POSITIONS_FILE, "w") as f:
+        with open(swing_file, "w") as f:
             json.dump({symbol: pos}, f)
 
-    def test_close_tp1_marks_hit_keeps_position(self, tmp_path):
+    def test_close_tp1_marks_hit_keeps_position(self, tmp_path, monkeypatch):
         from trading.swing_manager import _execute_partial_close, load_swing_positions
-        self._write_swing_file(tmp_path)
+        self._write_swing_file(tmp_path, monkeypatch)
         mock = self._MockAlpaca()
         _execute_partial_close("NVDA", "CLOSE_TP1", 4, mock, 105.0)
         swings = load_swing_positions()
@@ -47,9 +48,9 @@ class TestExecutePartialClose:
         assert swings["NVDA"]["tp1_hit"] is True
         assert ("NVDA", 4, "SELL") in mock.orders
 
-    def test_close_tp2_activates_trailing_keeps_position(self, tmp_path):
+    def test_close_tp2_activates_trailing_keeps_position(self, tmp_path, monkeypatch):
         from trading.swing_manager import _execute_partial_close, load_swing_positions
-        self._write_swing_file(tmp_path, tp1_hit=True)
+        self._write_swing_file(tmp_path, monkeypatch, tp1_hit=True)
         mock = self._MockAlpaca()
         _execute_partial_close("NVDA", "CLOSE_TP2", 3, mock, 112.0)
         swings = load_swing_positions()
@@ -58,19 +59,19 @@ class TestExecutePartialClose:
         assert swings["NVDA"]["trailing_stop_active"] is True
         assert swings["NVDA"]["trailing_high_water"] == 112.0
 
-    def test_close_trailing_removes_position(self, tmp_path):
+    def test_close_trailing_removes_position(self, tmp_path, monkeypatch):
         from trading.swing_manager import _execute_partial_close, load_swing_positions
-        self._write_swing_file(tmp_path, tp1_hit=True, tp2_hit=True)
+        self._write_swing_file(tmp_path, monkeypatch, tp1_hit=True, tp2_hit=True)
         mock = self._MockAlpaca()
         _execute_partial_close("NVDA", "CLOSE_TRAILING", 3, mock, 108.0)
         swings = load_swing_positions()
         assert "NVDA" not in swings
         assert ("NVDA", 3, "SELL") in mock.orders
 
-    def test_close_tp1_removes_fully_closed_one_share_position(self, tmp_path):
+    def test_close_tp1_removes_fully_closed_one_share_position(self, tmp_path, monkeypatch):
         from trading.swing_manager import _execute_partial_close, load_swing_positions
         # 1-share position: after TP1, nothing remains → position removed
-        self._write_swing_file(tmp_path, qty=1, tp1_qty=1, tp2_qty=0, trailing_qty=0)
+        self._write_swing_file(tmp_path, monkeypatch, qty=1, tp1_qty=1, tp2_qty=0, trailing_qty=0)
         mock = self._MockAlpaca()
         _execute_partial_close("NVDA", "CLOSE_TP1", 1, mock, 105.0)
         swings = load_swing_positions()
@@ -289,17 +290,18 @@ class TestEvaluateGapAction:
 
 @pytest.mark.unit
 class TestLoadSwingPositions:
-    def test_missing_file_returns_empty_dict(self, tmp_path):
+    def test_missing_file_returns_empty_dict(self, tmp_path, monkeypatch):
         import config
-        config.SWING_POSITIONS_FILE = tmp_path / "swing_positions.json"
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing_positions.json")
         from trading.swing_manager import load_swing_positions
         assert load_swing_positions() == {}
 
-    def test_loads_written_positions(self, tmp_path):
+    def test_loads_written_positions(self, tmp_path, monkeypatch):
         import config, json
-        config.SWING_POSITIONS_FILE = tmp_path / "swing_positions.json"
+        swing_file = tmp_path / "swing_positions.json"
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_file)
         payload = {"NVDA": {"entry_price": 100.0, "qty": 10}}
-        config.SWING_POSITIONS_FILE.write_text(json.dumps(payload))
+        swing_file.write_text(json.dumps(payload))
         from trading.swing_manager import load_swing_positions
         result = load_swing_positions()
         assert "NVDA" in result
