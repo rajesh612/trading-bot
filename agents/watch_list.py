@@ -81,6 +81,27 @@ def _apply_technical_filter(
     return filtered
 
 
+def _build_watch_list_system(strategy_memory: str) -> list[dict]:
+    """Build stable 2-block system prompt for consistent cache hits."""
+    role_block = {
+        "type": "text",
+        "text": (
+            "You are an expert intraday US-equity trader. Select 10-15 stocks from the candidates "
+            "that have the strongest technical + sentiment setup for today's trading session.\n"
+            "Return a JSON array of ticker symbols only: [\"AAPL\", \"NVDA\", ...].\n"
+            "Exclude: earnings within 2 days, parabolic moves (>15% in 5d), or CRISIS regime stocks."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }
+    mem_text = strategy_memory if strategy_memory else "(no strategy memory yet)"
+    mem_block = {
+        "type": "text",
+        "text": f"Strategy memory (learned trading rules):\n{mem_text}",
+        "cache_control": {"type": "ephemeral"},
+    }
+    return [role_block, mem_block]
+
+
 def run_watch_list_agent() -> list[str]:
     universe = _load_universe()
     logger.info(f"Scoring {len(universe)} stocks for today's watch list…")
@@ -102,34 +123,7 @@ def run_watch_list_agent() -> list[str]:
     response = ai.messages.create(
         model=config.CLAUDE_MODEL,
         max_tokens=1024,
-        system=[
-            {
-                "type": "text",
-                "text": (
-                    "You are an expert day trader selecting the best stocks to trade today.\n\n"
-                    "Select 10–15 stocks from the list provided. Prefer:\n"
-                    "- vol_spike > 1.5 (strong relative volume)\n"
-                    "- atr_pct 1.5–4% (meaningful range without being extended)\n"
-                    "- Small gap_pct (< 2%): large gaps get blocked by entry gates all day\n\n"
-                    "Avoid stocks with gap_pct > 3% — the entry system will reject them regardless.\n"
-                    "Prefer stocks that have moved on volume but have not yet overextended.\n\n"
-                    "Return ONLY a JSON array of ticker symbols. No explanation.\n"
-                    "Example: [\"AAPL\", \"TSLA\", \"NVDA\"]"
-                ),
-                "cache_control": {"type": "ephemeral"},
-            },
-            *(
-                [
-                    {
-                        "type": "text",
-                        "text": f"Strategy memory from prior sessions:\n{strategy_memory}",
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ]
-                if strategy_memory
-                else []
-            ),
-        ],
+        system=_build_watch_list_system(strategy_memory),
         messages=[
             {
                 "role": "user",

@@ -492,3 +492,20 @@ def test_watchdog_sends_telegram_before_exit(monkeypatch):
 
     assert alerts_sent, "Expected Telegram alert before watchdog exit"
     assert exits_called == [1]
+
+
+# ── P4-T3: watch-list 2-block system structure ────────────────────────────────
+
+@pytest.mark.unit
+def test_build_watch_list_system_has_two_blocks():
+    from agents.watch_list import _build_watch_list_system
+    blocks = _build_watch_list_system(strategy_memory="")
+    assert len(blocks) == 2
+    assert all(b.get("cache_control") for b in blocks)
+
+
+@pytest.mark.unit
+def test_build_watch_list_system_includes_memory():
+    from agents.watch_list import _build_watch_list_system
+    blocks = _build_watch_list_system(strategy_memory="RSI max = 72")
+    assert any("RSI max = 72" in b.get("text", "") for b in blocks)
