@@ -58,6 +58,18 @@ def pre_claude_filter(
         return FilterResult("SKIP",
             f"RSI {iv.rsi:.1f} > {rsi_max} ({snap.regime})")
 
+    # Layer 1.5 — Regime-adaptive directional bias
+    if config.REGIME_ADAPTIVE_LOGIC:
+        if snap.regime == "CHOPPY":
+            choppy_rsi_max = snap.params.get("choppy_rsi_max", config.CHOPPY_RSI_PULLBACK_MAX)
+            if iv.rsi > choppy_rsi_max:
+                return FilterResult("SKIP",
+                    f"choppy regime: RSI {iv.rsi:.1f} > pullback max {choppy_rsi_max}")
+        elif snap.regime == "DEFENSIVE":
+            if iv.composite_score < config.COMPOSITE_MIN_HIGH_VOL * 1.5:
+                return FilterResult("SKIP",
+                    f"defensive regime: composite {iv.composite_score:+.1f} below elevated bar")
+
     # Layer 2.5 — VWAP slope downtrend (trend direction quality signal)
     vwap_slope_min = snap.params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
     if iv.vwap_slope < vwap_slope_min:

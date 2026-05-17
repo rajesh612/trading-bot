@@ -174,8 +174,14 @@ def send_daily_report() -> None:
         ceiling = budget.get("ceiling_usd", 1.0)
         spent = budget.get("estimated_cost_usd", 0.0)
         api_budget_pct = spent / ceiling * 100 if ceiling else 0.0
+        from utils.metrics import get_daily_summary
+        daily_metrics = get_daily_summary()
+        cycles_run   = daily_metrics.get("total_cycles", 0)
+        regime_flips = daily_metrics.get("regime_flips", 0)
         telegram_notify.notify_eod_summary(closes, day_pnl, day_pnl_pct, pv, regime,
-                                           api_budget_pct=api_budget_pct)
+                                           api_budget_pct=api_budget_pct,
+                                           cycles_run=cycles_run,
+                                           regime_flips=regime_flips)
     except Exception as exc:
         logger.warning(f"DAILY REPORT: Telegram summary failed — {exc}")
 

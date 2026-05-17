@@ -281,6 +281,12 @@ CYCLE_TELEMETRY_FILE          = STATE_DIR / "cycle_telemetry.jsonl"
 # ── Plan 3: Notification Completeness & Throttling ────────────────────────────
 DRAWDOWN_WARN_PCT = 2.0  # alert when position unrealised loss >= this % (but above stop)
 
+# ── Plan 7: Architecture & Observability ─────────────────────────────────────
+METRICS_FILE                = STATE_DIR / "metrics.jsonl"
+REGIME_ADAPTIVE_LOGIC       = True   # enable directional strategy layer (beyond threshold adjustment)
+BULL_TREND_BREAKOUT_MIN_SCORE = 25   # composite min for breakout setup in BULL_TREND
+CHOPPY_RSI_PULLBACK_MAX     = 60     # in CHOPPY, only enter if RSI < this (avoid buying the bounce top)
+
 # ── Plan 5: Missing Entry Gates ───────────────────────────────────────────────
 REL_VOLUME_MIN          = 0.60   # current volume < 60% of 20d avg → soft flag (weak tape)
 BREADTH_WEAK_THRESHOLD  = 0.85   # IWM/SPY breadth ratio below this → soft flag

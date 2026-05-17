@@ -137,18 +137,24 @@ class TradingPipeline:
                 report_dt = datetime.fromisoformat(ts_str)
                 if report_dt.tzinfo is None:
                     report_dt = report_dt.replace(tzinfo=ET)
-                age_min = (datetime.now(ET) - report_dt).total_seconds() / 60
-                if age_min > config.RESEARCH_STALE_BLOCK_MIN:
+                age_min     = (datetime.now(ET) - report_dt).total_seconds() / 60
+                report_date = report_dt.date()
+                today_date  = datetime.now(ET).date()
+                if report_date < today_date:
+                    # Prior calendar date — all sentiment context is categorically wrong
                     logger.error(
-                        "Research report is %.0f min old (limit=%d) — using stale data with neutral sentiment override.",
-                        age_min, config.RESEARCH_STALE_BLOCK_MIN,
+                        "Research report is from %s (prior date) — running with neutral sentiment.",
+                        report_date,
                     )
-                    telegram_notify.notify_alert(
-                        f"⚠️ Research report is {age_min:.0f} min old — running with neutral sentiment. "
-                        "Investigate research job failure."
+                    telegram_notify.notify_stale_research(age_min)
+                elif age_min > config.RESEARCH_STALE_BLOCK_MIN:
+                    # Same day but very old (> 10 h)
+                    logger.warning(
+                        "Research report is %.0f min old (same day) — running with stale sentiment.",
+                        age_min,
                     )
-                    # Do NOT skip — continue cycle with stale research; per-symbol sentiment falls back to 0 (neutral)
-                if age_min > config.RESEARCH_STALE_WARN_MIN:
+                    telegram_notify.notify_stale_research(age_min)
+                elif age_min > config.RESEARCH_STALE_WARN_MIN:
                     logger.warning("Research report is %.0f min old — sentiment may be stale.", age_min)
             except Exception as exc:
                 logger.warning("Research timestamp parse failed (%s) — staleness check skipped.", exc)

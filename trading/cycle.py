@@ -6,6 +6,7 @@ and delegates to TradingPipeline. Tracks zero-candidate cycles and
 fires a dead-day Telegram alert after 4 consecutive misses.
 """
 import logging
+import time
 from datetime import datetime
 import sys
 
@@ -118,8 +119,9 @@ def run_trading_cycle() -> None:
 
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-    pipeline     = TradingPipeline()
-    cycle_result = pipeline.run(
+    pipeline       = TradingPipeline()
+    _t_cycle_start = time.monotonic()
+    cycle_result   = pipeline.run(
         symbols=watch_list,
         snap=snap,
         ai=ai,
@@ -130,6 +132,25 @@ def run_trading_cycle() -> None:
         can_open=can_open,
         daily_pnl_pct=daily_pnl_pct,
     )
+    cycle_elapsed_ms = (time.monotonic() - _t_cycle_start) * 1000
+
+    try:
+        from utils.metrics import record_cycle_metric
+        from trading.risk_manager import load_budget
+        budget = load_budget()
+        ceiling = budget.get("ceiling_usd", 1.0)
+        spent   = budget.get("estimated_cost_usd", 0.0)
+        budget_pct = spent / ceiling * 100 if ceiling else 0.0
+        record_cycle_metric(
+            regime=regime,
+            candidates=cycle_result.candidates,
+            entries=cycle_result.entries,
+            closes=cycle_result.closes,
+            api_budget_pct=budget_pct,
+            cycle_ms=cycle_elapsed_ms,
+        )
+    except Exception:
+        pass
 
     today_str = now.strftime("%Y-%m-%d")
     _rotate_telemetry(today_str)

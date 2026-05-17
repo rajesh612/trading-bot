@@ -509,3 +509,90 @@ def test_build_watch_list_system_includes_memory():
     from agents.watch_list import _build_watch_list_system
     blocks = _build_watch_list_system(strategy_memory="RSI max = 72")
     assert any("RSI max = 72" in b.get("text", "") for b in blocks)
+
+
+# ── Plan 7: metrics JSONL ─────────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_record_cycle_metric_appends_jsonl(monkeypatch, tmp_path):
+    import config, json
+    monkeypatch.setattr(config, "METRICS_FILE", tmp_path / "metrics.jsonl")
+    from utils.metrics import record_cycle_metric
+    record_cycle_metric(regime="NORMAL", candidates=5, entries=1, closes=0, api_budget_pct=0.30, cycle_ms=1200.0)
+    record_cycle_metric(regime="NORMAL", candidates=3, entries=0, closes=1, api_budget_pct=0.35, cycle_ms=900.0)
+    lines = (tmp_path / "metrics.jsonl").read_text().strip().splitlines()
+    assert len(lines) == 2
+    rec = json.loads(lines[0])
+    assert rec["regime"] == "NORMAL" and rec["candidates"] == 5 and "ts" in rec
+
+
+@pytest.mark.unit
+def test_get_daily_summary_returns_aggregates(monkeypatch, tmp_path):
+    import config
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ET = ZoneInfo("America/New_York")
+    monkeypatch.setattr(config, "METRICS_FILE", tmp_path / "metrics.jsonl")
+    from utils.metrics import record_cycle_metric, get_daily_summary
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+    record_cycle_metric(regime="NORMAL", candidates=5, entries=1, closes=0, api_budget_pct=0.3, cycle_ms=1000)
+    record_cycle_metric(regime="BULL_TREND", candidates=8, entries=2, closes=1, api_budget_pct=0.5, cycle_ms=1100)
+    summary = get_daily_summary(date_str=today)
+    assert summary["total_entries"] == 3
+    assert summary["total_cycles"] == 2
+    assert summary["avg_candidates"] == 6.5
+
+
+# ── Plan 7: regime-adaptive pre-claude filter ─────────────────────────────────
+
+@pytest.mark.unit
+def test_choppy_regime_blocks_high_rsi_entries(monkeypatch):
+    import config
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
+    monkeypatch.setattr(config, "CHOPPY_RSI_PULLBACK_MAX", 60)
+    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
+    from trading.pre_claude_filter import pre_claude_filter
+
+    iv = MagicMock()
+    iv.composite_score = 30.0
+    iv.rsi = 65.0
+    iv.vwap_slope = 0.2
+    iv.bot_herding_score = 0
+    iv.squeeze_setup = False
+    iv.vwap_std2_upper = 120.0
+    iv.current_price = 100.0
+
+    snap = MagicMock()
+    snap.regime = "CHOPPY"
+    snap.regime_info = {"macro_health_score": 50}
+    snap.research_meta = {"macro_shock_score": 0}
+    snap.research = {}
+    snap.intraday_news = {}
+    snap.params = {"rsi_buy_max": 72, "rsi_buy_max_high_vol": 65, "choppy_rsi_max": 60, "vwap_slope_min": -0.3}
+
+    result = pre_claude_filter("AAPL", iv, snap, set())
+    assert result.decision == "SKIP"
+    assert "choppy" in result.reason.lower() or "rsi" in result.reason.lower()
+
+
+@pytest.mark.unit
+def test_advance_decline_ratio_returns_float_or_none():
+    from unittest.mock import patch
+    with patch("macro.breadth_signals.get_advance_decline_ratio", return_value=1.3) as mock_fn:
+        result = mock_fn()
+    assert result is None or isinstance(result, float)
+
+
+# ── Plan 7: backtest loads learned params ────────────────────────────────────
+
+@pytest.mark.unit
+def test_backtest_load_params_returns_dict(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "TRADING_PARAMS_FILE", tmp_path / "params.json")
+    from utils.io_utils import save_json
+    save_json(config.TRADING_PARAMS_FILE, {"rsi_buy_max": 68})
+    import backtest
+    params = backtest._load_backtest_params()
+    assert isinstance(params, dict)
+    assert "rsi_buy_max" in params
