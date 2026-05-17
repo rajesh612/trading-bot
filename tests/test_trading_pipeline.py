@@ -665,3 +665,52 @@ def test_validate_decision_passthrough_valid():
     assert result["confidence"] == 75
     assert result["stop_loss_pct"] == 4.0
 
+
+# ── P4-T2: exit-batch system prompt + cache_control ───────────────────────────
+
+@pytest.mark.unit
+def test_exit_batch_includes_system_prompt(monkeypatch):
+    """_ask_claude_exit_batch must send a system block with cache_control."""
+    from trading.claude_caller import _ask_claude_exit_batch
+    from unittest.mock import MagicMock
+
+    calls = []
+    def fake_create(**kwargs):
+        calls.append(kwargs)
+        r = MagicMock()
+        r.content = [MagicMock(text='{"AAPL": {"action": "HOLD", "reasoning": "ok"}}')]
+        r.usage = MagicMock(input_tokens=100, output_tokens=20,
+                            cache_creation_input_tokens=0, cache_read_input_tokens=0)
+        return r
+
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.regime_info = {"vix_current": 15}
+    snap.strategy_memory = ""
+    snap.research = {}
+
+    ai_mock = MagicMock()
+    ai_mock.messages.create.side_effect = fake_create
+
+    iv = MagicMock()
+    iv.composite_score = 20.0
+    iv.rsi = 55.0
+    iv.current_price = 100.0
+
+    monkeypatch.setattr("trading.claude_caller.build_exit_stock_block",
+                        lambda sym, iv, pos, research: f"EXIT BLOCK {sym}")
+    monkeypatch.setattr("trading.claude_caller.risk_manager.check_exit_budget",
+                        lambda cost, count, regime: True)
+    monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage",
+                        lambda **kw: None)
+
+    _ask_claude_exit_batch([("AAPL", iv, {"entry_price": 102.0})], snap, ai_mock)
+
+    assert calls, "Claude was not called"
+    assert "system" in calls[0], "No system block in exit-batch call"
+    system_blocks = calls[0]["system"]
+    assert any(
+        isinstance(b, dict) and b.get("cache_control")
+        for b in system_blocks
+    ), "System blocks must have cache_control"
+

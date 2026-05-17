@@ -233,6 +233,20 @@ def _ask_claude_exit_batch(
         for sym, iv, pos in exit_candidates
     )
 
+    system_text = (
+        "You are an expert intraday trader evaluating thesis-break candidates.\n"
+        "CLOSE only if: (1) composite score dropped ≥10pts from entry AND thesis broken, "
+        "(2) intraday news shock ≥60, (3) position near stop-loss, OR (4) clear regime shift to CRISIS.\n"
+        "Default to HOLD — premature exits destroy returns.\n"
+        f"Current regime: {snap.regime} | VIX: {snap.regime_info.get('vix_current', 'N/A')}\n"
+        'Respond in JSON: {"<symbol>": {"action": "HOLD"|"CLOSE", "reasoning": "<brief>"}}'
+    )
+    mem = snap.strategy_memory or "(no strategy memory yet)"
+    system_blocks = [
+        {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"Strategy memory:\n{mem}", "cache_control": {"type": "ephemeral"}},
+    ]
+
     user_msg = (
         f"Thesis-break evaluation for {len(exit_candidates)} open position(s):\n\n"
         f"{exit_blocks}\n\n"
@@ -250,6 +264,7 @@ def _ask_claude_exit_batch(
         response = ai.messages.create(
             model=config.CLAUDE_MODEL,
             max_tokens=150 * len(exit_candidates),
+            system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
         )
     except anthropic.APIStatusError as exc:
