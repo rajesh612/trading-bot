@@ -606,3 +606,102 @@ def test_zero_trade_day_changes_at_most_one_param(monkeypatch, tmp_path):
     updated = load_json(config.TRADING_PARAMS_FILE, {})
     changed = [k for k in original if updated.get(k) != original[k]]
     assert len(changed) <= 1, f"Too many params changed: {changed}"
+
+
+# ── Plan 6: rolling trades + weight clamping + memory versioning ─────────────
+
+@pytest.mark.unit
+def test_learning_config_constants_exist():
+    assert hasattr(config, "LEARNING_ROLLING_DAYS") and config.LEARNING_ROLLING_DAYS >= 3
+    assert hasattr(config, "INDICATOR_WEIGHT_MAX_MULT") and config.INDICATOR_WEIGHT_MAX_MULT > 1.0
+    assert hasattr(config, "INDICATOR_WEIGHT_MIN_MULT") and 0 < config.INDICATOR_WEIGHT_MIN_MULT < 1.0
+    assert hasattr(config, "STRATEGY_MEMORY_BACKUP_MAX") and config.STRATEGY_MEMORY_BACKUP_MAX >= 3
+
+
+@pytest.mark.unit
+def test_load_rolling_trades_returns_last_n_days(monkeypatch, tmp_path):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from utils.io_utils import save_json
+    ET = ZoneInfo("America/New_York")
+    monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "journal.json")
+    monkeypatch.setattr(config, "LEARNING_ROLLING_DAYS", 3)
+    now = datetime.now(ET)
+    trades = [
+        {"type": "CLOSE", "symbol": "AAPL", "timestamp": (now - timedelta(days=1)).isoformat(), "pnl_pct": 1.5},
+        {"type": "CLOSE", "symbol": "MSFT", "timestamp": (now - timedelta(days=2)).isoformat(), "pnl_pct": -0.8},
+        {"type": "CLOSE", "symbol": "NVDA", "timestamp": (now - timedelta(days=5)).isoformat(), "pnl_pct": 2.1},
+        {"type": "BUY",   "symbol": "AMD",  "timestamp": (now - timedelta(days=1)).isoformat(), "pnl_pct": None},
+    ]
+    save_json(config.TRADE_JOURNAL_FILE, trades)
+    from learning.data import _load_rolling_trades
+    result = _load_rolling_trades(days=3)
+    symbols = [t["symbol"] for t in result]
+    assert "AAPL" in symbols and "MSFT" in symbols
+    assert "NVDA" not in symbols
+    assert "AMD" not in symbols
+
+
+@pytest.mark.unit
+def test_load_rolling_trades_empty_journal(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "journal.json")
+    from learning.data import _load_rolling_trades
+    result = _load_rolling_trades(days=5)
+    assert result == []
+
+
+@pytest.mark.unit
+def test_indicator_weight_clamped_at_max_mult(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", tmp_path / "weights.json")
+    monkeypatch.setattr(config, "INDICATOR_WEIGHT_MAX_MULT", 2.0)
+    monkeypatch.setattr(config, "INDICATOR_WEIGHT_MIN_MULT", 0.3)
+    from utils.io_utils import save_json, load_json
+    defaults = {"rsi": 1.0, "macd": 1.0}
+    save_json(config.INDICATOR_WEIGHTS_FILE, defaults)
+    from learning.trade_analysis import _apply_weight_update
+    _apply_weight_update({"rsi": 5.0}, defaults)
+    result = load_json(config.INDICATOR_WEIGHTS_FILE, {})
+    assert result["rsi"] <= defaults["rsi"] * config.INDICATOR_WEIGHT_MAX_MULT
+
+
+@pytest.mark.unit
+def test_indicator_weight_clamped_at_min_mult(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", tmp_path / "weights.json")
+    monkeypatch.setattr(config, "INDICATOR_WEIGHT_MAX_MULT", 2.0)
+    monkeypatch.setattr(config, "INDICATOR_WEIGHT_MIN_MULT", 0.3)
+    from utils.io_utils import save_json, load_json
+    defaults = {"rsi": 1.0}
+    save_json(config.INDICATOR_WEIGHTS_FILE, defaults)
+    from learning.trade_analysis import _apply_weight_update
+    _apply_weight_update({"rsi": 0.01}, defaults)
+    result = load_json(config.INDICATOR_WEIGHTS_FILE, {})
+    assert result["rsi"] >= defaults["rsi"] * config.INDICATOR_WEIGHT_MIN_MULT
+
+
+@pytest.mark.unit
+def test_strategy_memory_backup_created_on_write(monkeypatch, tmp_path):
+    mem_file = tmp_path / "strategy_memory.md"
+    mem_file.write_text("old rules")
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", mem_file)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_BACKUP_MAX", 7)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_MAX_CHARS", 10000)
+    from learning.agent import _write_strategy_memory
+    _write_strategy_memory("new rules")
+    bak_files = list(tmp_path.glob("strategy_memory.*.bak.md"))
+    assert bak_files, "Expected at least one .bak file after write"
+    assert mem_file.read_text() == "new rules"
+
+
+@pytest.mark.unit
+def test_strategy_memory_backup_pruned_to_max(monkeypatch, tmp_path):
+    mem_file = tmp_path / "strategy_memory.md"
+    mem_file.write_text("rules")
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", mem_file)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_BACKUP_MAX", 3)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_MAX_CHARS", 10000)
+    for i in range(5):
+        (tmp_path / f"strategy_memory.2026-05-{10+i}.bak.md").write_text(f"backup {i}")
+    from learning.agent import _write_strategy_memory
+    _write_strategy_memory("new rules")
+    bak_files = sorted(tmp_path.glob("strategy_memory.*.bak.md"))
+    assert len(bak_files) <= config.STRATEGY_MEMORY_BACKUP_MAX

@@ -1,6 +1,12 @@
 """
 Pure analysis helpers for the learning agent — no I/O, no Alpaca calls.
 """
+import logging
+
+import config
+from utils.io_utils import load_json, save_json
+
+logger = logging.getLogger(__name__)
 
 
 _TRADE_SUMMARY_KEYS = {
@@ -96,6 +102,30 @@ def _aggregate_by_regime(closed_trades: list[dict]) -> dict:
         "by_regime": {k: _summarise(v) for k, v in by_regime.items()},
         "by_mode":   {k: _summarise(v) for k, v in by_mode.items()},
     }
+
+
+def _apply_weight_update(updates: dict, defaults: dict) -> None:
+    """Apply indicator weight updates with [MIN_MULT×default, MAX_MULT×default] clamping.
+
+    Logs any clamped values so the operator can inspect learning quality.
+    """
+    existing = load_json(config.INDICATOR_WEIGHTS_FILE, dict(defaults))
+    clamped_any = False
+    for key, raw_val in updates.items():
+        default = defaults.get(key, 1.0)
+        lo = default * config.INDICATOR_WEIGHT_MIN_MULT
+        hi = default * config.INDICATOR_WEIGHT_MAX_MULT
+        clamped = max(lo, min(hi, float(raw_val)))
+        if abs(clamped - float(raw_val)) > 0.01:
+            logger.warning(
+                "Weight %s clamped: %.3f → %.3f (bounds: %.3f–%.3f)",
+                key, raw_val, clamped, lo, hi,
+            )
+            clamped_any = True
+        existing[key] = round(clamped, 4)
+    save_json(config.INDICATOR_WEIGHTS_FILE, existing)
+    if clamped_any:
+        logger.info("Weight update applied with clamping — check learning quality.")
 
 
 def _classify_loss_source(trade: dict) -> str:

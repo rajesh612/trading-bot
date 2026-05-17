@@ -28,6 +28,26 @@ from learning.data import (
 
 logger = logging.getLogger(__name__)
 
+
+def _write_strategy_memory(content: str) -> None:
+    """Write strategy_memory.md and create a dated backup. Prune old backups."""
+    from pathlib import Path
+    from utils.constants import ET
+    mem_path = Path(str(config.STRATEGY_MEMORY_FILE))
+    parent = mem_path.parent
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+
+    if mem_path.exists():
+        bak_path = parent / f"strategy_memory.{today}.bak.md"
+        bak_path.write_text(mem_path.read_text())
+
+    mem_path.write_text(content[:config.STRATEGY_MEMORY_MAX_CHARS])
+
+    bak_files = sorted(parent.glob("strategy_memory.*.bak.md"))
+    while len(bak_files) > config.STRATEGY_MEMORY_BACKUP_MAX:
+        bak_files[0].unlink()
+        bak_files = bak_files[1:]
+
 _ZERO_TRADE_BOUNDS = {
     "rsi_buy_max":          (65, 80),
     "composite_min_normal": (15, 30),
@@ -145,7 +165,7 @@ def _refresh_strategy_memory_no_trades(today: str) -> None:
         # Strip the JSON block before saving strategy_memory
         mem_text = re.sub(r"\{[^{}]*\"rsi_buy_max\"[^{}]*\}", "", text).strip()
         if mem_text:
-            config.STRATEGY_MEMORY_FILE.write_text(mem_text)
+            _write_strategy_memory(mem_text)
             logger.info("strategy_memory.md refreshed (zero-trade rule-review pass).")
     except Exception as exc:
         logger.warning("Zero-trade strategy_memory refresh failed: %s", exc)
@@ -409,7 +429,7 @@ def run_learning_agent():
         kind="other",
     )
 
-    config.STRATEGY_MEMORY_FILE.write_text(memory_response.content[0].text.strip())
+    _write_strategy_memory(memory_response.content[0].text.strip())
     logger.info(
         f"Learning agent complete. "
         f"W:{analysis.get('winning_trades')}/L:{analysis.get('losing_trades')}, "

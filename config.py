@@ -290,3 +290,7 @@ OPENING_RANGE_MINUTES   = 60     # first N minutes of session form the opening r
 LEARNING_MAX_PARAMS_PER_DAY        = 1   # max param changes on zero-trade days
 LEARNING_ZERO_TRADE_RSI_STEP       = 2   # relax RSI_BUY_MAX by this on zero-trade days
 LEARNING_ZERO_TRADE_COMPOSITE_STEP = 2   # relax COMPOSITE_MIN_NORMAL by this
+LEARNING_ROLLING_DAYS              = 5   # days of trade history to analyze (prevents single-day overfit)
+INDICATOR_WEIGHT_MAX_MULT          = 2.0 # max multiplier vs. default weight (prevents one indicator dominating)
+INDICATOR_WEIGHT_MIN_MULT          = 0.3 # min multiplier vs. default weight
+STRATEGY_MEMORY_BACKUP_MAX         = 7   # keep this many daily .bak files before pruning

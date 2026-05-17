@@ -66,6 +66,27 @@ LOOKBACK_BARS    = 100         # bars fed to indicator engine
 WATCH_LIST_SIZE  = 25          # top N volatile tickers each day
 
 
+def _load_backtest_params() -> dict:
+    """Load learned trading params; fall back to config defaults if missing."""
+    from utils.io_utils import load_json
+    try:
+        params = load_json(config.TRADING_PARAMS_FILE, {})
+        if params:
+            logger.info("Backtest: using learned params from trading_params.json: %s", params)
+            return params
+    except Exception as exc:
+        logger.warning("Backtest: could not load trading_params.json (%s) — using defaults", exc)
+    return {
+        "rsi_buy_max":            RSI_BUY_MAX,
+        "rsi_buy_max_high_vol":   RSI_BUY_MAX_HV,
+        "composite_min_normal":   MIN_COMPOSITE,
+        "entry_start_hour":       ENTRY_START_H,
+        "entry_end_hour":         ENTRY_END_H,
+        "high_vol_position_mult": HIGH_VOL_MULT,
+        "vwap_slope_min":         VWAP_SLOPE_MIN,
+    }
+
+
 # ── Data structures ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -322,10 +343,12 @@ def _simulate_day(
     all_bars: dict[str, pd.DataFrame],
     state: SimState,
     regime: str = "NORMAL",
+    params: dict | None = None,
 ) -> None:
+    p = params or {}
     date_str = day.strftime("%Y-%m-%d")
-    rsi_max  = RSI_BUY_MAX_HV if regime in ("HIGH_VOL", "CRISIS") else RSI_BUY_MAX
-    pos_mult = HIGH_VOL_MULT  if regime in ("HIGH_VOL", "CRISIS") else 1.0
+    rsi_max  = p.get("rsi_buy_max_high_vol", RSI_BUY_MAX_HV) if regime in ("HIGH_VOL", "CRISIS") else p.get("rsi_buy_max", RSI_BUY_MAX)
+    pos_mult = p.get("high_vol_position_mult", HIGH_VOL_MULT) if regime in ("HIGH_VOL", "CRISIS") else 1.0
     logger.info(f"\n=== {date_str} === regime={regime} rsi_max={rsi_max} pos_mult={pos_mult}")
     state.daily_closed.clear()
 
@@ -567,6 +590,7 @@ def run_backtest() -> None:
         vix_regimes[day.strftime("%Y-%m-%d")] = _fetch_vix_regime_for_day(day)
         logger.info(f"  {day.date()}: regime={vix_regimes[day.strftime('%Y-%m-%d')]}")
 
+    backtest_params = _load_backtest_params()
     state = SimState()
 
     for day in TRADING_DAYS:
@@ -577,7 +601,7 @@ def run_backtest() -> None:
         if not watch_list:
             logger.warning(f"  {day.date()}: no watch-list symbols with data — skipping day.")
             continue
-        _simulate_day(day, watch_list, all_bars, state, regime=regime)
+        _simulate_day(day, watch_list, all_bars, state, regime=regime, params=backtest_params)
 
     _print_report(state)
 
