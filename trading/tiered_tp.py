@@ -2,6 +2,14 @@
 Tiered take-profit logic for swing positions.
 Pure — no Alpaca calls, no file I/O.
 """
+import config
+
+
+def compute_trailing_stop_price(high_water: float, atr: float | None) -> float:
+    """ATR-aware trailing stop. Falls back to 3% if ATR is unavailable."""
+    if atr and atr > 0:
+        return high_water - (atr * config.TRAILING_STOP_ATR_MULT)
+    return high_water * 0.97
 
 
 def _compute_tier_quantities(total_qty: int) -> tuple[int, int, int]:
@@ -64,11 +72,12 @@ def evaluate_tiered_tp_action(position: dict, current_price: float) -> dict:
             return {"action": "CLOSE_TP2", "qty": tp2_qty, "activate_trailing": True,
                     "reason": f"TP2 at {pnl_pct:.2f}%, activating trailing stop"}
 
-    # Trailing stop: 3% drawdown from high water after TP2 hit
+    # Trailing stop: ATR-aware drawdown from high water after TP2 hit
     if position.get("tp2_hit") and position.get("trailing_stop_active"):
         high_water = position.get("trailing_high_water", entry)
         trailing_qty = position.get("trailing_qty", 0)
-        if trailing_qty > 0 and current_price <= high_water * 0.97:
+        atr = position.get("entry_indicators", {}).get("atr")
+        if trailing_qty > 0 and current_price <= compute_trailing_stop_price(high_water, atr):
             return {"action": "CLOSE_TRAILING", "qty": trailing_qty, "activate_trailing": False,
                     "reason": f"trailing stop at {pnl_pct:.2f}% ({current_price:.2f} vs HW {high_water:.2f})"}
 

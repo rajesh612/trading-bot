@@ -361,6 +361,22 @@ class TestFlushProfitLock:
 
 
 @pytest.mark.unit
+def test_trailing_stop_uses_atr(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "TRAILING_STOP_ATR_MULT", 1.5)
+    from trading.tiered_tp import compute_trailing_stop_price
+    result = compute_trailing_stop_price(high_water=110.0, atr=2.0)
+    assert abs(result - (110.0 - 2.0 * 1.5)) < 0.01
+
+
+@pytest.mark.unit
+def test_trailing_stop_fallback_without_atr():
+    from trading.tiered_tp import compute_trailing_stop_price
+    result = compute_trailing_stop_price(high_water=110.0, atr=None)
+    assert abs(result - 110.0 * 0.97) < 0.01
+
+
+@pytest.mark.unit
 def test_profit_lock_warns_on_concurrent_close(monkeypatch, tmp_path):
     """flush_profit_lock_updates logs warning when symbol missing from disk."""
     import unittest.mock

@@ -124,6 +124,8 @@ BOT_HERD_ALERT_SCORE     = 60   # herding score that triggers position-size redu
 BOT_HERD_HIGH_SCORE      = 80   # herding score that blocks new entries
 SQUEEZE_CONFIDENCE_GATE  = 70   # min confidence to act on a squeeze setup
 
+TRAILING_STOP_ATR_MULT   = 1.5  # trailing stop = ATR × this; 3% fallback if ATR unavailable
+
 # Swing / short-term position limits (enforced by Plan 2 swing_manager)
 SWING_MAX_POSITIONS      = 2    # max concurrent swing positions
 SWING_MAX_DAYS           = 5    # max trading days to hold a swing position
