@@ -146,6 +146,12 @@ def execute_buy(
         sl_pct,
         tp_pct,
     )
+    if corrected is None:
+        logger.warning(
+            "%s fill-slippage correction timed out — journaling with indicative entry price $%.2f; "
+            "actual SL/TP may differ.",
+            symbol, iv.current_price,
+        )
 
     position_data = {
         "entry_price": iv.current_price, "qty": qty,

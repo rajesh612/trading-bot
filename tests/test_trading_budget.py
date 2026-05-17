@@ -701,6 +701,46 @@ def test_execute_buy_warns_at_daily_loss_warn_threshold(monkeypatch, tmp_path):
 
 
 @pytest.mark.unit
+def test_executor_logs_warning_on_slippage_timeout(monkeypatch, tmp_path, caplog):
+    import logging
+    import config
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
+    monkeypatch.setattr("notifications.telegram.notify_daily_loss_warning", lambda *a: None)
+    monkeypatch.setattr("trading.risk_manager.correct_bracket_after_fill", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.executor.append_trade", lambda d: None)
+
+    from unittest.mock import MagicMock
+    alpaca_mock = MagicMock()
+    alpaca_mock.place_bracket_order.return_value = {
+        "id": "ord1", "stop_loss_price": 96.0, "take_profit_price": 105.0
+    }
+
+    from trading.executor import execute_buy
+
+    iv = _make_iv_budget(composite_score=30.0)
+
+    with caplog.at_level(logging.WARNING, logger="trading.executor"):
+        execute_buy(
+            symbol="AAPL", iv=iv,
+            decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0, "take_profit_pct": 5.0},
+            regime="NORMAL", regime_info={}, research={},
+            open_positions={}, alpaca=alpaca_mock,
+            portfolio_value=100_000, pos_mult=1.0,
+            spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
+            params={}, now=datetime.now(ET).replace(hour=11),
+            entries_this_cycle=0, daily_pnl_pct=0.0,
+            sector_today={}, symbol_sector_etf=None,
+        )
+
+    assert any(
+        "timed out" in r.message.lower() or "slippage" in r.message.lower() or "fill" in r.message.lower()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.unit
 def test_rollover_not_applied_twice(monkeypatch, tmp_path):
     """Rollover must only apply once even under concurrent calls."""
     import threading
