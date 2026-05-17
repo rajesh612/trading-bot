@@ -42,29 +42,29 @@ def test_select_watch_list_for_day_excludes_future_bars():
     dates_past = pd.date_range("2026-04-07", periods=20, freq="B", tz="UTC")
     dates_future = pd.date_range("2026-05-05", periods=5, freq="B", tz="UTC")
 
-    # SYM_A: low ATR in past bars, extreme ATR in future bars
+    # SYM_A: low ATR% in past ($100 price, $1 range → 1%), extreme range in future
     past_df = pd.DataFrame(
-        {"open": [10.0]*20, "high": [10.5]*20, "low": [9.5]*20,
-         "close": [10.0]*20, "volume": [1000]*20},
+        {"open": [100.0]*20, "high": [100.5]*20, "low": [99.5]*20,
+         "close": [100.0]*20, "volume": [1000]*20},
         index=dates_past,
     )
     future_df = pd.DataFrame(
-        {"open": [10.0]*5, "high": [20.0]*5, "low": [1.0]*5,
-         "close": [10.0]*5, "volume": [1000]*5},
+        {"open": [100.0]*5, "high": [200.0]*5, "low": [10.0]*5,
+         "close": [100.0]*5, "volume": [1000]*5},
         index=dates_future,
     )
     sym_a = pd.concat([past_df, future_df])
 
-    # SYM_B: consistent moderate ATR
+    # SYM_B: consistent high ATR% ($10 price, $2 range → 20%)
     sym_b = pd.DataFrame(
-        {"open": [100.0]*20, "high": [103.0]*20, "low": [97.0]*20,
-         "close": [100.0]*20, "volume": [5000]*20},
+        {"open": [10.0]*20, "high": [11.0]*20, "low": [9.0]*20,
+         "close": [10.0]*20, "volume": [5000]*20},
         index=dates_past,
     )
 
     result = select_watch_list_for_day({"SYM_A": sym_a, "SYM_B": sym_b}, day, n=5)
 
-    # SYM_B should rank first; future bars for SYM_A must not inflate its score
+    # SYM_B (20% ATR%) should rank first; future bars for SYM_A must not inflate its score
     assert result[0] == "SYM_B"
 
 

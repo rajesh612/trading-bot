@@ -1,7 +1,4 @@
-"""
-Backtest data layer: fetch 5-min bars (cached), daily bars, VIX regimes.
-All network I/O lives here. No simulation logic.
-"""
+"""Backtest data layer: network I/O only. No simulation logic."""
 import hashlib
 import logging
 import threading
@@ -16,7 +13,7 @@ from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 import config
-from utils.constants import ET
+from utils.constants import ET  # noqa: F401 — re-exported for callers
 from utils.http import yahoo_get
 
 logger = logging.getLogger(__name__)
@@ -26,19 +23,13 @@ _FETCH_DAY_CHUNK    = 30   # trading days per time-window chunk
 _CACHE_DIR          = config.BASE_DIR / "data" / "cache"
 
 
-# ── Watch-list selection ─────────────────────────────────────────────────────
-
 def select_watch_list_for_day(
     daily_bars: dict[str, pd.DataFrame],
     day: datetime,
     n: int = 25,
 ) -> list[str]:
-    """
-    Rank tickers by ATR% using daily bars up to (but not including) `day`.
-    No network calls — slices the pre-fetched daily_bars dict in memory.
-    """
-    # Use UTC midnight of the day's calendar date so daily bars with a
-    # midnight-UTC timestamp on `day` are correctly excluded regardless of ET offset.
+    """Rank tickers by ATR% using daily bars up to (but not including) `day`."""
+    # UTC midnight ensures daily bars timestamped at midnight are excluded regardless of ET offset.
     utc = ZoneInfo("UTC")
     day_utc_midnight = datetime(day.year, day.month, day.day, tzinfo=utc)
     lookback_cutoff  = day_utc_midnight - timedelta(days=22)  # ~20 trading-day buffer
@@ -47,19 +38,12 @@ def select_watch_list_for_day(
     for sym, df in daily_bars.items():
         if df.empty:
             continue
-        idx = df.index
-        if idx.tz is None:
-            idx = idx.tz_localize("UTC")
+        if df.index.tz is None:
             df = df.copy()
-            df.index = idx
-
-        window = df[
-            (df.index >= lookback_cutoff) &
-            (df.index <  day_utc_midnight)
-        ]
+            df.index = df.index.tz_localize("UTC")
+        window = df[(df.index >= lookback_cutoff) & (df.index < day_utc_midnight)]
         if len(window) < 5:
             continue
-
         prev_close = window["close"].shift(1)
         tr = pd.concat([
             window["high"] - window["low"],
@@ -67,7 +51,8 @@ def select_watch_list_for_day(
             (window["low"]  - prev_close).abs(),
         ], axis=1).max(axis=1)
         atr   = tr.ewm(com=13, min_periods=5).mean().iloc[-1]
-        scores[sym] = atr
+        close = window["close"].iloc[-1]
+        scores[sym] = atr / close if close > 0 else 0.0
 
     ranked = sorted(scores, key=lambda s: scores[s], reverse=True)
     watch  = ranked[:n] if len(ranked) >= n else list(ranked)
@@ -79,22 +64,15 @@ def select_watch_list_for_day(
     return watch
 
 
-# ── Daily bars — single fetch for entire range ───────────────────────────────
-
 def fetch_daily_bars_range(
     symbols: list[str], start: datetime, end: datetime
 ) -> dict[str, pd.DataFrame]:
-    """
-    Fetch daily OHLCV bars for all symbols in one Alpaca request.
-    Call once per backtest run; slice per day with select_watch_list_for_day().
-    """
+    """Fetch daily OHLCV bars for all symbols in one Alpaca call per batch."""
     client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
     logger.info("Fetching daily bars %s → %s for %d tickers…", start.date(), end.date(), len(symbols))
 
-    sym_batches = [symbols[i:i + _FETCH_SYMBOL_BATCH] for i in range(0, len(symbols), _FETCH_SYMBOL_BATCH)]
     result: dict[str, pd.DataFrame] = {}
-
-    for batch in sym_batches:
+    for batch in [symbols[i:i + _FETCH_SYMBOL_BATCH] for i in range(0, len(symbols), _FETCH_SYMBOL_BATCH)]:
         try:
             req = StockBarsRequest(
                 symbol_or_symbols=batch,
@@ -103,8 +81,7 @@ def fetch_daily_bars_range(
                 end=end,
                 feed="iex",
             )
-            bars  = client.get_stock_bars(req)
-            df_all = bars.df
+            df_all = client.get_stock_bars(req).df
             if df_all is None or df_all.empty:
                 continue
             if isinstance(df_all.index, pd.MultiIndex):
@@ -124,8 +101,6 @@ def fetch_daily_bars_range(
     return result
 
 
-# ── VIX regime — single fetch for entire range ───────────────────────────────
-
 def _classify_vix_day(
     past_vix: list[tuple[int, float]],
     past_spy: list[tuple[int, float]],
@@ -133,21 +108,17 @@ def _classify_vix_day(
     """Classify one day's regime from pre-fetched VIX + SPY pair lists."""
     if not past_vix:
         return "NORMAL"
-
     _, vix_current = past_vix[-1]
     vix_prev  = past_vix[-2][1] if len(past_vix) >= 2 else vix_current
     vix_rising = vix_current > vix_prev
-
     lookback    = min(90, len(past_vix) - 1)
     vix_avg_90d = (
         sum(c for _, c in past_vix[-lookback - 1:-1]) / lookback
         if lookback > 0 else vix_current
     )
-
     spy_change = 0.0
     if len(past_spy) >= 2:
         spy_change = (past_spy[-1][1] - past_spy[-2][1]) / past_spy[-2][1] * 100
-
     if vix_current > vix_avg_90d and vix_rising and spy_change < -1.0:
         return "CRISIS"
     if vix_current > vix_avg_90d:
@@ -155,21 +126,14 @@ def _classify_vix_day(
     return "NORMAL"
 
 
-def fetch_vix_regimes(trading_days: list[datetime]) -> dict[str, str]:
-    """
-    Fetch VIX + SPY once, then classify every day in trading_days.
-    Returns {date_str → "NORMAL" | "HIGH_VOL" | "CRISIS"}.
-    """
-    def _yahoo_pairs(symbol: str, range_str: str) -> list[tuple[int, float]]:
-        data = yahoo_get(
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-            f"?interval=1d&range={range_str}"
-        )
-        result = data["chart"]["result"][0]
-        ts_raw = result["timestamp"]
-        cl_raw = result["indicators"]["quote"][0]["close"]
-        return [(t, c) for t, c in zip(ts_raw, cl_raw) if c is not None]
+def _yahoo_pairs(symbol: str, range_str: str) -> list[tuple[int, float]]:
+    data   = yahoo_get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range={range_str}")
+    result = data["chart"]["result"][0]
+    return [(t, c) for t, c in zip(result["timestamp"], result["indicators"]["quote"][0]["close"]) if c is not None]
 
+
+def fetch_vix_regimes(trading_days: list[datetime]) -> dict[str, str]:
+    """Fetch VIX + SPY once, classify every trading day. Returns {date_str → regime}."""
     try:
         vix_pairs = _yahoo_pairs("%5EVIX", "200d")
         spy_pairs = _yahoo_pairs("SPY",    "200d")
@@ -190,11 +154,8 @@ def fetch_vix_regimes(trading_days: list[datetime]) -> dict[str, str]:
             logger.warning("VIX classify failed for %s: %s — NORMAL", date_str, exc)
             regimes[date_str] = "NORMAL"
         logger.info("  %s: regime=%s", date_str, regimes[date_str])
-
     return regimes
 
-
-# ── 5-min bars with Parquet cache + parallel fetch ───────────────────────────
 
 def _cache_path(symbols: list[str], start: datetime, end: datetime, cache_dir: Path) -> Path:
     sym_hash = hashlib.sha256(",".join(sorted(symbols)).encode()).hexdigest()[:8]
@@ -214,8 +175,7 @@ def _fetch_one_batch(
         end=end,
         feed="iex",
     )
-    bars   = client.get_stock_bars(req)
-    df_all = bars.df
+    df_all = client.get_stock_bars(req).df
     result: dict[str, pd.DataFrame] = {}
     if df_all is None or df_all.empty:
         return result
@@ -249,21 +209,15 @@ def _fetch_5min_cold(
 
     sym_batches = [symbols[i:i + _FETCH_SYMBOL_BATCH] for i in range(0, len(symbols), _FETCH_SYMBOL_BATCH)]
     tasks = [(b, ts, te) for ts, te in time_chunks for b in sym_batches]
-
-    logger.info(
-        "  Fetching %d batches × %d time chunks = %d parallel tasks…",
-        len(sym_batches), len(time_chunks), len(tasks),
-    )
+    logger.info("  Fetching %d batches × %d chunks = %d parallel tasks…",
+                len(sym_batches), len(time_chunks), len(tasks))
 
     result: dict[str, pd.DataFrame] = {}
     lock = threading.Lock()
 
-    def _run(batch: list[str], t_start: datetime, t_end: datetime) -> dict[str, pd.DataFrame]:
-        return _fetch_one_batch(client, batch, t_start, t_end)
-
     n_workers = min(8, len(tasks))
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
-        futures = {executor.submit(_run, *task): task for task in tasks}
+        futures = {executor.submit(_fetch_one_batch, client, *task): task for task in tasks}
         for future in as_completed(futures):
             batch, t_start, t_end = futures[future]
             try:
@@ -276,11 +230,8 @@ def _fetch_5min_cold(
                         else:
                             result[sym] = df
             except Exception as exc:
-                logger.warning(
-                    "  Fetch failed batch %s… %s→%s: %s — skipping",
-                    batch[:3], t_start.date(), t_end.date(), exc,
-                )
-
+                logger.warning("  Fetch failed batch %s… %s→%s: %s — skipping",
+                               batch[:3], t_start.date(), t_end.date(), exc)
     return result
 
 
@@ -302,29 +253,21 @@ def fetch_5min_bars(
     cache_file = _cache_path(symbols, start, end, cache_root)
 
     if cache_file.exists():
-        logger.info("  Cache hit: %s — loading from disk…", cache_file.name)
         df_all = pd.read_parquet(cache_file)
-        result: dict[str, pd.DataFrame] = {}
-        for sym in df_all.index.get_level_values("symbol").unique():
-            result[sym] = df_all.xs(sym, level="symbol")
-        logger.info("  Loaded %d symbols from cache.", len(result))
-        return result
+        out = {sym: df_all.xs(sym, level="symbol")
+               for sym in df_all.index.get_level_values("symbol").unique()}
+        logger.info("  Cache hit → loaded %d symbols from %s.", len(out), cache_file.name)
+        return out
 
-    logger.info(
-        "  Cache miss — fetching from Alpaca: %d symbols, %s → %s",
-        len(symbols), start.date(), end.date(),
-    )
+    logger.info("  Cache miss — fetching %d symbols from Alpaca: %s → %s",
+                len(symbols), start.date(), end.date())
     client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
     result = _fetch_5min_cold(client, symbols, start, end)
     logger.info("  Bars received for %d symbols.", len(result))
 
     if result:
-        combined = pd.concat(
-            {sym: df for sym, df in result.items()},
-            names=["symbol"],
-        )
         tmp = cache_file.with_suffix(".tmp")
-        combined.to_parquet(tmp)
+        pd.concat({sym: df for sym, df in result.items()}, names=["symbol"]).to_parquet(tmp)
         tmp.rename(cache_file)
         logger.info("  Cached to %s", cache_file.name)
 
