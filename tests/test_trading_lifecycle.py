@@ -361,6 +361,25 @@ class TestFlushProfitLock:
 
 
 @pytest.mark.unit
+def test_swing_max_positions_enforced(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "SWING_MAX_POSITIONS", 2)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
+    from utils.io_utils import save_json
+    save_json(config.SWING_POSITIONS_FILE, {})
+    from trading.eod_holds import _promote_to_swing
+
+    promoted = []
+    for i in range(3):
+        pos = {"entry_price": 100.0, "qty": 10, "mode_at_entry": "DAY_TRADE",
+               "regime_at_entry": "NORMAL", "entry_composite_score": 30.0}
+        if _promote_to_swing(f"SYM{i}", pos, 0.8):
+            promoted.append(f"SYM{i}")
+
+    assert len(promoted) <= config.SWING_MAX_POSITIONS
+
+
+@pytest.mark.unit
 def test_trailing_stop_uses_atr(monkeypatch):
     import config
     monkeypatch.setattr(config, "TRAILING_STOP_ATR_MULT", 1.5)

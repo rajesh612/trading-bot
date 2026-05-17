@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import config
 from calendars.earnings import is_earnings_imminent
 from macro.economic_calendar import is_event_risk_window
-from utils.io_utils import load_json
+from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
 
 from utils.constants import ET
@@ -14,6 +14,23 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 _SWING_ELIGIBLE_REGIMES = {"BULL_TREND", "OPPORTUNITY", "CAPITULATION", "CRASH_RECOVERY"}
+
+
+def _promote_to_swing(symbol: str, position: dict, pnl_pct: float) -> bool:
+    """Promote day-trade to swing. Re-reads count under lock to prevent race."""
+    from trading.journal import _POSITIONS_LOCK
+    with _POSITIONS_LOCK:
+        swing_positions = load_json(config.SWING_POSITIONS_FILE, {})
+        if len(swing_positions) >= config.SWING_MAX_POSITIONS:
+            logger.info("SWING SKIP %s — limit %d reached (re-read under lock)", symbol, config.SWING_MAX_POSITIONS)
+            return False
+        swing_positions[symbol] = {
+            **position,
+            "swing_promoted_at": datetime.now(ET).isoformat(),
+            "pnl_at_promote_pct": pnl_pct,
+        }
+        save_json(config.SWING_POSITIONS_FILE, swing_positions)
+        return True
 
 
 def qualifies_for_eod_hold(
@@ -141,10 +158,8 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
                 "mode_at_entry":       "HYBRID" if not capitulation else "SHORT_TERM",
             }
 
-            with _SWING_LOCK:
-                swings = load_swing_positions()
-                swings[symbol] = swing_pos
-                _save_swing_positions(swings)
+            if not _promote_to_swing(symbol, swing_pos, pnl_pct):
+                continue
 
             promoted.append(symbol)
             logger.info(
