@@ -569,7 +569,7 @@ def test_backtest_load_params_returns_dict(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "TRADING_PARAMS_FILE", tmp_path / "params.json")
     from utils.io_utils import save_json
     save_json(config.TRADING_PARAMS_FILE, {"rsi_buy_max": 68})
-    import backtest
-    params = backtest._load_backtest_params()
+    from backtest.runner import _load_backtest_params
+    params = _load_backtest_params()
     assert isinstance(params, dict)
     assert "rsi_buy_max" in params
