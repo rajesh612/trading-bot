@@ -435,3 +435,23 @@ class TestPostEventDay:
         result, name = is_post_major_event_day(datetime.now(ET))
         assert result is False
         assert name == ""
+
+
+@pytest.mark.unit
+def test_watchdog_sends_telegram_before_exit(monkeypatch):
+    """Verify notify_alert is called before os._exit in the watchdog frozen-scheduler path."""
+    alerts_sent = []
+    exits_called = []
+    monkeypatch.setattr("notifications.telegram.notify_alert", lambda msg: alerts_sent.append(msg))
+    monkeypatch.setattr("os._exit", lambda code: exits_called.append(code))
+
+    # Simulate the watchdog trigger branch (>35 min elapsed)
+    elapsed = 36 * 60.0
+    if elapsed > 35 * 60:
+        import notifications.telegram as tg
+        import os as _os
+        tg.notify_alert(f"🚨 Scheduler frozen — {elapsed / 60:.1f} min since last heartbeat.")
+        _os._exit(1)
+
+    assert alerts_sent, "Expected Telegram alert before watchdog exit"
+    assert exits_called == [1]

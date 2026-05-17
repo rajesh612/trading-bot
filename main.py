@@ -7,6 +7,7 @@ import threading
 import time
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor as APSThreadPoolExecutor
 from apscheduler.triggers.cron import CronTrigger
 
 import config
@@ -80,7 +81,10 @@ logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler
 logging.getLogger().handlers[0].flush = _safe_handler_flush
 
 logger = logging.getLogger("main")
-scheduler = BlockingScheduler(timezone=ET)
+scheduler = BlockingScheduler(
+    executors={"default": APSThreadPoolExecutor(max_workers=4)},
+    timezone=ET,
+)
 
 # Watchdog: last time the heartbeat ran (as a one-element list to allow mutation in threads)
 _last_heartbeat_ts = [time.time()]
@@ -101,6 +105,10 @@ def _watchdog():
                 "Forcing exit so launchd can restart."
             )
             _file_handler.stream.flush()
+            telegram_notify.notify_alert(
+                f"🚨 <b>Scheduler frozen</b> — {elapsed / 60:.1f} min since last heartbeat.\n"
+                "Watchdog forcing restart via launchd."
+            )
             os._exit(1)
 
 
