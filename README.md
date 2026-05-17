@@ -167,11 +167,22 @@ Edit `config.py`. Key parameters:
 | `STOP_LOSS_PCT` | `4.0` | Fallback stop loss % (overridden by mode/regime table) |
 | `TAKE_PROFIT_PCT` | `5.0` | Fallback take profit % (overridden by mode/regime table) |
 | `MAX_DAILY_LOSS_PCT` | `0.03` | Circuit breaker — halts new entries if down 3% |
-| `AUTO_BUY_COMPOSITE_THRESHOLD` | `35` | composite > this + aligned indicators → skip Claude, auto-BUY |
-| `AUTO_BUY_MIN_SENTIMENT` | `-10` | Sentiment score floor for any BUY — blocks entries on bad-news drops regardless of technicals |
+| `DAILY_LOSS_WARN_PCT` | `0.015` | Telegram alert when intraday loss hits 1.5% |
+| `AUTO_EXECUTE_COMPOSITE_MIN` | `55` | composite > this + positive intraday sentiment → skip Claude, auto-execute |
+| `COMPOSITE_MIN_NORMAL` | `20` | Minimum composite score to pass pre-Claude filter (NORMAL regime) |
+| `COMPOSITE_MIN_HIGH_VOL` | `35` | Minimum composite score in HIGH_VOL / CRISIS regime |
+| `STOCH_HARD_VETO_THRESHOLD` | `97` | Stochastic ≥ this → hard block regardless of other signals |
+| `STOCH_SOFT_FLAG_THRESHOLD` | `85` | Stochastic ≥ this → soft flag appended to Claude context |
+| `REL_VOLUME_MIN` | `0.60` | Volume < 60% of 20-day average → soft flag |
+| `BREADTH_WEAK_THRESHOLD` | `0.85` | IWM/SPY session return ratio < this → breadth soft flag |
+| `OPENING_RANGE_MINUTES` | `60` | First N minutes define the opening range for position detection |
+| `SENTIMENT_HARD_BLOCK` | `-2` | Research sentiment below this → hard skip |
 | `API_BUDGET_NORMAL_CEILING` | `$1.00` | Daily Claude spend cap (normal conditions) |
 | `API_BUDGET_ELEVATED_CEILING` | `$1.50` | Daily Claude spend cap (CRISIS / high-gain day) |
-| `TRADE_JOURNAL_MAX_DAYS` | `90` | Journal entries older than this are archived to `trade_journal_archive.json` at startup |
+| `DRAWDOWN_WARN_PCT` | `2.0` | Alert when a position's unrealised loss ≥ this % (above stop) |
+| `TRAILING_STOP_PCT_FALLBACK` | `0.03` | 3% trailing stop used when ATR is unavailable |
+| `LEARNING_ROLLING_DAYS` | `5` | Days of trade history used by learning agent (prevents single-day overfit) |
+| `TRADE_JOURNAL_MAX_DAYS` | `90` | Journal entries older than this are archived at startup |
 | `CORRUPT_BACKUP_MAX_DAYS` | `7` | `.corrupt.json` backup files older than this are deleted at startup |
 
 Restart after any `config.py` change: `./stop.sh && ./start.sh`
@@ -213,32 +224,46 @@ Find "id" inside "chat" — that's your chat_id.
    TELEGRAM_CHAT_ID=<chat id from getUpdates>
    ```
 
-What you'll receive on Telegram:                                
-  ┌─────────────────┬─────────────────────────────────────────────────────┐
-  │      Event      │                       Message                       │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Bot starts      │ 🟢 Bot started — Regime: BULL_TREND | Open: 0       │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Bot stops       │ 🔴 Bot stopped                                      │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ BUY order       │ 📈 BUY NVDA — 15 shares @ $890.20, SL $856, TP $935 │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ CLOSE (win)     │ ✅ CLOSE NVDA — +$234.00 (+3.8%)                    │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ CLOSE (loss)    │ 🔻 CLOSE AAPL — -$45.00 (-1.2%)                     │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Claude disabled │ 🚫 Claude disabled — no trades until restart        │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Job failure     │ ❌ Job failed: force_close — JSONDecodeError        │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Corrupt file    │ ⚠️  Corrupt state file reset: trade_journal.json    │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Regime shift    │ 🚨 Regime change: NORMAL → CRISIS                   │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ Flash crash     │ 🚨 FLASH CRASH detected — CRISIS lockout            │
-  ├─────────────────┼─────────────────────────────────────────────────────┤
-  │ EOD summary     │ 📊 P&L: +$127.40 (+1.27%) | 4 trades | 75% win      │
-  └─────────────────┴─────────────────────────────────────────────────────┘
+What you'll receive on Telegram:
+  ┌──────────────────────┬──────────────────────────────────────────────────────────┐
+  │        Event         │                         Message                          │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Bot starts           │ 🟢 Bot started — Regime: BULL_TREND | Open: 0            │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Bot stops            │ 🔴 Bot stopped                                           │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ BUY order(s)         │ 📈 BUY NVDA — 15 shares @ $890.20, SL $856, TP $935      │
+  │                      │    (batched: one message per cycle for multiple entries) │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ CLOSE (win)          │ ✅ CLOSE NVDA — +$234.00 (+3.8%)                         │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ CLOSE (loss)         │ 🔻 CLOSE AAPL — -$45.00 (-1.2%)                          │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Position drawdown    │ ⚠️ NVDA drawdown -2.1% — approaching stop               │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ API budget 75%       │ ⚠️ API budget at 75% ($0.75 / $1.00)                    │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Stale research       │ ⚠️ Research report is 95 min old — sentiment may drift   │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Sector flip          │ 🔄 Sector rotation detected: SMH -1.8%                  │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Correlated exposure  │ ⚠️ Correlated exposure: NVDA + AMD both open (semis)     │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Dead-day alert       │ ⚠️ Dead-day: 4 consecutive cycles with 0 candidates      │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Claude disabled      │ 🚫 Claude disabled — no trades until restart             │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Job failure          │ ❌ Job failed: force_close — JSONDecodeError             │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Corrupt file         │ ⚠️ Corrupt state file reset: trade_journal.json         │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Regime shift         │ 🚨 Regime change: NORMAL → CRISIS                        │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Flash crash          │ 🚨 FLASH CRASH detected — CRISIS lockout                 │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ EOD summary          │ 📊 P&L: +$127.40 (+1.27%) | 4 trades | 75% win          │
+  │                      │    Budget: 68% | Cycles: 24 | Regime flips: 1           │
+  └──────────────────────┴──────────────────────────────────────────────────────────┘
 
 ---
 ## Auto-Start/Stop
@@ -316,21 +341,23 @@ If you started via LaunchAgent but see nothing in `logs/launchd_trading_bot.log`
 
 ## State Files
 
+All state files live under `data/state/`.
+
 | File | Purpose |
 |---|---|
 | `open_positions.json` | Active day-trade positions (entry price, SL, TP, mode) |
 | `swing_positions.json` | Active overnight swing positions (tiered TP state) |
 | `trade_journal.json` | Recent trade history — entries older than 90 days archived at startup |
 | `trade_journal_archive.json` | Long-term trade archive (auto-populated from `trade_journal.json`) |
-| `indicator_weights.json` | Per-indicator weights (updated nightly by learning agent) |
-| `trading_params.json` | Learned entry thresholds (updated nightly, hard-bounded) |
+| `indicator_weights.json` | Per-indicator weights (updated nightly; clamped to 0.3×–2.0× defaults) |
+| `trading_params.json` | Learned entry thresholds (updated nightly from 5-day rolling window) |
 | `macro_regime.json` | Today's 9-state regime + macro health score + flash-crash lockout |
 | `earnings_calendar.json` | Next earnings dates + PEAD data per symbol (refreshed 8:00 AM) |
 | `economic_calendar.json` | Today's FOMC/NFP/CPI events + 45-min risk windows |
 | `research_report.json` | Sentiment scores + macro shock score + sector sentiment |
-| `api_budget.json` | Daily Claude token spend tracker (enforces $1.00/$1.50 cap) |
+| `api_budget.json` | Daily Claude token spend tracker (TOCTOU-safe; enforces $1.00/$1.50 cap) |
+| `metrics.jsonl` | Per-cycle telemetry: regime, candidates, entries, closes, budget%, latency |
 | `strategy_memory.md` | Freeform strategy notes written by learning agent, fed to Claude |
-| `watch_list.txt` | Today's 10–15 selected tickers |
 | `daily_closed.json` | Symbols closed today — prevents same-day re-entry after crash |
 | `bot_health.json` | Crash loop counter — restart frequency tracker (auto-created, reset on clean stop) |
 
@@ -342,11 +369,8 @@ If you started via LaunchAgent but see nothing in `logs/launchd_trading_bot.log`
 # Fast unit tests — no API calls, no .env required
 .venv/bin/pytest tests/ -v -m unit
 
-# Legacy unit tests
-.venv/bin/pytest test_agents.py -v -m unit
-
-# Live tests — requires valid .env with Alpaca credentials
-.venv/bin/pytest test_agents.py -v -m live
+# Quiet mode (less output)
+.venv/bin/pytest tests/ -m unit -q
 ```
 
 ---
@@ -354,8 +378,18 @@ If you started via LaunchAgent but see nothing in `logs/launchd_trading_bot.log`
 ## Backtesting
 
 ```bash
+# Last 30 trading days (default)
 .venv/bin/python3 backtest.py
+
+# Last N trading days
+.venv/bin/python3 backtest.py --days 60
+
+# Specific date range
+.venv/bin/python3 backtest.py --start 2026-04-01
+.venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30
 ```
+
+Weekends and NYSE holidays are automatically excluded. Uses Alpaca IEX feed (no Claude API calls). Picks up learned `trading_params.json` automatically so the backtest reflects your bot's current tuning.
 
 Outputs `backtest_trades.csv` and `backtest_equity.json`.
 
@@ -402,7 +436,7 @@ The startup `fetch_macro_regime()` will evaluate conditions and clear automatica
 
 Check in this order:
 1. Confirm `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set in `.env` (not blank).
-2. Confirm `ANTHROPIC_API_KEY` is set — if it is missing the bot exits before sending any Telegram alert (known limitation, fixed in next release).
+2. Confirm `ANTHROPIC_API_KEY` is set — if it is missing the bot exits before sending any Telegram alert.
 3. Check the correct log file: `logs/launchd_trading_bot.log` if started via LaunchAgent, `logs/trading_bot.log` if started manually via `./start.sh`.
 4. If the log file is empty after a LaunchAgent start, Full Disk Access for `/bin/bash` is likely missing — see the macOS LaunchAgent setup steps above.
 5. Send a test message to confirm Telegram credentials work:
@@ -416,8 +450,8 @@ Double-check `.env` uses the **Paper** Alpaca keys (not Live) and has no trailin
 **Bot missed Monday pre-market**
 Not a problem — `./start.sh` on Monday will catch up all missed agents automatically.
 
-**Bot skipping BUYs with "bearish sentiment blocks BUY"**
-The research agent scored that symbol below −10 (bearish news). This is intentional — the bot won't buy into bad-news drops even when technicals look strong. Adjust `AUTO_BUY_MIN_SENTIMENT` in `config.py` if you want a looser gate (e.g., −20).
+**Bot skipping BUYs with "sentiment < hard block"**
+The research agent scored that symbol below `SENTIMENT_HARD_BLOCK` (default −2). This is intentional — the bot won't buy into bad-news drops even when technicals look strong. Adjust `SENTIMENT_HARD_BLOCK` in `config.py` for a looser gate.
 
 **`trade_journal.json` was reset / corrupt file backup appeared**
 A `.corrupt.json` backup was created automatically. The journal is reset to an empty list and trading continues. Backups older than 7 days are deleted at next startup. The learning agent will work correctly from the reset file.
