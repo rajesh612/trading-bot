@@ -61,37 +61,43 @@ def _get_trading_days(start: date, end: date) -> list[datetime]:
             days.append(datetime(d.year, d.month, d.day, tzinfo=ET))
         d += timedelta(days=1)
     return days
-STARTING_CAPITAL    = 100_000.0
-SLIPPAGE_PCT        = 0.0005      # 0.05% each way
-STOP_LOSS_PCT       = 4.0         # 4% SL
-TAKE_PROFIT_PCT     = 5.0         # 5% TP
-MAX_POSITIONS       = 5
-MAX_POSITION_PCT    = 0.05
-RISK_PER_TRADE      = 0.005       # 0.5% of portfolio ATR-sized (matches live)
-MIN_COMPOSITE       = 30.0        # raised from 15 — filters noise entries
-MAX_DAILY_LOSS      = 0.03        # halt new entries if down >3% on the day
-RSI_BUY_MAX         = 45.0        # only buy when RSI is not overbought (normal regime)
-RSI_BUY_MAX_HV      = 35.0        # tighter RSI when VIX elevated
-VWAP_SLOPE_MIN      = -0.3        # skip BUY if VWAP trending down by this % over 10 bars
-ENTRY_START_H    = 10          # no new entries before 10:00 AM ET
-ENTRY_END_H      = 15          # no new entries at/after 3:00 PM ET
-HIGH_VOL_MULT    = 0.75        # raised from 0.5 — capture recovery moves in HIGH_VOL
+
+# ── Backtest-only simulation constants (no live-bot equivalent) ───────────────
+STARTING_CAPITAL = 100_000.0
+SLIPPAGE_PCT     = 0.0005       # 0.05% each way
+MAX_POSITIONS    = 5            # max concurrent intraday positions in simulation
+WATCH_LIST_SIZE  = 25           # top N volatile tickers selected each day
 MARKET_OPEN_H    = 9
 MARKET_OPEN_M    = 30
 FORCE_CLOSE_H    = 15
 FORCE_CLOSE_M    = 55
-SWING_EVAL_H     = 15          # evaluate swing qualification at this hour (3:50 PM)
+SWING_EVAL_H     = 15           # hour to evaluate swing qualification (3:50 PM)
 SWING_EVAL_M     = 50
 
-# ── Swing simulation ──────────────────────────────────────────────────────────
-SWING_ENABLED       = True     # simulate overnight swing holds
-SWING_COMPOSITE_MIN = 50.0     # min composite score at entry to qualify for swing
-SWING_SL_PCT        = 7.0      # wider stop for swing holds
-SWING_TP_PCT        = 10.0     # take-profit for swing holds
-SWING_MAX_POSITIONS = 2        # max concurrent swing positions in simulation
-SWING_MAX_DAYS      = 5        # max trading days to hold before forced close
-LOOKBACK_BARS    = 100         # bars fed to indicator engine
-WATCH_LIST_SIZE  = 25          # top N volatile tickers each day
+# ── Swing simulation (simplified model of live swing_manager) ─────────────────
+# These differ from live because live uses tiered TP, ATR-based SL, is_tier1 gate
+SWING_ENABLED       = True
+SWING_COMPOSITE_MIN = 50.0      # entry composite threshold (live: is_tier1 check)
+SWING_SL_PCT        = 7.0       # fixed stop (live: dynamic ATR-based, ~7%)
+SWING_TP_PCT        = 10.0      # single TP (live: tiered 5%/10%)
+
+# ── Live-bot parameters — read from config.py (single source of truth) ────────
+# Never redefine these here; update config.py and the backtest picks them up.
+STOP_LOSS_PCT       = config.STOP_LOSS_PCT            # 4%
+TAKE_PROFIT_PCT     = config.TAKE_PROFIT_PCT           # 5%
+MIN_COMPOSITE       = config.COMPOSITE_MIN_NORMAL      # 30
+MAX_DAILY_LOSS      = config.MAX_DAILY_LOSS_PCT        # 0.03
+RSI_BUY_MAX         = config.RSI_BUY_MAX               # 72
+RSI_BUY_MAX_HV      = config.RSI_BUY_MAX_HIGH_VOL      # 65
+VWAP_SLOPE_MIN      = config.VWAP_SLOPE_MIN            # -0.3
+ENTRY_START_H       = config.ENTRY_START_HOUR          # 10
+ENTRY_END_H         = config.ENTRY_END_HOUR            # 15
+HIGH_VOL_MULT       = config.HIGH_VOL_POSITION_MULT    # 0.75
+MAX_POSITION_PCT    = config.MAX_POSITION_PCT          # 0.05
+RISK_PER_TRADE      = config.RISK_PER_TRADE_PCT        # 0.005
+LOOKBACK_BARS       = config.BARS_LOOKBACK             # 100
+SWING_MAX_POSITIONS = config.SWING_MAX_POSITIONS       # 2
+SWING_MAX_DAYS      = config.SWING_MAX_DAYS            # 5
 
 
 def _load_backtest_params() -> dict:
