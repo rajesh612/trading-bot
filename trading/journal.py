@@ -29,11 +29,18 @@ def save_open_positions(positions: dict) -> None:
 
 def flush_profit_lock_updates(updates: dict[str, dict]) -> None:
     """Merge-write profit-lock changes without wiping concurrent BUYs."""
+    if not updates:
+        return
     with _POSITIONS_LOCK:
         disk = load_json(config.OPEN_POSITIONS_FILE, {})
         for sym, pos in updates.items():
             if sym in disk:
                 disk[sym] = pos
+            else:
+                logger.warning(
+                    "flush_profit_lock_updates: %s not found on disk — likely closed concurrently; "
+                    "profit-lock update discarded.", sym
+                )
         save_json(config.OPEN_POSITIONS_FILE, disk)
 
 

@@ -360,6 +360,24 @@ class TestFlushProfitLock:
         assert pos["TSLA"]["stop_loss_price"] == pytest.approx(200.0)
 
 
+@pytest.mark.unit
+def test_profit_lock_warns_on_concurrent_close(monkeypatch, tmp_path):
+    """flush_profit_lock_updates logs warning when symbol missing from disk."""
+    import unittest.mock
+    import config
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    from utils.io_utils import save_json
+    from trading.journal import flush_profit_lock_updates
+
+    save_json(config.OPEN_POSITIONS_FILE, {})  # AAPL not on disk
+
+    with unittest.mock.patch("trading.journal.logger") as mock_logger:
+        flush_profit_lock_updates({"AAPL": {"entry_price": 100, "profit_locked": True}})
+        warning_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+
+    assert any("AAPL" in w for w in warning_msgs)
+
+
 # ── trading/watch_loader: load_watch_list ────────────────────────────────────
 
 @pytest.mark.unit
