@@ -164,12 +164,18 @@ def send_daily_report() -> None:
 
     # Compact Telegram EOD summary — sent regardless of email outcome
     try:
+        from trading.risk_manager import load_budget
         closes = [t for t in todays_trades if t.get("type") == "CLOSE"]
         pv  = account.get("portfolio_value", 0.0)
         le  = account.get("last_equity", 0.0)
         day_pnl     = pv - le
         day_pnl_pct = (day_pnl / le * 100) if le else 0.0
-        telegram_notify.notify_eod_summary(closes, day_pnl, day_pnl_pct, pv, regime)
+        budget = load_budget()
+        ceiling = budget.get("ceiling_usd", 1.0)
+        spent = budget.get("estimated_cost_usd", 0.0)
+        api_budget_pct = spent / ceiling * 100 if ceiling else 0.0
+        telegram_notify.notify_eod_summary(closes, day_pnl, day_pnl_pct, pv, regime,
+                                           api_budget_pct=api_budget_pct)
     except Exception as exc:
         logger.warning(f"DAILY REPORT: Telegram summary failed — {exc}")
 

@@ -287,11 +287,17 @@ def notify_eod_summary(
     day_pnl_pct: float,
     portfolio_value: float,
     regime: str,
+    api_budget_pct: float = 0.0,
+    cycles_run: int = 0,
+    candidates_passed: int = 0,
+    regime_flips: int = 0,
 ) -> None:
     if not closes:
         _send(
             f"<b>📊 EOD Summary — no trades today</b>\n"
-            f"Regime: {regime} | Portfolio: ${portfolio_value:,.2f}"
+            f"Regime: {regime} | Portfolio: ${portfolio_value:,.2f}\n"
+            f"API budget: {api_budget_pct:.0f}% used | Cycles: {cycles_run} | "
+            f"Candidates: {candidates_passed} | Regime flips: {regime_flips}"
         )
         return
 
@@ -308,5 +314,7 @@ def notify_eod_summary(
         f"Best: {best['symbol']} ${best.get('pnl_dollar',0):+.2f} | "
         f"Worst: {worst['symbol']} ${worst.get('pnl_dollar',0):+.2f}",
         f"Regime: {regime} | Portfolio: ${portfolio_value:,.2f}",
+        f"API budget: {api_budget_pct:.0f}% used | Cycles: {cycles_run} | "
+        f"Candidates: {candidates_passed} | Regime flips: {regime_flips}",
     ]
     _send("\n".join(lines))
