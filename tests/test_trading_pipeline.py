@@ -602,3 +602,32 @@ def test_pre_claude_filter_passes_vwap_overextended(monkeypatch):
     assert result.decision != "SKIP", f"Option A violated: VWAP overextension caused SKIP: {result.reason}"
 
 
+@pytest.mark.unit
+def test_budget_intraday_warning_fired_at_75pct(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "budget.json")
+    from utils.io_utils import save_json
+    from trading import risk_manager
+
+    entry_ceil = 0.70
+    budget = {
+        "date": "2026-05-16", "calls_made": 5, "entry_calls": 5, "exit_calls": 0,
+        "input_tokens": 0, "output_tokens": 0,
+        "cache_write_tokens": 0, "cache_read_tokens": 0,
+        "estimated_cost_usd": 0.536, "entry_spent_usd": 0.536, "exit_spent_usd": 0.0,
+        "ceiling_usd": 1.00, "entry_ceiling_usd": entry_ceil, "exit_ceiling_usd": 0.30,
+        "ceiling_mode": "normal",
+        "entry_exhausted": False, "exit_exhausted": False,
+        "budget_exhausted": False, "escalated": False,
+    }
+    save_json(config.API_BUDGET_FILE, budget)
+
+    warned = []
+    monkeypatch.setattr("notifications.telegram.notify_budget_intraday_warning",
+                        lambda s, c: warned.append((s, c)))
+    monkeypatch.setattr("notifications.telegram._budget_warn_sent", {"date": None})
+
+    risk_manager.check_entry_budget(estimated_cost=0.01, regime="NORMAL")
+    assert warned, "Expected budget intraday warning at 76% of entry ceiling"
+
+
