@@ -15,39 +15,22 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
-# ── Backtest-only simulation constants (no live-bot equivalent) ──────────────
-STARTING_CAPITAL = 100_000.0
-SLIPPAGE_PCT     = 0.0005
-MAX_POSITIONS    = 5
-WATCH_LIST_SIZE  = 25
-MARKET_OPEN_H    = 9
-MARKET_OPEN_M    = 30
-FORCE_CLOSE_H    = 15
-FORCE_CLOSE_M    = 55
-SWING_EVAL_H     = 15
-SWING_EVAL_M     = 50
-
-SWING_ENABLED       = True
-SWING_COMPOSITE_MIN = 50.0
-SWING_SL_PCT        = 7.0
-SWING_TP_PCT        = 10.0
-
+# ── Backtest-only simulation constants ───────────────────────────────────────
+STARTING_CAPITAL = 100_000.0; SLIPPAGE_PCT = 0.0005; MAX_POSITIONS = 5
+MARKET_OPEN_H = 9;  MARKET_OPEN_M = 30
+FORCE_CLOSE_H = 15; FORCE_CLOSE_M = 55
+SWING_EVAL_H  = 15; SWING_EVAL_M  = 50
+SWING_ENABLED = True; SWING_COMPOSITE_MIN = 50.0
+SWING_SL_PCT  = 7.0; SWING_TP_PCT = 10.0
 # ── Live-bot params — single source of truth is config.py ────────────────────
-STOP_LOSS_PCT    = config.STOP_LOSS_PCT
-TAKE_PROFIT_PCT  = config.TAKE_PROFIT_PCT
-MIN_COMPOSITE    = config.COMPOSITE_MIN_NORMAL
-MAX_DAILY_LOSS   = config.MAX_DAILY_LOSS_PCT
-RSI_BUY_MAX      = config.RSI_BUY_MAX
-RSI_BUY_MAX_HV   = config.RSI_BUY_MAX_HIGH_VOL
-VWAP_SLOPE_MIN   = config.VWAP_SLOPE_MIN
-ENTRY_START_H    = config.ENTRY_START_HOUR
-ENTRY_END_H      = config.ENTRY_END_HOUR
-HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
-MAX_POSITION_PCT = config.MAX_POSITION_PCT
-RISK_PER_TRADE   = config.RISK_PER_TRADE_PCT
-LOOKBACK_BARS    = config.BARS_LOOKBACK
-SWING_MAX_POSITIONS = config.SWING_MAX_POSITIONS
-SWING_MAX_DAYS   = config.SWING_MAX_DAYS
+STOP_LOSS_PCT = config.STOP_LOSS_PCT;   TAKE_PROFIT_PCT  = config.TAKE_PROFIT_PCT
+MIN_COMPOSITE = config.COMPOSITE_MIN_NORMAL; MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
+RSI_BUY_MAX   = config.RSI_BUY_MAX;    RSI_BUY_MAX_HV   = config.RSI_BUY_MAX_HIGH_VOL
+VWAP_SLOPE_MIN = config.VWAP_SLOPE_MIN; ENTRY_START_H   = config.ENTRY_START_HOUR
+ENTRY_END_H   = config.ENTRY_END_HOUR;  HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
+MAX_POSITION_PCT = config.MAX_POSITION_PCT; RISK_PER_TRADE = config.RISK_PER_TRADE_PCT
+LOOKBACK_BARS = config.BARS_LOOKBACK;   SWING_MAX_POSITIONS = config.SWING_MAX_POSITIONS
+SWING_MAX_DAYS = config.SWING_MAX_DAYS
 
 
 @dataclass
@@ -76,43 +59,33 @@ class SimState:
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
     if price <= 0:
         return 0.0
-    risk_dollars = portfolio_value * RISK_PER_TRADE
-    sl_dollars = price * STOP_LOSS_PCT / 100
-    if sl_dollars <= 0:
-        sl_dollars = atr if atr > 0 else price * 0.02
-    qty_risk = risk_dollars / sl_dollars
-    qty_cap = (portfolio_value * MAX_POSITION_PCT) / price
-    return max(1.0, round(min(qty_risk, qty_cap)))
+    sl_dollars = price * STOP_LOSS_PCT / 100 or (atr if atr > 0 else price * 0.02)
+    qty_risk = portfolio_value * RISK_PER_TRADE / sl_dollars
+    return max(1.0, round(min(qty_risk, portfolio_value * MAX_POSITION_PCT / price)))
 
 
 def _entry_price(bar_open: float) -> float:
     return round(bar_open * (1 + SLIPPAGE_PCT), 4)
 
 
-def _exit_price(price: float) -> float:
-    return round(price * (1 - SLIPPAGE_PCT), 4)
+def _exit_price(price: float, side: str = "sell") -> float:
+    mult = (1 - SLIPPAGE_PCT) if side == "sell" else (1 + SLIPPAGE_PCT)
+    return round(price * mult, 4)
 
 
 def _pos_value_at(state: SimState, day_bars: dict, ts) -> float:
-    total = 0.0
-    for sym, p in state.positions.items():
+    def _px(sym, p):
         df = day_bars.get(sym)
-        if df is None or df.empty:
-            total += p["qty"] * p["entry"]
-            continue
-        available = df[df.index <= ts]
-        price = float(available["close"].iloc[-1]) if not available.empty else p["entry"]
-        total += p["qty"] * price
-    return total
+        avail = df[df.index <= ts] if df is not None and not df.empty else None
+        return float(avail["close"].iloc[-1]) if avail is not None and not avail.empty else p["entry"]
+    return sum(p["qty"] * _px(sym, p) for sym, p in state.positions.items())
 
 
 def _open_trade(
     state: SimState, symbol: str, ts: str, bar_open: float,
     atr: float, pos_mult: float = 1.0, composite: float = 0.0,
 ) -> None:
-    portfolio_value = state.cash + sum(
-        pos["qty"] * pos["entry"] for pos in state.positions.values()
-    )
+    portfolio_value = state.cash + sum(p["qty"] * p["entry"] for p in state.positions.values())
     entry = _entry_price(bar_open)
     qty = max(1.0, round(_calc_qty(portfolio_value, entry, atr) * pos_mult))
     cost = entry * qty
@@ -147,7 +120,82 @@ def _close_trade(
         exit_reason=reason, pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 2),
     ))
     state.daily_closed.add(symbol)
-    logger.debug(f"    CLOSE {symbol:5s} @ ${ep:.2f}  PnL=${pnl:+.2f} [{reason}]")
+    logger.debug(f"    CLOSE {symbol:5s} x{pos['qty']:.0f} @ ${ep:.2f}  PnL=${pnl:+.2f} ({pnl_pct:+.2f}%)  [{reason}]")
+
+
+def _evaluate_swing_promotion(
+    state: SimState, day_bars: dict, ts, regime: str, n_swings: int
+) -> int:
+    for sym2 in list(state.positions.keys()):
+        pos2 = state.positions[sym2]
+        if pos2.get("is_swing"):
+            continue
+        df2 = day_bars.get(sym2)
+        if df2 is None or df2.empty: continue
+        avail2 = df2[df2.index <= ts]
+        eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
+        pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
+        if regime == "NORMAL" and pnl_pct > 0 and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN and n_swings < SWING_MAX_POSITIONS:
+            pos2["is_swing"] = True
+            pos2["swing_days_remaining"] = SWING_MAX_DAYS
+            pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
+            pos2["tp"] = round(pos2["entry"] * (1 + SWING_TP_PCT / 100), 4)
+            n_swings += 1
+            logger.info(f"    SWING PROMOTE {sym2}: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f} | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}")
+    return n_swings
+
+
+def _eod_manage_positions(
+    state: SimState, day_bars: dict, sorted_ts: list, date_str: str
+) -> None:
+    for sym in list(state.positions.keys()):
+        pos = state.positions[sym]
+        df_sym = day_bars.get(sym)
+        last_price = float(df_sym["close"].iloc[-1]) if df_sym is not None and not df_sym.empty else pos["entry"]
+        if pos.get("is_swing"):
+            pos["swing_days_remaining"] -= 1
+            pnl_pct = (last_price / pos["entry"] - 1) * 100
+            if pos["swing_days_remaining"] <= 0:
+                _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "SWING_MAXDAYS", date_str)
+            else:
+                logger.info(f"  SWING CARRY {sym}: {pos['swing_days_remaining']}d left | P&L={pnl_pct:+.2f}%")
+        else:
+            _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "EOD", date_str)
+
+
+def _build_day_bars(
+    watch_list: list[str], all_bars: dict, mkt_open: datetime, day: datetime
+) -> tuple[dict, list]:
+    all_ts: set[datetime] = set()
+    day_bars: dict[str, pd.DataFrame] = {}
+    utc_open = mkt_open.astimezone(ZoneInfo("UTC"))
+    utc_end  = (day + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
+    for sym in watch_list:
+        df = all_bars.get(sym)
+        if df is None or df.empty: continue
+        if df.index.tz is None: df.index = df.index.tz_localize("UTC")
+        df_day = df[(df.index >= utc_open) & (df.index < utc_end)]
+        if df_day.empty: continue
+        day_bars[sym] = df_day
+        all_ts.update(df_day.index.tolist())
+    return day_bars, sorted(all_ts)
+
+
+def _execute_pending_signals(
+    state: SimState, pending: dict, day_bars: dict, ts, pos_mult: float
+) -> None:
+    n_open = len(state.positions)
+    for sym, sig in list(pending.items()):
+        if n_open >= MAX_POSITIONS:
+            break
+        if sym in state.positions or sym in state.daily_closed:
+            continue
+        df_sym = day_bars.get(sym)
+        if df_sym is None or ts not in df_sym.index:
+            continue
+        _open_trade(state, sym, str(ts), float(df_sym.loc[ts, "open"]), sig["atr"], pos_mult, sig["score"])
+        n_open += 1
+    pending.clear()
 
 
 def simulate_day(
@@ -165,11 +213,11 @@ def simulate_day(
     logger.info(f"\n=== {date_str} === regime={regime} rsi_max={rsi_max} pos_mult={pos_mult}")
     state.daily_closed.clear()
 
-    mkt_open      = day.replace(hour=MARKET_OPEN_H, minute=MARKET_OPEN_M, second=0, microsecond=0)
-    force_ts      = day.replace(hour=FORCE_CLOSE_H, minute=FORCE_CLOSE_M, second=0, microsecond=0)
-    swing_eval_ts = day.replace(hour=SWING_EVAL_H,  minute=SWING_EVAL_M,  second=0, microsecond=0)
-    entry_start   = day.replace(hour=ENTRY_START_H, minute=0, second=0, microsecond=0)
-    entry_end     = day.replace(hour=ENTRY_END_H,   minute=0, second=0, microsecond=0)
+    def _ts(h, m=0): return day.replace(hour=h, minute=m, second=0, microsecond=0)
+    mkt_open      = _ts(MARKET_OPEN_H, MARKET_OPEN_M)
+    force_ts      = _ts(FORCE_CLOSE_H, FORCE_CLOSE_M)
+    swing_eval_ts = _ts(SWING_EVAL_H,  SWING_EVAL_M)
+    entry_start   = _ts(ENTRY_START_H); entry_end = _ts(ENTRY_END_H)
     day_start_equity = state.cash
     halted = False
     swing_evaluated = False
@@ -178,24 +226,7 @@ def simulate_day(
         logger.info("  CRISIS regime — skipping all new entries today.")
         halted = True
 
-    all_ts: set[datetime] = set()
-    day_bars: dict[str, pd.DataFrame] = {}
-    for sym in watch_list:
-        df = all_bars.get(sym)
-        if df is None or df.empty:
-            continue
-        if df.index.tz is None:
-            df.index = df.index.tz_localize("UTC")
-        df_day = df[
-            (df.index >= mkt_open.astimezone(ZoneInfo("UTC"))) &
-            (df.index <  (day + timedelta(days=1)).astimezone(ZoneInfo("UTC")))
-        ]
-        if df_day.empty:
-            continue
-        day_bars[sym] = df_day
-        all_ts.update(df_day.index.tolist())
-
-    sorted_ts = sorted(all_ts)
+    day_bars, sorted_ts = _build_day_bars(watch_list, all_bars, mkt_open, day)
     if not sorted_ts:
         logger.info("  No bars for this day — skipping.")
         return
@@ -209,28 +240,7 @@ def simulate_day(
         if SWING_ENABLED and not swing_evaluated and ts_et >= swing_eval_ts:
             swing_evaluated = True
             n_swings = sum(1 for p in state.positions.values() if p.get("is_swing"))
-            for sym2 in list(state.positions.keys()):
-                pos2 = state.positions[sym2]
-                if pos2.get("is_swing"):
-                    continue
-                df2 = day_bars.get(sym2)
-                if df2 is None or df2.empty:
-                    continue
-                avail2 = df2[df2.index <= ts]
-                eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
-                pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
-                if (
-                    regime == "NORMAL"
-                    and pnl_pct > 0
-                    and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
-                    and n_swings < SWING_MAX_POSITIONS
-                ):
-                    pos2["is_swing"] = True
-                    pos2["swing_days_remaining"] = SWING_MAX_DAYS
-                    pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
-                    pos2["tp"] = round(pos2["entry"] * (1 + SWING_TP_PCT / 100), 4)
-                    n_swings += 1
-                    logger.info(f"    SWING PROMOTE {sym2}: P&L={pnl_pct:+.2f}%")
+            _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings)
 
         for sym in list(state.positions.keys()):
             df_sym = day_bars.get(sym)
@@ -243,11 +253,9 @@ def simulate_day(
             is_sw = pos.get("is_swing", False)
 
             if bar["high"] >= pos["tp"]:
-                reason = "SWING_TP" if is_sw else "TP"
-                exit_price = pos["tp"]
+                reason, exit_price = ("SWING_TP" if is_sw else "TP"), pos["tp"]
             elif bar["low"] <= pos["sl"]:
-                reason = "SWING_SL" if is_sw else "SL"
-                exit_price = pos["sl"]
+                reason, exit_price = ("SWING_SL" if is_sw else "SL"), pos["sl"]
             elif is_force and not is_sw:
                 reason, exit_price = "FORCE_CLOSE", bar["close"]
 
@@ -267,66 +275,24 @@ def simulate_day(
 
         in_entry_window = entry_start <= ts_et < entry_end
         if pending_signals and i > 0 and not halted and in_entry_window:
-            n_open = len(state.positions)
-            for sym, sig in list(pending_signals.items()):
-                if n_open >= MAX_POSITIONS:
-                    break
-                if sym in state.positions or sym in state.daily_closed:
-                    continue
-                df_sym = day_bars.get(sym)
-                if df_sym is None or ts not in df_sym.index:
-                    continue
-                bar_open = float(df_sym.loc[ts, "open"])
-                _open_trade(state, sym, str(ts), bar_open, sig["atr"], pos_mult, sig["score"])
-                n_open += 1
-            pending_signals.clear()
+            _execute_pending_signals(state, pending_signals, day_bars, ts, pos_mult)
 
         for sym in watch_list:
-            if sym in state.positions or sym in state.daily_closed:
-                continue
+            if sym in state.positions or sym in state.daily_closed: continue
             df_sym = all_bars.get(sym)
-            if df_sym is None or df_sym.empty:
-                continue
-            if df_sym.index.tz is None:
-                df_sym.index = df_sym.index.tz_localize("UTC")
+            if df_sym is None or df_sym.empty: continue
+            if df_sym.index.tz is None: df_sym.index = df_sym.index.tz_localize("UTC")
             df_window = df_sym[df_sym.index <= ts].tail(LOOKBACK_BARS)
-            if len(df_window) < 30:
-                continue
-
+            if len(df_window) < 30: continue
             iv = compute_indicators(sym, df_window, as_of=ts_et)
-            if iv is None:
-                continue
-
-            vwap_slope_min = p.get("vwap_slope_min", VWAP_SLOPE_MIN)
-            if (
-                iv.composite_score > MIN_COMPOSITE
-                and iv.signal == "BUY"
-                and iv.rsi <= rsi_max
-                and iv.vwap_slope >= vwap_slope_min
-            ):
+            if iv is None: continue
+            if iv.composite_score > MIN_COMPOSITE and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
                 pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr}
 
         equity = state.cash + _pos_value_at(state, day_bars, ts)
         state.equity_curve.append({"ts": str(ts), "equity": round(equity, 2)})
 
-    for sym in list(state.positions.keys()):
-        pos = state.positions[sym]
-        df_sym = day_bars.get(sym)
-        last_price = (
-            float(df_sym["close"].iloc[-1]) if df_sym is not None and not df_sym.empty
-            else pos["entry"]
-        )
-        if pos.get("is_swing"):
-            pos["swing_days_remaining"] -= 1
-            pnl_pct = (last_price / pos["entry"] - 1) * 100
-            if pos["swing_days_remaining"] <= 0:
-                _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "SWING_MAXDAYS", date_str)
-            else:
-                logger.info(f"  SWING CARRY {sym}: {pos['swing_days_remaining']}d left | P&L={pnl_pct:+.2f}%")
-        else:
-            _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "EOD", date_str)
+    _eod_manage_positions(state, day_bars, sorted_ts, date_str)
 
-    portfolio_value = state.cash + sum(
-        pos["qty"] * pos["entry"] for pos in state.positions.values()
-    )
+    portfolio_value = state.cash + sum(p["qty"] * p["entry"] for p in state.positions.values())
     logger.info(f"  End of day equity ≈ ${state.cash:,.2f} cash  (portfolio ~${portfolio_value:,.2f})")
