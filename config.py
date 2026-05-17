@@ -300,3 +300,6 @@ LEARNING_ROLLING_DAYS              = 5   # days of trade history to analyze (pre
 INDICATOR_WEIGHT_MAX_MULT          = 2.0 # max multiplier vs. default weight (prevents one indicator dominating)
 INDICATOR_WEIGHT_MIN_MULT          = 0.3 # min multiplier vs. default weight
 STRATEGY_MEMORY_BACKUP_MAX         = 7   # keep this many daily .bak files before pruning
+
+# ── SoT-AUDIT: Magic Number Elimination ──────────────────────────────────────
+TRAILING_STOP_PCT_FALLBACK = 0.03  # 3% trailing stop when ATR unavailable

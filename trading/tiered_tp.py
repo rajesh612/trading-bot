@@ -9,7 +9,7 @@ def compute_trailing_stop_price(high_water: float, atr: float | None) -> float:
     """ATR-aware trailing stop. Falls back to 3% if ATR is unavailable."""
     if atr and atr > 0:
         return high_water - (atr * config.TRAILING_STOP_ATR_MULT)
-    return high_water * 0.97
+    return high_water * (1 - config.TRAILING_STOP_PCT_FALLBACK)
 
 
 def _compute_tier_quantities(total_qty: int) -> tuple[int, int, int]:
