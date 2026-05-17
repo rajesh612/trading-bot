@@ -80,6 +80,16 @@ MARKET_OPEN_H    = 9
 MARKET_OPEN_M    = 30
 FORCE_CLOSE_H    = 15
 FORCE_CLOSE_M    = 55
+SWING_EVAL_H     = 15          # evaluate swing qualification at this hour (3:50 PM)
+SWING_EVAL_M     = 50
+
+# ── Swing simulation ──────────────────────────────────────────────────────────
+SWING_ENABLED       = True     # simulate overnight swing holds
+SWING_COMPOSITE_MIN = 50.0     # min composite score at entry to qualify for swing
+SWING_SL_PCT        = 7.0      # wider stop for swing holds
+SWING_TP_PCT        = 10.0     # take-profit for swing holds
+SWING_MAX_POSITIONS = 2        # max concurrent swing positions in simulation
+SWING_MAX_DAYS      = 5        # max trading days to hold before forced close
 LOOKBACK_BARS    = 100         # bars fed to indicator engine
 WATCH_LIST_SIZE  = 25          # top N volatile tickers each day
 
@@ -310,7 +320,7 @@ def _pos_value_at(state: SimState, day_bars: dict, ts) -> float:
     return total
 
 
-def _open_trade(state: SimState, symbol: str, ts: str, bar_open: float, atr: float, pos_mult: float = 1.0) -> None:
+def _open_trade(state: SimState, symbol: str, ts: str, bar_open: float, atr: float, pos_mult: float = 1.0, composite: float = 0.0) -> None:
     portfolio_value = state.cash + sum(
         pos["qty"] * pos["entry"] for pos in state.positions.values()
     )
@@ -326,7 +336,7 @@ def _open_trade(state: SimState, symbol: str, ts: str, bar_open: float, atr: flo
     sl = round(entry * (1 - STOP_LOSS_PCT / 100), 4)
     tp = round(entry * (1 + TAKE_PROFIT_PCT / 100), 4)
     state.cash -= cost
-    state.positions[symbol] = {"qty": qty, "entry": entry, "sl": sl, "tp": tp, "entry_ts": ts}
+    state.positions[symbol] = {"qty": qty, "entry": entry, "sl": sl, "tp": tp, "entry_ts": ts, "composite": composite}
     logger.debug(f"    OPEN  {symbol:5s} x{qty:.0f} @ ${entry:.2f}  SL=${sl:.2f} TP=${tp:.2f}")
 
 
@@ -372,10 +382,12 @@ def _simulate_day(
 
     mkt_open      = day.replace(hour=MARKET_OPEN_H, minute=MARKET_OPEN_M, second=0, microsecond=0)
     force_ts      = day.replace(hour=FORCE_CLOSE_H, minute=FORCE_CLOSE_M, second=0, microsecond=0)
+    swing_eval_ts = day.replace(hour=SWING_EVAL_H,  minute=SWING_EVAL_M,  second=0, microsecond=0)
     entry_start   = day.replace(hour=ENTRY_START_H, minute=0, second=0, microsecond=0)
     entry_end     = day.replace(hour=ENTRY_END_H,   minute=0, second=0, microsecond=0)
     day_start_equity = state.cash
     halted = False
+    swing_evaluated = False
 
     # CRISIS: no new entries at all
     if regime == "CRISIS":
@@ -410,6 +422,33 @@ def _simulate_day(
         ts_et = ts.astimezone(ET)
         is_force = ts_et >= force_ts
 
+        # ── Evaluate swing qualification once at 3:50 PM ────────────────────
+        if SWING_ENABLED and not swing_evaluated and ts_et >= swing_eval_ts:
+            swing_evaluated = True
+            n_swings = sum(1 for p in state.positions.values() if p.get("is_swing"))
+            for sym2 in list(state.positions.keys()):
+                pos2 = state.positions[sym2]
+                if pos2.get("is_swing"):
+                    continue
+                df2 = day_bars.get(sym2)
+                if df2 is None or df2.empty:
+                    continue
+                avail2 = df2[df2.index <= ts]
+                eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
+                pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
+                if (
+                    regime == "NORMAL"
+                    and pnl_pct > 0
+                    and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
+                    and n_swings < SWING_MAX_POSITIONS
+                ):
+                    pos2["is_swing"] = True
+                    pos2["swing_days_remaining"] = SWING_MAX_DAYS
+                    pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
+                    pos2["tp"] = round(pos2["entry"] * (1 + SWING_TP_PCT / 100), 4)
+                    n_swings += 1
+                    logger.info(f"    SWING PROMOTE {sym2}: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f} | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}")
+
         # ── Check SL/TP and force-close for open positions ──────────────────
         for sym in list(state.positions.keys()):
             df_sym = day_bars.get(sym)
@@ -419,15 +458,18 @@ def _simulate_day(
             pos = state.positions[sym]
             reason = None
             exit_price = None
+            is_sw = pos.get("is_swing", False)
 
             # TP hit (check high)
             if bar["high"] >= pos["tp"]:
-                reason, exit_price = "TP", pos["tp"]
+                reason = "SWING_TP" if is_sw else "TP"
+                exit_price = pos["tp"]
             # SL hit (check low)
             elif bar["low"] <= pos["sl"]:
-                reason, exit_price = "SL", pos["sl"]
-            # Force close
-            elif is_force:
+                reason = "SWING_SL" if is_sw else "SL"
+                exit_price = pos["sl"]
+            # Force close — swing positions are NOT force-closed intraday
+            elif is_force and not is_sw:
                 reason, exit_price = "FORCE_CLOSE", bar["close"]
 
             if reason:
@@ -459,7 +501,7 @@ def _simulate_day(
                 if df_sym is None or ts not in df_sym.index:
                     continue
                 bar_open = float(df_sym.loc[ts, "open"])
-                _open_trade(state, sym, str(ts), bar_open, sig["atr"], pos_mult)
+                _open_trade(state, sym, str(ts), bar_open, sig["atr"], pos_mult, sig["score"])
                 n_open += 1
             pending_signals.clear()
 
@@ -493,14 +535,23 @@ def _simulate_day(
         equity = state.cash + _pos_value_at(state, day_bars, ts)
         state.equity_curve.append({"ts": str(ts), "equity": round(equity, 2)})
 
-    # EOD: close any leftover positions at last bar's close
+    # EOD: close intraday positions; manage swing carries
     for sym in list(state.positions.keys()):
+        pos = state.positions[sym]
         df_sym = day_bars.get(sym)
         last_price = (
             float(df_sym["close"].iloc[-1]) if df_sym is not None and not df_sym.empty
-            else state.positions[sym]["entry"]
+            else pos["entry"]
         )
-        _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "EOD", date_str)
+        if pos.get("is_swing"):
+            pos["swing_days_remaining"] -= 1
+            pnl_pct = (last_price / pos["entry"] - 1) * 100
+            if pos["swing_days_remaining"] <= 0:
+                _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "SWING_MAXDAYS", date_str)
+            else:
+                logger.info(f"  SWING CARRY {sym}: {pos['swing_days_remaining']}d left | P&L={pnl_pct:+.2f}%")
+        else:
+            _close_trade(state, sym, str(sorted_ts[-1]) + "_EOD", last_price, "EOD", date_str)
 
     portfolio_value = state.cash + sum(
         pos["qty"] * pos["entry"] for pos in state.positions.values()
@@ -554,6 +605,17 @@ def _print_report(state: SimState) -> None:
     print("\n── Exit-reason breakdown ──────────────────────────────────────────")
     for reason, grp in df.groupby("exit_reason"):
         print(f"  {reason:<15} {len(grp):>3} trades   P&L ${grp['pnl'].sum():>+10,.2f}")
+
+    swing_mask = df["exit_reason"].str.startswith("SWING")
+    n_swing = swing_mask.sum()
+    if n_swing > 0:
+        sw = df[swing_mask]
+        sw_wins = (sw["pnl"] > 0).sum()
+        print(f"\n── Swing summary ({n_swing} trades, win rate {sw_wins/n_swing*100:.1f}%) ────────────────────")
+        print(f"  Total swing P&L : ${sw['pnl'].sum():>+10,.2f}")
+        print(f"  Avg swing trade : ${sw['pnl'].mean():>+.2f}  |  avg hold = {(sw['pnl_pct'].abs() > 0).sum()} trades")
+        for sym, grp in sw.groupby("symbol"):
+            print(f"    {sym:<6} {len(grp):>2} trades  P&L ${grp['pnl'].sum():>+8,.2f}  win {(grp['pnl']>0).sum()}/{len(grp)}")
 
     print("\n── Daily P&L ──────────────────────────────────────────────────────")
     for date, grp in df.groupby("date"):

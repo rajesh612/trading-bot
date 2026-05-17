@@ -253,7 +253,7 @@ SENTIMENT_WEAK_COMPOSITE_MIN  = 30    # if sentiment < 0, require composite >= t
 INTRADAY_SENTIMENT_BLOCK      = -10   # intraday sentiment_score below this = skip
 
 # ── Auto-Execute (skip Claude for textbook setups) ────────────────────────────
-AUTO_EXECUTE_COMPOSITE_MIN    = 55    # composite must exceed this for auto-execute
+AUTO_EXECUTE_COMPOSITE_MIN    = 65    # raised from 55 — reserve auto-execute for high-conviction setups
 AUTO_EXECUTE_SENTIMENT_MIN    = 20    # intraday sentiment_score must exceed this
 AUTO_EXECUTE_CONFIDENCE       = 90    # confidence score assigned to auto-execute decisions (legacy fallback)
 AUTO_EXECUTE_CONFIDENCE_BASE  = 75    # base confidence for dynamic auto-execute derivation

@@ -158,17 +158,17 @@ class TestPreClaudeFilter:
     @pytest.mark.unit
     def test_auto_execute_strong_signal(self):
         from trading.pre_claude_filter import pre_claude_filter
-        # composite=56 (> raised threshold 55), sentiment=25 (> raised threshold 20)
+        # composite=66 (> raised threshold 65), sentiment=25 (> raised threshold 20)
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
-        result = pre_claude_filter("TEST", self._iv(composite=56.0), snap)
+        result = pre_claude_filter("TEST", self._iv(composite=66.0), snap)
         assert result.decision == "AUTO_EXECUTE"
 
     @pytest.mark.unit
     def test_auto_execute_not_triggered_below_new_composite_threshold(self):
-        """composite=54 (below raised threshold 55) routes to CLAUDE, not AUTO_EXECUTE."""
+        """composite=64 (below raised threshold 65) routes to CLAUDE, not AUTO_EXECUTE."""
         from trading.pre_claude_filter import pre_claude_filter
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
-        result = pre_claude_filter("TEST", self._iv(composite=54.0), snap)
+        result = pre_claude_filter("TEST", self._iv(composite=64.0), snap)
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
