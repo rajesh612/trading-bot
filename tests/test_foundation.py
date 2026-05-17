@@ -438,6 +438,43 @@ class TestPostEventDay:
 
 
 @pytest.mark.unit
+def test_notify_budget_intraday_throttled(monkeypatch):
+    import notifications.telegram as t
+    monkeypatch.setattr(t, "_budget_warn_sent", {"date": None})
+    sent = []
+    monkeypatch.setattr(t, "_send", lambda msg: sent.append(msg))
+    t.notify_budget_intraday_warning(0.75, 1.0)
+    t.notify_budget_intraday_warning(0.80, 1.0)
+    assert len(sent) == 1
+
+
+@pytest.mark.unit
+def test_notify_position_drawdown_throttled_per_symbol(monkeypatch):
+    import notifications.telegram as t
+    monkeypatch.setattr(t, "_drawdown_alerted", {})
+    sent = []
+    monkeypatch.setattr(t, "_send", lambda msg: sent.append(msg))
+    t.notify_position_drawdown("AAPL", -2.5, -4.0)
+    t.notify_position_drawdown("AAPL", -2.8, -4.0)
+    t.notify_position_drawdown("MSFT", -2.1, -4.0)
+    assert len(sent) == 2
+
+
+@pytest.mark.unit
+def test_notify_buy_batch_sends_one_message(monkeypatch):
+    import notifications.telegram as t
+    sent = []
+    monkeypatch.setattr(t, "_send", lambda msg: sent.append(msg))
+    entries = [
+        {"symbol": "AAPL", "qty": 10, "price": 182.0, "sl": 174.7, "tp": 191.1, "score": 35.0, "confidence": 75},
+        {"symbol": "NVDA", "qty": 5,  "price": 820.0, "sl": 787.2, "tp": 861.0, "score": 42.0, "confidence": 80},
+    ]
+    t.notify_buy_batch(entries, regime="NORMAL")
+    assert len(sent) == 1
+    assert "AAPL" in sent[0] and "NVDA" in sent[0]
+
+
+@pytest.mark.unit
 def test_watchdog_sends_telegram_before_exit(monkeypatch):
     """Verify notify_alert is called before os._exit in the watchdog frozen-scheduler path."""
     alerts_sent = []

@@ -112,6 +112,69 @@ def notify_daily_loss_warning(daily_pnl_pct: float, ceiling_pct: float) -> None:
     )
 
 
+# ── Intraday risk alerts ───────────────────────────────────────────────────────
+
+_budget_warn_sent: dict = {"date": None}
+
+def notify_budget_intraday_warning(spent_usd: float, ceiling_usd: float) -> None:
+    """Alert once per day when entry pool crosses 75%."""
+    today = datetime.now(ET).date().isoformat()
+    if _budget_warn_sent.get("date") == today:
+        return
+    _budget_warn_sent["date"] = today
+    pct = spent_usd / ceiling_usd * 100 if ceiling_usd else 0
+    _send(
+        f"<b>💸 Entry budget {pct:.0f}% used intraday</b>\n"
+        f"${spent_usd:.3f} of ${ceiling_usd:.2f} — new entries may slow."
+    )
+
+
+_drawdown_alerted: dict = {}  # {symbol: date}
+
+def notify_position_drawdown(symbol: str, pnl_pct: float, stop_pct: float) -> None:
+    """Alert once per symbol per day when position drawdown > 2% but above stop."""
+    today = datetime.now(ET).date().isoformat()
+    if _drawdown_alerted.get(symbol) == today:
+        return
+    _drawdown_alerted[symbol] = today
+    _send(
+        f"<b>⚠️ {symbol} drawdown {pnl_pct:.1f}%</b>\n"
+        f"Stop at {stop_pct:.1f}% — monitor for cascade risk."
+    )
+
+
+_sector_flip_alerted: dict = {}  # {sector: date}
+
+def notify_sector_flip(sector_etf: str, change_pct: float, affected_symbols: list[str]) -> None:
+    """Alert once per sector per day on intraday sector reversal."""
+    today = datetime.now(ET).date().isoformat()
+    if _sector_flip_alerted.get(sector_etf) == today:
+        return
+    _sector_flip_alerted[sector_etf] = today
+    syms = ", ".join(affected_symbols[:5])
+    _send(
+        f"<b>📉 Sector flip: {sector_etf} {change_pct:+.1f}%</b>\n"
+        f"Open positions at risk: {syms}"
+    )
+
+
+def notify_stale_research(age_min: float) -> None:
+    """Alert when research report is stale."""
+    _send(
+        f"<b>⏰ Stale research report ({age_min:.0f} min old)</b>\n"
+        "Research job may have failed. Sentiment signals are degraded."
+    )
+
+
+def notify_correlated_exposure(sector: str, count: int, symbols: list[str]) -> None:
+    """Alert when sector concentration is high."""
+    syms = ", ".join(symbols)
+    _send(
+        f"<b>⚠️ Concentrated exposure: {sector} ({count} positions)</b>\n"
+        f"Symbols: {syms}\nSector move could trigger correlated cascade."
+    )
+
+
 # ── Regime ────────────────────────────────────────────────────────────────────
 
 def notify_regime_change(old: str, new: str, health: int) -> None:
@@ -157,6 +220,27 @@ def notify_close(
         f"P&L: <b>${pnl_dollar:+.2f} ({pnl_pct:+.2f}%)</b>\n"
         f"Reason: {reason}"
     )
+
+
+# ── Batch buy notification ────────────────────────────────────────────────────
+
+def notify_buy_batch(entries: list[dict], regime: str) -> None:
+    """Single summary Telegram for multiple entries in one cycle."""
+    if not entries:
+        return
+    if len(entries) == 1:
+        e = entries[0]
+        notify_buy(symbol=e["symbol"], qty=e["qty"], price=e["price"],
+                   sl=e["sl"], tp=e["tp"], mode=e.get("mode", "DAY_TRADE"),
+                   score=e["score"], confidence=e["confidence"])
+        return
+    lines = [f"<b>📈 {len(entries)} entries — {regime}</b>"]
+    for e in entries:
+        lines.append(
+            f"  • <b>{e['symbol']}</b> {e['qty']:.0f}sh @${e['price']:.2f} "
+            f"SL${e['sl']:.2f} TP${e['tp']:.2f} score={e['score']:+.0f}"
+        )
+    _send("\n".join(lines))
 
 
 # ── Morning watch list ────────────────────────────────────────────────────────
