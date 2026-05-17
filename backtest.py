@@ -1,17 +1,24 @@
 """
-Backtest: last 7 trading days (Apr 14–22, 2026), starting with $100,000.
+Backtest: dynamic date range, starting with $100,000.
 Uses 5-min bars from Alpaca (IEX feed). No Claude API calls — pure indicator logic.
 
 Signal at bar T  →  entry at bar T+1 open price  (no look-ahead bias)
 SL = -2%, TP = +5%, max 5 concurrent positions, max 5% of portfolio per position
 0.05% slippage on entry, 0.05% slippage on exit. One entry per stock per day.
 Force-close at first bar whose timestamp >= 15:55 ET.
+
+Usage:
+  python backtest.py                      # last 30 trading days
+  python backtest.py --days 60            # last 60 trading days
+  python backtest.py --start 2026-04-01   # from date to today
+  python backtest.py --start 2026-04-01 --end 2026-04-30
 """
 
+import argparse
 import logging
 import sys
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -34,15 +41,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Parameters ──────────────────────────────────────────────────────────────
-TRADING_DAYS = [
-    datetime(2026, 4, 14, tzinfo=ET),
-    datetime(2026, 4, 15, tzinfo=ET),
-    datetime(2026, 4, 16, tzinfo=ET),
-    datetime(2026, 4, 17, tzinfo=ET),
-    datetime(2026, 4, 18, tzinfo=ET),
-    datetime(2026, 4, 21, tzinfo=ET),
-    datetime(2026, 4, 22, tzinfo=ET),
-]
+# US market holidays (NYSE) — extend annually
+_NYSE_HOLIDAYS = {
+    date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 4, 3),
+    date(2026, 5, 25), date(2026, 7, 3), date(2026, 9, 7), date(2026, 11, 26),
+    date(2026, 12, 25),
+    date(2025, 1, 1), date(2025, 1, 20), date(2025, 2, 17), date(2025, 4, 18),
+    date(2025, 5, 26), date(2025, 6, 19), date(2025, 7, 4), date(2025, 9, 1),
+    date(2025, 11, 27), date(2025, 12, 25),
+}
+
+
+def _get_trading_days(start: date, end: date) -> list[datetime]:
+    """Return market-open datetimes for weekdays excluding NYSE holidays in [start, end]."""
+    days = []
+    d = start
+    while d <= end:
+        if d.weekday() < 5 and d not in _NYSE_HOLIDAYS:
+            days.append(datetime(d.year, d.month, d.day, tzinfo=ET))
+        d += timedelta(days=1)
+    return days
 STARTING_CAPITAL = 100_000.0
 SLIPPAGE_PCT     = 0.0005      # 0.05% each way
 STOP_LOSS_PCT    = 4.0
@@ -520,8 +538,10 @@ def _print_report(state: SimState) -> None:
     final_equity = equity_vals[-1] if equity_vals else STARTING_CAPITAL + total_pnl
     total_return_pct = (final_equity / STARTING_CAPITAL - 1) * 100
 
+    start_lbl = state.equity_curve[0]["ts"][:10]  if state.equity_curve else "?"
+    end_lbl   = state.equity_curve[-1]["ts"][:10] if state.equity_curve else "?"
     print("\n" + "=" * 70)
-    print("  BACKTEST RESULTS  —  Apr 14-22, 2026  —  $100,000 starting capital")
+    print(f"  BACKTEST RESULTS  —  {start_lbl} → {end_lbl}  —  $100,000 starting capital")
     print("=" * 70)
     print(f"  Final equity        : ${final_equity:>12,.2f}")
     print(f"  Total P&L           : ${total_pnl:>+12,.2f}   ({total_return_pct:+.2f}%)")
@@ -569,15 +589,22 @@ def _print_report(state: SimState) -> None:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def run_backtest() -> None:
+def run_backtest(trading_days: list[datetime]) -> None:
+    if not trading_days:
+        logger.error("No trading days in range — nothing to backtest.")
+        return
+
     logger.info("Loading tickers…")
     with open(config.TICKERS_FILE) as f:
-        all_tickers = [line.strip().upper() for line in f if line.strip()]
+        all_tickers = [
+            line.strip().upper() for line in f
+            if line.strip() and not line.strip().startswith("#")
+        ]
     logger.info(f"  {len(all_tickers)} tickers loaded.")
 
     # Fetch all 5-min bars for the entire backtest window in one batch
-    fetch_start = TRADING_DAYS[0] - timedelta(days=5)   # extra buffer for lookback
-    fetch_end   = TRADING_DAYS[-1] + timedelta(days=1)
+    fetch_start = trading_days[0] - timedelta(days=5)   # extra buffer for lookback
+    fetch_end   = trading_days[-1] + timedelta(days=1)
     logger.info(f"Fetching 5-min bars {fetch_start.date()} → {fetch_end.date()} for all {len(all_tickers)} tickers…")
     logger.info("  (This may take 30–90 seconds — Alpaca batch request)")
     all_bars = _fetch_5min_bars(all_tickers, fetch_start, fetch_end)
@@ -586,14 +613,14 @@ def run_backtest() -> None:
     # Fetch VIX regime once per day (one HTTP call, cached in dict)
     logger.info("Fetching VIX regime classification for each trading day…")
     vix_regimes: dict[str, str] = {}
-    for day in TRADING_DAYS:
+    for day in trading_days:
         vix_regimes[day.strftime("%Y-%m-%d")] = _fetch_vix_regime_for_day(day)
         logger.info(f"  {day.date()}: regime={vix_regimes[day.strftime('%Y-%m-%d')]}")
 
     backtest_params = _load_backtest_params()
     state = SimState()
 
-    for day in TRADING_DAYS:
+    for day in trading_days:
         prior_day = day - timedelta(days=1)
         regime = vix_regimes[day.strftime("%Y-%m-%d")]
         watch_list = _select_watch_list(all_tickers, prior_day)
@@ -607,4 +634,44 @@ def run_backtest() -> None:
 
 
 if __name__ == "__main__":
-    run_backtest()
+    parser = argparse.ArgumentParser(description="Trading bot backtest")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--days", type=int, default=30,
+        help="Number of past trading days to backtest (default: 30)",
+    )
+    group.add_argument(
+        "--start", type=str, metavar="YYYY-MM-DD",
+        help="Start date (default: --days ago); optionally combined with --end",
+    )
+    parser.add_argument(
+        "--end", type=str, metavar="YYYY-MM-DD",
+        help="End date (default: today); only used with --start",
+    )
+    args = parser.parse_args()
+
+    today = datetime.now(ET).date()
+
+    if args.start:
+        start_date = date.fromisoformat(args.start)
+        end_date   = date.fromisoformat(args.end) if args.end else today
+    else:
+        # Walk back N calendar days to find N trading days
+        end_date = today
+        days_needed = args.days
+        # Scan back up to 2× to account for weekends/holidays
+        candidate = end_date - timedelta(days=1)  # exclude today (market may be open)
+        trading_days_found: list[datetime] = []
+        lookback_limit = days_needed * 3
+        for _ in range(lookback_limit):
+            if candidate.weekday() < 5 and candidate not in _NYSE_HOLIDAYS:
+                trading_days_found.insert(0, datetime(candidate.year, candidate.month, candidate.day, tzinfo=ET))
+                if len(trading_days_found) == days_needed:
+                    break
+            candidate -= timedelta(days=1)
+        run_backtest(trading_days_found)
+        sys.exit(0)
+
+    trading_days = _get_trading_days(start_date, end_date)
+    logger.info(f"Backtest window: {start_date} → {end_date} ({len(trading_days)} trading days)")
+    run_backtest(trading_days)
