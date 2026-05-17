@@ -631,3 +631,37 @@ def test_budget_intraday_warning_fired_at_75pct(monkeypatch, tmp_path):
     assert warned, "Expected budget intraday warning at 76% of entry ceiling"
 
 
+# ── P4-T1: _validate_decision ─────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_validate_decision_clamps_confidence():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 150, "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "reasoning": "x"}
+    result = _validate_decision(raw, "AAPL")
+    assert result["confidence"] == 100
+
+
+@pytest.mark.unit
+def test_validate_decision_clamps_stop_loss_negative():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 75, "stop_loss_pct": -1.5, "take_profit_pct": 5.0, "reasoning": "x"}
+    result = _validate_decision(raw, "AAPL")
+    assert result["stop_loss_pct"] >= 0.5
+
+
+@pytest.mark.unit
+def test_validate_decision_clamps_take_profit_high():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 75, "stop_loss_pct": 4.0, "take_profit_pct": 50.0, "reasoning": "x"}
+    result = _validate_decision(raw, "AAPL")
+    assert result["take_profit_pct"] <= 15.0
+
+
+@pytest.mark.unit
+def test_validate_decision_passthrough_valid():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 75, "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "reasoning": "x"}
+    result = _validate_decision(dict(raw), "AAPL")
+    assert result["confidence"] == 75
+    assert result["stop_loss_pct"] == 4.0
+

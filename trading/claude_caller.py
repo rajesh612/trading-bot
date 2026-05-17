@@ -46,6 +46,20 @@ def _get_cached_stable_context(fred_cache: dict, research_meta: dict, regime_inf
         return _stable_ctx_text
 
 
+def _validate_decision(decision: dict, symbol: str) -> dict:
+    """Clamp Claude output to safe ranges. Logs a warning if any value was adjusted."""
+    original = {k: decision.get(k) for k in ("confidence", "stop_loss_pct", "take_profit_pct")}
+    decision["confidence"] = max(0, min(100, int(decision.get("confidence", 0))))
+    decision["stop_loss_pct"] = max(0.5, min(10.0, float(decision.get("stop_loss_pct", 4.0))))
+    decision["take_profit_pct"] = max(1.0, min(15.0, float(decision.get("take_profit_pct", 5.0))))
+    adjusted = {k: decision.get(k) for k in ("confidence", "stop_loss_pct", "take_profit_pct")}
+    if adjusted != original:
+        logger.warning(
+            "%s: Claude output clamped — original=%s adjusted=%s", symbol, original, adjusted
+        )
+    return decision
+
+
 def _default_hold(symbol: str) -> dict:
     return {
         "action": "HOLD",
@@ -181,7 +195,8 @@ def _ask_claude_batch(
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group())
+            parsed = json.loads(match.group())
+            return {sym: _validate_decision(dec, sym) for sym, dec in parsed.items()}
         except json.JSONDecodeError:
             pass
 
