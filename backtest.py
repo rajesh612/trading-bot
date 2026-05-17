@@ -194,9 +194,17 @@ def _fetch_vix_regime_for_day(day: datetime) -> str:
         return "NORMAL"
 
 
-def _fetch_5min_bars(symbols: list[str], start: datetime, end: datetime) -> dict[str, pd.DataFrame]:
-    """Fetch 5-min bars for all symbols in one batch request, return {symbol: df}."""
-    client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
+_FETCH_SYMBOL_BATCH = 25    # symbols per Alpaca request
+_FETCH_DAY_CHUNK    = 30    # trading days per time-window chunk
+
+
+def _fetch_one_batch(
+    client: StockHistoricalDataClient,
+    symbols: list[str],
+    start: datetime,
+    end: datetime,
+) -> dict[str, pd.DataFrame]:
+    """Single Alpaca request for a subset of symbols over a time window."""
     req = StockBarsRequest(
         symbol_or_symbols=symbols,
         timeframe=TimeFrame(5, TimeFrameUnit.Minute),
@@ -206,11 +214,9 @@ def _fetch_5min_bars(symbols: list[str], start: datetime, end: datetime) -> dict
     )
     bars = client.get_stock_bars(req)
     df_all = bars.df
-
     result: dict[str, pd.DataFrame] = {}
     if df_all is None or df_all.empty:
         return result
-
     if isinstance(df_all.index, pd.MultiIndex):
         for sym in symbols:
             try:
@@ -219,10 +225,43 @@ def _fetch_5min_bars(symbols: list[str], start: datetime, end: datetime) -> dict
                     result[sym] = df
             except KeyError:
                 pass
-    else:
-        # single symbol returned
-        if symbols:
-            result[symbols[0]] = df_all
+    elif symbols:
+        result[symbols[0]] = df_all
+    return result
+
+
+def _fetch_5min_bars(symbols: list[str], start: datetime, end: datetime) -> dict[str, pd.DataFrame]:
+    """Fetch 5-min bars chunked by symbol batch and time window to avoid IEX timeouts."""
+    client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
+    result: dict[str, pd.DataFrame] = {}
+
+    # Build time chunks (calendar days, not trading days — simpler)
+    total_days = max(1, (end.date() - start.date()).days)
+    chunk_size_days = _FETCH_DAY_CHUNK * 7 // 5  # trading days → calendar days approx
+    time_chunks: list[tuple[datetime, datetime]] = []
+    chunk_start = start
+    while chunk_start < end:
+        chunk_end = min(chunk_start + timedelta(days=chunk_size_days), end)
+        time_chunks.append((chunk_start, chunk_end))
+        chunk_start = chunk_end
+
+    sym_batches = [symbols[i:i + _FETCH_SYMBOL_BATCH] for i in range(0, len(symbols), _FETCH_SYMBOL_BATCH)]
+    n_requests = len(sym_batches) * len(time_chunks)
+    logger.info(f"  Fetching in {len(sym_batches)} symbol batches × {len(time_chunks)} time chunks = {n_requests} requests…")
+
+    for t_start, t_end in time_chunks:
+        for batch in sym_batches:
+            try:
+                chunk = _fetch_one_batch(client, batch, t_start, t_end)
+                for sym, df in chunk.items():
+                    if sym in result:
+                        result[sym] = pd.concat([result[sym], df]).sort_index()
+                        result[sym] = result[sym][~result[sym].index.duplicated(keep="last")]
+                    else:
+                        result[sym] = df
+            except Exception as exc:
+                logger.warning(f"  Fetch failed for batch {batch[:3]}… {t_start.date()}→{t_end.date()}: {exc} — skipping chunk")
+
     return result
 
 
