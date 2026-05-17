@@ -276,3 +276,6 @@ WATCH_LIST_MIN_AFTER_FILTER   = 6     # relax filter thresholds if fewer symbols
 
 INTRADAY_NEWS_CACHE_FILE      = STATE_DIR / "intraday_news_cache.json"
 CYCLE_TELEMETRY_FILE          = STATE_DIR / "cycle_telemetry.jsonl"
+
+# ── Plan 3: Notification Completeness & Throttling ────────────────────────────
+DRAWDOWN_WARN_PCT = 2.0  # alert when position unrealised loss >= this % (but above stop)

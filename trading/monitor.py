@@ -24,6 +24,21 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 
+def _check_drawdown_alerts(positions: dict, current_prices: dict) -> None:
+    """Fire drawdown alerts for positions with P&L <= -DRAWDOWN_WARN_PCT but above stop."""
+    for symbol, pos in positions.items():
+        price = current_prices.get(symbol)
+        if price is None:
+            continue
+        entry = pos.get("entry_price", 0)
+        if entry <= 0:
+            continue
+        pnl_pct = (price - entry) / entry * 100
+        stop_pct = -pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
+        if pnl_pct <= -config.DRAWDOWN_WARN_PCT and pnl_pct > stop_pct:
+            telegram_notify.notify_position_drawdown(symbol, pnl_pct, stop_pct)
+
+
 def run_position_monitor():
     """
     Two-layer intra-cycle protection:
@@ -137,6 +152,15 @@ def run_position_monitor():
             close_position(symbol, alpaca, open_positions, current_price, None, "monitor_take_profit")
 
     flush_profit_lock_updates(open_positions)
+
+    # Collect current prices from positions still in open_positions for drawdown check
+    current_prices_for_drawdown: dict[str, float] = {}
+    for symbol, pos in open_positions.items():
+        try:
+            current_prices_for_drawdown[symbol] = alpaca.get_latest_price(symbol)
+        except Exception:
+            pass
+    _check_drawdown_alerts(open_positions, current_prices_for_drawdown)
 
     try:
         from trading.swing_manager import monitor_swing_positions

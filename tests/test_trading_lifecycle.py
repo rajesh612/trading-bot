@@ -498,3 +498,22 @@ def test_empty_watch_list_sends_telegram_alert():
     assert any("watch" in m.lower() or "empty" in m.lower() for m in alerts_sent), (
         f"Expected watch-list-empty alert, got: {alerts_sent}"
     )
+
+
+@pytest.mark.unit
+def test_monitor_fires_drawdown_alert(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    from trading.monitor import _check_drawdown_alerts
+
+    monkeypatch.setattr(config, "DRAWDOWN_WARN_PCT", 2.0)
+    alerts = []
+    monkeypatch.setattr("notifications.telegram.notify_position_drawdown",
+                        lambda sym, pnl, stop: alerts.append(sym))
+    monkeypatch.setattr("notifications.telegram._drawdown_alerted", {})
+
+    position = {"entry_price": 100.0, "qty": 10, "stop_loss_pct": 4.0,
+                "stop_loss_price": 96.0, "take_profit_price": 105.0,
+                "entry_composite_score": 30.0}
+    _check_drawdown_alerts({"AAPL": position}, current_prices={"AAPL": 97.5})
+    assert "AAPL" in alerts
