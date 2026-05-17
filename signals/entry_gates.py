@@ -61,6 +61,7 @@ def check_all_gates(
     rsi_max: float = config.RSI_BUY_MAX,
     sector_today: dict | None = None,
     symbol_sector_etf: str | None = None,
+    advance_decline_ratio: float = 1.0,
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -156,5 +157,18 @@ def check_all_gates(
         chg = sector_today.get(symbol_sector_etf)
         if chg is not None and chg < config.SECTOR_ETF_SOFT_DROP_PCT:
             flags.append(f"sector_weak({symbol_sector_etf}={chg:+.1f}%)")
+
+    # 17. Relative volume — thin tape increases false-positive rate
+    from signals.volume_guard import is_volume_weak
+    if is_volume_weak(iv.relative_volume):
+        flags.append(f"rel_vol_low({iv.relative_volume:.2f}x)")
+
+    # 18. Opening range position — entries inside OR carry reversal risk
+    if iv.or_position == "inside":
+        flags.append("inside_opening_range")
+
+    # 19. Market breadth — narrow IWM/SPY breadth signals possible bull trap
+    if advance_decline_ratio < config.BREADTH_WEAK_THRESHOLD:
+        flags.append(f"breadth_weak(ad={advance_decline_ratio:.2f})")
 
     return GateResult(True, "", tuple(flags))

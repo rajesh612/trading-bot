@@ -281,6 +281,11 @@ CYCLE_TELEMETRY_FILE          = STATE_DIR / "cycle_telemetry.jsonl"
 # ── Plan 3: Notification Completeness & Throttling ────────────────────────────
 DRAWDOWN_WARN_PCT = 2.0  # alert when position unrealised loss >= this % (but above stop)
 
+# ── Plan 5: Missing Entry Gates ───────────────────────────────────────────────
+REL_VOLUME_MIN          = 0.60   # current volume < 60% of 20d avg → soft flag (weak tape)
+BREADTH_WEAK_THRESHOLD  = 0.85   # IWM/SPY breadth ratio below this → soft flag
+OPENING_RANGE_MINUTES   = 60     # first N minutes of session form the opening range
+
 # ── Learning Agent ─────────────────────────────────────────────────────────────
 LEARNING_MAX_PARAMS_PER_DAY        = 1   # max param changes on zero-trade days
 LEARNING_ZERO_TRADE_RSI_STEP       = 2   # relax RSI_BUY_MAX by this on zero-trade days

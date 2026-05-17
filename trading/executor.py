@@ -50,6 +50,7 @@ def execute_buy(
     daily_pnl_pct: float = 0.0,
     sector_today: dict | None = None,
     symbol_sector_etf: str | None = None,
+    advance_decline_ratio: float = 1.0,
     suppress_notify: bool = False,
 ) -> dict | None:
     """
@@ -103,6 +104,7 @@ def execute_buy(
         rsi_max=rsi_max,
         sector_today=sector_today,
         symbol_sector_etf=symbol_sector_etf,
+        advance_decline_ratio=advance_decline_ratio,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)

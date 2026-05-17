@@ -65,3 +65,25 @@ def build_breadth_context_line(signals: dict) -> str:
     return (
         f"Breadth: HYG={hyg:+.1f}% IWM-vs-SPY={spread:+.1f}%{term_label}"
     )
+
+
+def get_advance_decline_ratio() -> "float | None":
+    """Fetch intraday IWM/SPY breadth ratio as a proxy for market breadth.
+
+    Returns ratio > 1.0 when small-caps lead (broad participation),
+    < 0.85 when large-caps lead (narrowing breadth / potential bull trap).
+    Returns None on fetch failure — callers default to 1.0 (neutral).
+    """
+    try:
+        from data.market_data import get_intraday_bars
+        iwm = get_intraday_bars("IWM", lookback=20)
+        spy = get_intraday_bars("SPY", lookback=20)
+        if iwm is None or spy is None or len(iwm) < 5 or len(spy) < 5:
+            return None
+        iwm_chg = (float(iwm["close"].iloc[-1]) - float(iwm["open"].iloc[0])) / float(iwm["open"].iloc[0])
+        spy_chg = (float(spy["close"].iloc[-1]) - float(spy["open"].iloc[0])) / float(spy["open"].iloc[0])
+        if abs(spy_chg) < 0.0001:
+            return 1.0
+        return round(iwm_chg / spy_chg, 2)
+    except Exception:
+        return None

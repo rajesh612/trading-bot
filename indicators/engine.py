@@ -95,6 +95,33 @@ def compute_indicators(
     # 5-day daily volume stats
     daily_volume_ratio, daily_volume_trend, daily_volume_mean = _compute_daily_volume_stats(daily_df)
 
+    # Relative volume: today's projected full-day vol vs 20-day average
+    relative_volume = 1.0
+    try:
+        if daily_df is not None and len(daily_df) >= 20 and "volume" in df.columns:
+            avg_daily_vol = float(daily_df["volume"].iloc[-21:-1].mean())
+            todays_vol = float(df["volume"].sum())
+            if avg_daily_vol > 0:
+                session_fraction = min(1.0, len(df) * 5 / 390)
+                projected = todays_vol / session_fraction if session_fraction > 0 else todays_vol
+                relative_volume = round(projected / avg_daily_vol, 2)
+    except Exception:
+        pass
+
+    # Opening range: high/low of first OPENING_RANGE_MINUTES bars
+    or_position = "unknown"
+    try:
+        import config as _cfg
+        from signals.opening_range_gate import get_or_position as _or_pos
+        or_bars = round(_cfg.OPENING_RANGE_MINUTES / _cfg.BAR_TIMEFRAME_MINUTES)
+        if len(df) >= or_bars:
+            or_window = df.iloc[:or_bars]
+            or_high = float(or_window["high"].max())
+            or_low  = float(or_window["low"].min())
+            or_position = _or_pos(float(df["close"].iloc[-1]), or_high, or_low)
+    except Exception:
+        pass
+
     price = float(df["close"].iloc[-1])
     ts    = str(df.index[-1])
 
@@ -167,5 +194,7 @@ def compute_indicators(
         squeeze_confidence=_squeeze_conf,
         stop_hunt_zone=stop_hunt,
         prev_close=prev_close,
+        relative_volume=relative_volume,
+        or_position=or_position,
         **{k: v for k, v in vals.items() if k not in ("obv_trend",)},
     )

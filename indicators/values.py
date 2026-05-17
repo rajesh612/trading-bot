@@ -58,3 +58,5 @@ class IndicatorValues:
     stop_hunt_zone: bool = False
     prev_close: float = 0.0
     rsi_delta: float = 0.0           # RSI change over last 5 bars (positive = momentum building)
+    relative_volume: float = 1.0     # current volume / 20d avg volume; 1.0 = neutral
+    or_position: str = "unknown"     # "inside" | "outside" | "unknown" (opening range)

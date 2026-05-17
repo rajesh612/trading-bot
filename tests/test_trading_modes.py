@@ -275,6 +275,8 @@ def test_gap_skip_gate_exempts_pead_mode():
     iv.parabolic = False
     iv.stop_hunt_zone = False
     iv.vwap_std2_upper = 106.0  # price below overextension
+    iv.relative_volume = 1.0
+    iv.or_position = "outside"
 
     with patch("signals.entry_gates.is_entry_allowed", return_value=True), \
          patch("signals.entry_gates.passes_vwap_guard", return_value=True), \
@@ -360,6 +362,8 @@ def test_rsi_gate_exempts_pead_mode():
     iv.parabolic = False
     iv.stop_hunt_zone = False
     iv.vwap_std2_upper = 106.0
+    iv.relative_volume = 1.0
+    iv.or_position = "outside"
 
     with patch("signals.entry_gates.is_entry_allowed", return_value=True), \
          patch("signals.entry_gates.passes_vwap_guard", return_value=True), \

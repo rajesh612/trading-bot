@@ -293,6 +293,7 @@ class TradingPipeline:
                     daily_pnl_pct=daily_pnl_pct,
                     sector_today=snap.sector_today,
                     symbol_sector_etf=_SECTOR_ETF_MAP.get(symbol),
+                    advance_decline_ratio=snap.advance_decline_ratio,
                     suppress_notify=True,
                 )
                 if pos_data is not None:
@@ -331,6 +332,7 @@ class TradingPipeline:
                         daily_pnl_pct=daily_pnl_pct,
                         sector_today=snap.sector_today,
                         symbol_sector_etf=_SECTOR_ETF_MAP.get(symbol),
+                        advance_decline_ratio=snap.advance_decline_ratio,
                         suppress_notify=True,
                     )
                     if pos_data is not None:

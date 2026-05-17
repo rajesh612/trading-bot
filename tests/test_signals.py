@@ -318,3 +318,46 @@ class TestVwapGuard:
         assert passes_vwap_guard(iv) is True
 
 
+# ── Plan 5: Volume guard ──────────────────────────────────────────────────────
+
+class TestVolumeGuard:
+    @pytest.mark.unit
+    def test_volume_below_min_flags_as_weak(self, monkeypatch):
+        monkeypatch.setattr(config, "REL_VOLUME_MIN", 0.60)
+        from signals.volume_guard import is_volume_weak
+        assert is_volume_weak(relative_volume=0.45) is True
+
+    @pytest.mark.unit
+    def test_volume_above_min_does_not_flag(self, monkeypatch):
+        monkeypatch.setattr(config, "REL_VOLUME_MIN", 0.60)
+        from signals.volume_guard import is_volume_weak
+        assert is_volume_weak(relative_volume=0.80) is False
+
+    @pytest.mark.unit
+    def test_volume_guard_neutral_passes(self):
+        from signals.volume_guard import is_volume_weak
+        assert is_volume_weak(relative_volume=1.0) is False
+
+
+# ── Plan 5: Opening range gate ────────────────────────────────────────────────
+
+class TestOpeningRangeGate:
+    @pytest.mark.unit
+    def test_price_inside_or_flagged(self):
+        from signals.opening_range_gate import get_or_position
+        assert get_or_position(current_price=102.0, or_high=105.0, or_low=100.0) == "inside"
+
+    @pytest.mark.unit
+    def test_price_above_or_is_outside(self):
+        from signals.opening_range_gate import get_or_position
+        assert get_or_position(current_price=106.0, or_high=105.0, or_low=100.0) == "outside"
+
+    @pytest.mark.unit
+    def test_price_below_or_is_outside(self):
+        from signals.opening_range_gate import get_or_position
+        assert get_or_position(current_price=98.0, or_high=105.0, or_low=100.0) == "outside"
+
+    @pytest.mark.unit
+    def test_unknown_when_or_not_formed(self):
+        from signals.opening_range_gate import get_or_position
+        assert get_or_position(current_price=100.0, or_high=0.0, or_low=0.0) == "unknown"

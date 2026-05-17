@@ -29,6 +29,8 @@ def _gates_iv(**overrides):
         rsi=50.0,
         stoch_d=50.0,
         prev_close=100.0,
+        relative_volume=1.0,
+        or_position="outside",
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -77,6 +79,8 @@ class TestEntryGates:
             rsi=50.0,       # below RSI_BUY_MAX (72)
             stoch_d=50.0,   # below STOCH_HARD_VETO_THRESHOLD (88)
             prev_close=100.0,  # no gap-up (100 / 100 = 1.0 = 0% gap)
+            relative_volume=1.0,
+            or_position="outside",
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -234,6 +238,8 @@ class TestCheckAllGates:
             rsi=50.0,
             stoch_d=50.0,
             prev_close=100.0,
+            relative_volume=1.0,
+            or_position="outside",
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -397,6 +403,8 @@ class TestRsiStochGates:
             rsi=50.0,
             stoch_d=50.0,
             prev_close=100.0,
+            relative_volume=1.0,
+            or_position="outside",
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -475,6 +483,8 @@ class TestGapUpGate:
             rsi=50.0,
             stoch_d=50.0,
             prev_close=100.0,
+            relative_volume=1.0,
+            or_position="outside",
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)

@@ -643,3 +643,31 @@ def test_composite_phantom_weights_do_not_suppress_score():
     assert score > 85.0, f"Expected >85 but got {score} — phantom weights still suppressing"
     assert "ATR" not in weights
     assert "Volume Ratio" not in weights
+
+
+# ── Plan 5: relative_volume + or_position fields ──────────────────────────────
+
+@pytest.mark.unit
+def test_indicator_values_has_relative_volume_field():
+    import dataclasses
+    from indicators.values import IndicatorValues
+    field_names = [f.name for f in dataclasses.fields(IndicatorValues)]
+    assert "relative_volume" in field_names, "IndicatorValues missing relative_volume field"
+
+@pytest.mark.unit
+def test_indicator_values_has_or_position_field():
+    import dataclasses
+    from indicators.values import IndicatorValues
+    field_names = [f.name for f in dataclasses.fields(IndicatorValues)]
+    assert "or_position" in field_names, "IndicatorValues missing or_position field"
+
+@pytest.mark.unit
+def test_relative_volume_defaults_to_one():
+    from indicators.values import IndicatorValues
+    iv = IndicatorValues.__new__(IndicatorValues)
+    assert IndicatorValues.__dataclass_fields__["relative_volume"].default == 1.0
+
+@pytest.mark.unit
+def test_or_position_defaults_to_unknown():
+    from indicators.values import IndicatorValues
+    assert IndicatorValues.__dataclass_fields__["or_position"].default == "unknown"

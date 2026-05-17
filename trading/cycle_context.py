@@ -69,6 +69,7 @@ class CycleSnapshot:
     portfolio_gain_pct: float
     intraday_news: dict = field(default_factory=dict)  # populated in Task 9
     sector_today: dict = field(default_factory=dict)
+    advance_decline_ratio: float = 1.0   # IWM/SPY breadth ratio; < 0.85 → narrow breadth
 
 
 def build_cycle_snapshot(
@@ -106,6 +107,15 @@ def build_cycle_snapshot(
     intraday_ctx = get_intraday_context(datetime.now(ET))
     sector_today = intraday_ctx.sector_today if intraday_ctx is not None else {}
 
+    advance_decline_ratio = 1.0
+    try:
+        from macro.breadth_signals import get_advance_decline_ratio
+        ad = get_advance_decline_ratio()
+        if ad is not None:
+            advance_decline_ratio = ad
+    except Exception:
+        pass
+
     return CycleSnapshot(
         regime_info=regime_info,
         regime=regime_info.get("regime", "NORMAL"),
@@ -118,4 +128,5 @@ def build_cycle_snapshot(
         portfolio_gain_pct=portfolio_gain_pct,
         intraday_news=load_intraday_news(),
         sector_today=sector_today,
+        advance_decline_ratio=advance_decline_ratio,
     )
