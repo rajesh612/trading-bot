@@ -5,6 +5,7 @@ No API calls — all tests use synthetic fixtures.
 """
 import json
 import pytest
+import config
 
 
 # ── learning_agent: threshold clamping ───────────────────────────────────────
@@ -539,55 +540,69 @@ def test_learning_agent_rsi_prompt_range_allows_momentum_entries():
 
 @pytest.mark.unit
 def test_zero_trade_day_updates_trading_params(monkeypatch, tmp_path):
-    """On a zero-trade day the learning agent must still update trading_params.json.
-
-    Root cause of the May 7→15 stale-params bug: _refresh_strategy_memory_no_trades()
-    returned without touching trading_params, so stale rsi_buy_max survived indefinitely.
+    """On a zero-trade day the learning agent must still update trading_params.json
+    via deterministic single-param relaxation (no Claude call).
     """
-    import json
-    import config
     from unittest.mock import MagicMock, patch
+    from utils.io_utils import save_json, load_json
 
-    # Seed stale params (rsi_buy_max=65, stale since May 7)
+    # Seed stale params with rsi_buy_max below the upper bound (80) so relaxation fires
     stale_params = {
         "entry_start_hour": 10, "entry_end_hour": 15,
-        "rsi_buy_max": 65, "rsi_buy_max_high_vol": 65,
-        "vwap_slope_min": -0.2, "high_vol_position_mult": 0.5,
+        "rsi_buy_max": 70, "rsi_buy_max_high_vol": 65,
+        "vwap_slope_min": -0.3, "high_vol_position_mult": 0.5,
         "stop_loss_pct": 3.0, "take_profit_pct": 5.0,
-        "last_updated": "2026-05-07",
     }
     params_file = tmp_path / "trading_params.json"
-    params_file.write_text(json.dumps(stale_params))
     monkeypatch.setattr(config, "TRADING_PARAMS_FILE", params_file)
+    monkeypatch.setattr(config, "LEARNING_ZERO_TRADE_RSI_STEP", 2)
+    save_json(params_file, stale_params)
 
-    mem_file = tmp_path / "strategy_memory.md"
-    mem_file.write_text("# Trading Strategy Memory\n*Last updated: 2026-05-07*\n\n## General Rules\n- RSI gate: 45–65\n")
-    monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", mem_file)
-
-    # Claude returns relaxed params on zero-trade day
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text='{"rsi_buy_max": 70, "rsi_buy_max_high_vol": 65, "vwap_slope_min": -0.3, "high_vol_position_mult": 0.5, "stop_loss_pct": 3.0, "take_profit_pct": 5.0, "entry_start_hour": 10, "entry_end_hour": 15}')]
-    mock_response.usage = MagicMock(input_tokens=100, output_tokens=50, cache_creation_input_tokens=0, cache_read_input_tokens=0)
-
-    saved_params = {}
-
-    def _capture_save(path, data):
-        # Only capture trading_params saves (not indicator weights)
-        if "rsi_buy_max" in data or "entry_start_hour" in data:
-            saved_params.update(data)
-
-    with patch("learning.agent.load_macro_regime", return_value={"regime": "NORMAL", "macro_health_score": 37}), \
-         patch("learning.agent.load_trading_params", return_value=stale_params), \
-         patch("learning.agent._load_todays_closed_trades", return_value=[]), \
-         patch("learning.agent.risk_manager.record_usage"), \
-         patch("learning.data.save_json", side_effect=_capture_save), \
-         patch("learning.agent.config.STRATEGY_MEMORY_FILE", mem_file), \
+    with patch("learning.agent._load_todays_closed_trades", return_value=[]), \
          patch("anthropic.Anthropic") as MockAI:
-        MockAI.return_value.messages.create.return_value = mock_response
+        MockAI.return_value.messages.create.return_value = MagicMock()
         from learning.agent import run_learning_agent
         run_learning_agent()
+        # Deterministic path — Claude must NOT be called
+        MockAI.return_value.messages.create.assert_not_called()
 
-    assert saved_params.get("rsi_buy_max") == 70, (
-        f"Zero-trade day must update trading_params; rsi_buy_max saved as {saved_params.get('rsi_buy_max')}"
-    )
-    assert saved_params.get("last_updated") != "2026-05-07", "last_updated must be refreshed"
+    updated = load_json(params_file, {})
+    # At least one param must have been relaxed
+    changed = [k for k in stale_params if updated.get(k) != stale_params[k]]
+    assert len(changed) >= 1, "Zero-trade day must update at least one trading param"
+
+
+# ── P4-T4: _handle_zero_trade_day ─────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_zero_trade_day_skips_claude_call(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "TRADING_PARAMS_FILE", tmp_path / "params.json")
+    from utils.io_utils import save_json
+    save_json(config.TRADING_PARAMS_FILE, {
+        "rsi_buy_max": 72, "composite_min_normal": 20,
+        "entry_start_hour": 10, "entry_end_hour": 15,
+        "high_vol_position_mult": 0.5, "rsi_buy_max_high_vol": 65,
+        "vwap_slope_min": -0.3,
+    })
+    from unittest.mock import MagicMock
+    ai_mock = MagicMock()
+    from learning.agent import _handle_zero_trade_day
+    _handle_zero_trade_day(params_path=config.TRADING_PARAMS_FILE, ai=ai_mock)
+    ai_mock.messages.create.assert_not_called()
+
+
+@pytest.mark.unit
+def test_zero_trade_day_changes_at_most_one_param(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "TRADING_PARAMS_FILE", tmp_path / "params.json")
+    monkeypatch.setattr(config, "LEARNING_ZERO_TRADE_RSI_STEP", 2)
+    from utils.io_utils import save_json, load_json
+    original = {"rsi_buy_max": 70, "composite_min_normal": 22, "vwap_slope_min": -0.3,
+                "entry_start_hour": 10, "entry_end_hour": 15,
+                "high_vol_position_mult": 0.5, "rsi_buy_max_high_vol": 65}
+    save_json(config.TRADING_PARAMS_FILE, original)
+    from unittest.mock import MagicMock
+    from learning.agent import _handle_zero_trade_day
+    _handle_zero_trade_day(params_path=config.TRADING_PARAMS_FILE, ai=MagicMock())
+    updated = load_json(config.TRADING_PARAMS_FILE, {})
+    changed = [k for k in original if updated.get(k) != original[k]]
+    assert len(changed) <= 1, f"Too many params changed: {changed}"

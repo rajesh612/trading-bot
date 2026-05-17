@@ -28,6 +28,35 @@ from learning.data import (
 
 logger = logging.getLogger(__name__)
 
+_ZERO_TRADE_BOUNDS = {
+    "rsi_buy_max":          (65, 80),
+    "composite_min_normal": (15, 30),
+    "vwap_slope_min":       (-0.6, -0.1),
+}
+
+
+def _handle_zero_trade_day(params_path, ai) -> None:
+    """Deterministic single-param relaxation on zero-trade days. No Claude call."""
+    from utils.io_utils import load_json, save_json
+    from datetime import datetime
+    from utils.constants import ET
+    params = load_json(params_path, {})
+    weekday = datetime.now(ET).weekday()
+    param_order = ["rsi_buy_max", "composite_min_normal", "vwap_slope_min"]
+    target = param_order[weekday % len(param_order)]
+    low, high = _ZERO_TRADE_BOUNDS.get(target, (None, None))
+    if low is None:
+        return
+    current = float(params.get(target, high))
+    if target == "vwap_slope_min":
+        new_val = max(low, current - 0.05)
+    else:
+        new_val = min(high, current + config.LEARNING_ZERO_TRADE_RSI_STEP)
+    if new_val != current:
+        params[target] = round(new_val, 2)
+        save_json(params_path, params)
+        logger.info("Zero-trade-day: relaxed %s %s → %s", target, current, new_val)
+
 
 def _refresh_strategy_memory_no_trades(today: str) -> None:
     """
@@ -133,8 +162,8 @@ def run_learning_agent():
     closed_trades = _load_todays_closed_trades()
 
     if not closed_trades:
-        logger.info("No closed trades today — running rule-review pass on strategy_memory.")
-        _refresh_strategy_memory_no_trades(today)
+        logger.info("No closed trades today — running deterministic param relaxation.")
+        _handle_zero_trade_day(config.TRADING_PARAMS_FILE, None)
         return
 
     current_weights = _load_weights()

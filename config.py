@@ -279,3 +279,8 @@ CYCLE_TELEMETRY_FILE          = STATE_DIR / "cycle_telemetry.jsonl"
 
 # ── Plan 3: Notification Completeness & Throttling ────────────────────────────
 DRAWDOWN_WARN_PCT = 2.0  # alert when position unrealised loss >= this % (but above stop)
+
+# ── Learning Agent ─────────────────────────────────────────────────────────────
+LEARNING_MAX_PARAMS_PER_DAY        = 1   # max param changes on zero-trade days
+LEARNING_ZERO_TRADE_RSI_STEP       = 2   # relax RSI_BUY_MAX by this on zero-trade days
+LEARNING_ZERO_TRADE_COMPOSITE_STEP = 2   # relax COMPOSITE_MIN_NORMAL by this
