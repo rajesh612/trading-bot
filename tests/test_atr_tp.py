@@ -47,17 +47,24 @@ def test_compute_atr_tp_pct_higher_multiplier_ordering():
 
 
 @pytest.mark.unit
-def test_compute_atr_tp_pct_multiplier_scaling():
-    """TP% scales linearly with multiplier (atr=1%, price=100 → tp=mult%)."""
+def test_compute_atr_tp_pct_multiplier_scaling_2x():
+    """TP% scales linearly with multiplier: 2x multiplier (atr=1%, price=100 → tp=2%)."""
     from signals.atr_tp import compute_atr_tp_pct
     assert abs(compute_atr_tp_pct(atr=1.0, price=100.0, multiplier=2.0) - 2.0) < 0.001
+
+
+@pytest.mark.unit
+def test_compute_atr_tp_pct_multiplier_scaling_3x():
+    """TP% scales linearly with multiplier: 3x multiplier (atr=1%, price=100 → tp=3%)."""
+    from signals.atr_tp import compute_atr_tp_pct
     assert abs(compute_atr_tp_pct(atr=1.0, price=100.0, multiplier=3.0) - 3.0) < 0.001
 
 
 @pytest.mark.unit
 def test_simulator_open_trade_uses_atr_tp():
     """_open_trade uses ATR-based TP, not flat TAKE_PROFIT_PCT."""
-    from backtest.simulator import _open_trade, SimState
+    from backtest.simulator import _open_trade, SimState, SLIPPAGE_PCT
+    from signals.atr_tp import compute_atr_tp_pct
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -69,9 +76,9 @@ def test_simulator_open_trade_uses_atr_tp():
     _open_trade(state, "TEST", ts, entry_bar_open, atr, pos_mult=1.0, composite=25.0)
 
     pos = state.positions["TEST"]
-    expected_tp_pct = 7.0
-    expected_entry = 50.025
-    expected_tp = round(expected_entry * (1 + expected_tp_pct / 100), 4)
+    entry = entry_bar_open * (1 + SLIPPAGE_PCT)
+    expected_tp_pct = compute_atr_tp_pct(atr=atr, price=entry, multiplier=2.0)
+    expected_tp = round(entry * (1 + expected_tp_pct / 100), 4)
     assert abs(pos["tp"] - expected_tp) < 0.01
 
 
