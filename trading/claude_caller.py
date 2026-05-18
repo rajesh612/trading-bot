@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime
@@ -157,7 +158,6 @@ def _ask_claude_batch(
             max_tokens=300 * len(batch),
             system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
-            output_config={"format": {"type": "json_object"}},
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
@@ -194,9 +194,10 @@ def _ask_claude_batch(
     except Exception:
         pass
 
-    text = next((b.text for b in response.content if b.type == "text"), None)
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    match = re.search(r"\{.*\}", text, re.DOTALL)
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(match.group())
         return {sym: _validate_decision(dec, sym) for sym, dec in parsed.items()}
     except Exception:
         logger.warning("Claude JSON parse error for batch %s — defaulting to HOLD", symbols)
@@ -265,7 +266,6 @@ def _ask_claude_exit_batch(
             system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
             thinking={"type": "adaptive"},
-            output_config={"format": {"type": "json_object"}},
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
@@ -297,9 +297,10 @@ def _ask_claude_exit_batch(
     except Exception:
         pass
 
-    text = next((b.text for b in response.content if b.type == "text"), None)
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    match = re.search(r"\{.*\}", text, re.DOTALL)
     try:
-        return json.loads(text)
+        return json.loads(match.group())
     except Exception:
         logger.warning("Claude exit JSON parse error for %s — defaulting to HOLD", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
