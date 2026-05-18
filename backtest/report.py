@@ -1,5 +1,7 @@
 """Backtest reporting: console summary, CSV trade log, equity JSON."""
 from dataclasses import asdict
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -8,7 +10,50 @@ from backtest.simulator import SimState, STARTING_CAPITAL
 from utils.io_utils import save_json
 
 
-def print_report(state: SimState, **kwargs) -> None:
+def _compute_universe_benchmark(
+    day_watch_map: dict[str, list[str]],
+    daily_bars: dict[str, pd.DataFrame],
+) -> float:
+    """Return total % return of equal-weight buy-at-open/sell-at-close
+    over the watch list for each day. Missing symbols are skipped."""
+    UTC = ZoneInfo("UTC")
+    daily_returns: list[float] = []
+
+    for date_str in sorted(day_watch_map):
+        watch = day_watch_map[date_str]
+        day_dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+        next_dt = day_dt + timedelta(days=1)
+
+        day_rets: list[float] = []
+        for sym in watch:
+            df = daily_bars.get(sym)
+            if df is None or df.empty:
+                continue
+            if df.index.tz is None:
+                df = df.copy()
+                df.index = df.index.tz_localize("UTC")
+            day_df = df[(df.index >= day_dt) & (df.index < next_dt)]
+            if day_df.empty:
+                continue
+            open_px = float(day_df.iloc[0]["open"])
+            close_px = float(day_df.iloc[-1]["close"])
+            if open_px > 0:
+                day_rets.append((close_px - open_px) / open_px)
+
+        if day_rets:
+            daily_returns.append(sum(day_rets) / len(day_rets))
+
+    total = 1.0
+    for r in daily_returns:
+        total *= (1 + r)
+    return (total - 1) * 100
+
+
+def print_report(
+    state: SimState,
+    day_watch_map: dict | None = None,
+    daily_bars: dict | None = None,
+) -> None:
     trades = state.trades
     if not trades:
         print("\nNo trades executed.")
@@ -39,14 +84,27 @@ def print_report(state: SimState, **kwargs) -> None:
     start_lbl = state.equity_curve[0]["ts"][:10]  if state.equity_curve else "?"
     end_lbl   = state.equity_curve[-1]["ts"][:10] if state.equity_curve else "?"
 
+    bench_pct: float | None = None
+    if day_watch_map and daily_bars:
+        bench_pct = _compute_universe_benchmark(day_watch_map, daily_bars)
+
+    force_close_count = (df["exit_reason"] == "FORCE_CLOSE").sum()
+    force_close_pct   = force_close_count / n * 100 if n else 0.0
+
     print("\n" + "=" * 70)
     print(f"  BACKTEST RESULTS  —  {start_lbl} → {end_lbl}  —  $100,000 starting capital")
     print("=" * 70)
+    print(f"  ATR TP multiplier   : {state.atr_tp_multiplier:.2f}×")
     print(f"  Final equity        : ${final_equity:>12,.2f}")
     print(f"  Total P&L           : ${total_pnl:>+12,.2f}   ({total_return_pct:+.2f}%)")
+    if bench_pct is not None:
+        alpha = total_return_pct - bench_pct
+        print(f"  Universe benchmark  : {bench_pct:+.2f}%  (equal-weight watch-list)")
+        print(f"  Alpha vs benchmark  : {alpha:+.2f}%")
     print(f"  Max drawdown        : {max_dd:.2f}%")
     print(f"  Total trades        : {n}")
     print(f"  Win / Loss          : {wins} / {losses}  (win rate {win_rate:.1f}%)")
+    print(f"  Force-close rate    : {force_close_pct:.1f}%  ({force_close_count}/{n} trades)")
     print(f"  Avg winning trade   : ${avg_win:+.2f}")
     print(f"  Avg losing trade    : ${avg_loss:+.2f}")
 

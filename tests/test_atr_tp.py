@@ -100,3 +100,51 @@ def test_simulator_open_trade_flat_tp_not_used():
     expected_entry = 50.025
     flat_tp = round(expected_entry * (1 + 5.0 / 100), 4)
     assert pos["tp"] != flat_tp
+
+
+@pytest.mark.unit
+def test_compute_universe_benchmark_basic():
+    """Equal-weight buy-open/sell-close over two days compounds correctly."""
+    import pandas as pd
+    from backtest.report import _compute_universe_benchmark
+
+    daily_bars = {
+        "AAA": pd.DataFrame(
+            {"open": [100.0, 103.0], "close": [102.0, 106.09]},
+            index=pd.DatetimeIndex([
+                pd.Timestamp("2026-05-01", tz="UTC"),
+                pd.Timestamp("2026-05-02", tz="UTC"),
+            ]),
+        ),
+        "BBB": pd.DataFrame(
+            {"open": [50.0, 50.0], "close": [51.0, 51.5]},
+            index=pd.DatetimeIndex([
+                pd.Timestamp("2026-05-01", tz="UTC"),
+                pd.Timestamp("2026-05-02", tz="UTC"),
+            ]),
+        ),
+    }
+    day_watch_map = {
+        "2026-05-01": ["AAA", "BBB"],
+        "2026-05-02": ["AAA", "BBB"],
+    }
+    result = _compute_universe_benchmark(day_watch_map, daily_bars)
+    assert result > 4.5
+    assert result < 6.0
+
+
+@pytest.mark.unit
+def test_compute_universe_benchmark_missing_symbol():
+    """Symbol in watch map but absent from daily_bars is silently skipped."""
+    import pandas as pd
+    from backtest.report import _compute_universe_benchmark
+
+    daily_bars = {
+        "AAA": pd.DataFrame(
+            {"open": [100.0], "close": [102.0]},
+            index=pd.DatetimeIndex([pd.Timestamp("2026-05-01", tz="UTC")]),
+        )
+    }
+    day_watch_map = {"2026-05-01": ["AAA", "MISSING"]}
+    result = _compute_universe_benchmark(day_watch_map, daily_bars)
+    assert abs(result - 2.0) < 0.1
