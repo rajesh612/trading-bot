@@ -11,6 +11,7 @@ import pandas as pd
 
 import config
 from indicators.precompute import precompute_indicators_for_day
+from signals.atr_tp import compute_atr_tp_pct
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class SimState:
     daily_closed: set = field(default_factory=set)
     equity_curve: list = field(default_factory=list)
     trades: list = field(default_factory=list)
+    atr_tp_multiplier: float = field(default_factory=lambda: config.ATR_TP_MULT_DEFAULT)
 
 
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
@@ -95,7 +97,8 @@ def _open_trade(
     if qty < 1 or cost > state.cash:
         return
     sl = round(entry * (1 - STOP_LOSS_PCT / 100), 4)
-    tp = round(entry * (1 + TAKE_PROFIT_PCT / 100), 4)
+    tp_pct = compute_atr_tp_pct(atr, entry, state.atr_tp_multiplier)
+    tp = round(entry * (1 + tp_pct / 100), 4)
     state.cash -= cost
     state.positions[symbol] = {
         "qty": qty, "entry": entry, "sl": sl, "tp": tp,
