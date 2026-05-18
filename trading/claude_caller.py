@@ -18,6 +18,7 @@ import notifications.telegram as telegram_notify
 from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
 from trading.context_builder import build_stable_system_context, build_dynamic_user_context, build_stock_block, build_exit_stock_block
+from signals.atr_tp import compute_atr_tp_pct
 
 from utils.constants import ET
 
@@ -101,8 +102,13 @@ def _ask_claude_batch(
         logger.warning("API budget blocked — HOLD for %s", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 
+    _atr_mult = snap.params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT)
+
     stock_blocks = "\n\n".join(
-        build_stock_block(sym, iv, snap.research, existing_pos)
+        build_stock_block(
+            sym, iv, snap.research, existing_pos,
+            atr_suggested_tp_pct=compute_atr_tp_pct(iv.atr, iv.current_price, _atr_mult),
+        )
         for sym, iv, existing_pos in batch
     )
 

@@ -624,6 +624,7 @@ class TestCircuitBreakerTTL:
         snap.fred_cache = {}
         snap.weights = {}
         snap.strategy_memory = ""
+        snap.params = {}
         return snap
 
     def _make_exc(self, status_code, message="error"):
@@ -645,6 +646,7 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.build_stock_block", return_value="block"), \
              patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
              patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.compute_atr_tp_pct", return_value=5.0), \
              patch("trading.claude_caller.telegram_notify"):
             mock_ai = MagicMock()
             mock_ai.messages.create.side_effect = self._make_exc(429, "rate limit exceeded")
@@ -665,6 +667,7 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.build_stock_block", return_value="block"), \
              patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
              patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.compute_atr_tp_pct", return_value=5.0), \
              patch("trading.claude_caller.telegram_notify") as mock_tg:
             mock_ai = MagicMock()
             mock_ai.messages.create.side_effect = self._make_exc(402, "billing error")
@@ -699,7 +702,8 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.risk_manager.record_usage"), \
              patch("trading.claude_caller.build_stock_block", return_value="block"), \
              patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
-             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"):
+             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.compute_atr_tp_pct", return_value=5.0):
             claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
 
         assert not claude_caller._CLAUDE_DISABLED.is_set()
@@ -722,6 +726,7 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.build_stock_block", return_value="block"), \
              patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
              patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
+             patch("trading.claude_caller.compute_atr_tp_pct", return_value=5.0), \
              patch("trading.claude_caller.telegram_notify"):
             mock_ai = MagicMock()
             mock_ai.messages.create.side_effect = self._make_exc(429, "rate limit")

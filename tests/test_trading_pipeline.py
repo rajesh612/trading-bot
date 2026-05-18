@@ -755,3 +755,68 @@ def test_atr_tp_injected_into_claude_context():
 
     assert "ATR-TP=4.5%" in block
 
+
+@pytest.mark.unit
+def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
+    """_ask_claude_batch passes atr_suggested_tp_pct to build_stock_block."""
+    import config
+    from trading import claude_caller
+    from trading.claude_caller import _ask_claude_batch
+    from trading.cycle_context import CycleSnapshot
+    from indicators.values import IndicatorValues
+    from trading.context_builder import build_stock_block
+
+    captured = {}
+
+    def mock_build_stock_block(sym, iv, research, existing_pos, atr_suggested_tp_pct=None):
+        captured["atr_suggested_tp_pct"] = atr_suggested_tp_pct
+        return f"=={sym}=="
+
+    monkeypatch.setattr("trading.claude_caller.build_stock_block", mock_build_stock_block)
+
+    # Also patch out the API call and budget check so we don't hit network
+    monkeypatch.setattr("trading.claude_caller.risk_manager.check_entry_budget", lambda cost, regime: True)
+
+    class FakeResponse:
+        class usage:
+            input_tokens = 0
+            output_tokens = 0
+            cache_creation_input_tokens = 0
+            cache_read_input_tokens = 0
+        content = [type("C", (), {"text": '{"TEST": {"action": "HOLD", "confidence": 50, "reasoning": "test", "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "indicator_signals": {}}}'})]
+
+    class FakeAI:
+        class messages:
+            @staticmethod
+            def create(**kwargs):
+                return FakeResponse()
+
+    # Build a minimal IndicatorValues with atr=2.0, current_price=100.0
+    iv = IndicatorValues.__new__(IndicatorValues)
+    iv.atr = 2.0
+    iv.current_price = 100.0
+    # Fill remaining required fields with dummy values
+    for field in ["composite_score", "signal", "rsi", "rsi_slope", "macd_hist",
+                  "bb_lower", "bb_upper", "ema9", "ema21", "stoch_k", "stoch_d",
+                  "vwap", "daily_volume_ratio"]:
+        setattr(iv, field, 0.0)
+    iv.signal = "HOLD"
+
+    snap = CycleSnapshot.__new__(CycleSnapshot)
+    snap.params = {"atr_tp_multiplier": 2.0}
+    snap.research = {}
+    snap.research_meta = {}
+    snap.fred_cache = {}
+    snap.regime_info = {}
+    snap.regime = "NORMAL"
+    snap.weights = {}
+    snap.strategy_memory = ""
+
+    monkeypatch.setattr("trading.claude_caller._get_cached_stable_context", lambda *a, **kw: "ctx")
+    monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context", lambda now: "dynamic")
+
+    _ask_claude_batch([("TEST", iv, None)], snap, FakeAI())
+
+    # atr=2.0, price=100.0, mult=2.0 → atr_pct=2.0% → raw=4.0% → clamped to 4.0
+    assert abs(captured.get("atr_suggested_tp_pct", -1) - 4.0) < 0.01
+
