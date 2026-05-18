@@ -8,7 +8,7 @@ from backtest.simulator import SimState, STARTING_CAPITAL
 from utils.io_utils import save_json
 
 
-def print_report(state: SimState) -> None:
+def print_report(state: SimState, **kwargs) -> None:
     trades = state.trades
     if not trades:
         print("\nNo trades executed.")

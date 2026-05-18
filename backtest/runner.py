@@ -67,6 +67,7 @@ def _load_backtest_params() -> dict:
         "risk_per_trade_pct":       config.RISK_PER_TRADE_PCT,
         "high_vol_position_mult":   config.HIGH_VOL_POSITION_MULT,
         "max_positions":            config.SWING_MAX_POSITIONS,
+        "atr_tp_multiplier":        config.ATR_TP_MULT_DEFAULT,
     }
     learned = load_json(config.TRADING_PARAMS_FILE, {})
     if learned:
@@ -106,7 +107,9 @@ def run_backtest(start: datetime, end: datetime) -> None:
     regimes = _data.fetch_vix_regimes(trading_days)
 
     params = _load_backtest_params()
-    state = _sim.SimState()
+    state = _sim.SimState(atr_tp_multiplier=params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT))
+
+    day_watch_map: dict[str, list[str]] = {}
 
     for day in trading_days:
         date_str = day.strftime("%Y-%m-%d")
@@ -115,7 +118,8 @@ def run_backtest(start: datetime, end: datetime) -> None:
         if not watch:
             logger.warning("  %s: no watch-list symbols with bars — skipping.", date_str)
             continue
+        day_watch_map[date_str] = watch
         regime = regimes.get(date_str, "NORMAL")
         _sim.simulate_day(day, watch, all_bars, state, regime=regime, params=params)
 
-    _report.print_report(state)
+    _report.print_report(state, day_watch_map=day_watch_map, daily_bars=daily_bars)
