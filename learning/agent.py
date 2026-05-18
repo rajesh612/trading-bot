@@ -145,13 +145,13 @@ def run_learning_agent():
                 "role": "user",
                 "content": (
                     f"Date: {today}\n"
-                    f"VIX regime today: {json.dumps(regime_info)}\n\n"
-                    f"Performance by regime/mode:\n{json.dumps(regime_agg)}\n\n"
-                    f"Regime win rates:\n{json.dumps(regime_winrate)}\n\n"
-                    f"Loss source classification:\n{json.dumps(loss_sources)}\n\n"
-                    f"Closed trades:\n{json.dumps(closed_trades)}\n\n"
-                    f"Current indicator weights:\n{json.dumps(current_weights)}\n\n"
-                    f"Current trading params:\n{json.dumps(current_params)}\n\n"
+                    f"<regime>{json.dumps(regime_info)}</regime>\n\n"
+                    f"<performance_by_regime>{json.dumps(regime_agg)}</performance_by_regime>\n\n"
+                    f"<regime_winrates>{json.dumps(regime_winrate)}</regime_winrates>\n\n"
+                    f"<loss_sources>{json.dumps(loss_sources)}</loss_sources>\n\n"
+                    f"<trades>{json.dumps(closed_trades)}</trades>\n\n"
+                    f"<weights>{json.dumps(current_weights)}</weights>\n\n"
+                    f"<params>{json.dumps(current_params)}</params>\n\n"
                     "Return JSON:\n"
                     "{\n"
                     '  "total_trades": <int>,\n'
@@ -330,11 +330,11 @@ def run_learning_agent():
             {
                 "role": "user",
                 "content": (
-                    f"Today's analysis ({today}):\n{json.dumps(analysis)}\n\n"
-                    f"Updated weights:\n{json.dumps(new_weights)}\n\n"
-                    f"Updated params:\n{json.dumps(new_params)}\n\n"
-                    f"VIX regime: {json.dumps(regime_info)}\n\n"
-                    f"Current memory:\n{current_memory or 'No prior memory.'}\n\n"
+                    f"Today's analysis ({today}):\n<analysis>{json.dumps(analysis)}</analysis>\n\n"
+                    f"<updated_weights>{json.dumps(new_weights)}</updated_weights>\n\n"
+                    f"<updated_params>{json.dumps(new_params)}</updated_params>\n\n"
+                    f"<regime>{json.dumps(regime_info)}</regime>\n\n"
+                    f"<current_memory>\n{current_memory or 'No prior memory.'}\n</current_memory>\n\n"
                     "Write the complete updated strategy_memory.md. Keep it under 1000 words."
                 ),
             }

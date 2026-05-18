@@ -108,6 +108,7 @@ def _ask_claude_batch(
         build_stock_block(
             sym, iv, snap.research, existing_pos,
             atr_suggested_tp_pct=compute_atr_tp_pct(iv.atr, iv.current_price, _atr_mult),
+            intraday_news=snap.intraday_news.get(sym, {}),
         )
         for sym, iv, existing_pos in batch
     )
@@ -118,9 +119,14 @@ def _ask_claude_batch(
 
     stable_system_text = (
         "You are an expert intraday day trader making final buy/sell decisions.\n"
-        "You receive technical indicators, news sentiment, and market context.\n"
-        "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
-        "Prioritise capital preservation. Never hold overnight.\n\n"
+        "You receive technical indicators, news sentiment, and market context.\n\n"
+        "<rules>\n"
+        "Override technical signals when news sentiment strongly contradicts them — "
+        "news leads price by minutes while technicals lag.\n"
+        "Prioritise capital preservation — all positions close at 3:55 PM ET; "
+        "intraday losses have no recovery window.\n"
+        "Never hold overnight.\n"
+        "</rules>\n\n"
         f"{stable_ctx}"
     )
     volatile_text = f"Current indicator weights: {json.dumps(snap.weights)}"
@@ -134,11 +140,18 @@ def _ask_claude_batch(
 
     user_msg = (
         f"{dynamic_ctx}\n\n"
-        f"Decisions needed for {len(batch)} stock(s):\n\n"
-        f"{stock_blocks}\n\n"
-        "Rules: BUY only if no open position and signal clear. "
-        "CLOSE if open position and thesis broken. HOLD otherwise.\n\n"
-        "Respond in JSON keyed by symbol:\n"
+        f"<stocks>\n{stock_blocks}\n</stocks>\n\n"
+        "<rules>\n"
+        "BUY only if no open position and signal is clear — overexposure to one name amplifies drawdown.\n"
+        "CLOSE if open position and thesis broken — locking a small loss prevents a large one.\n"
+        "HOLD when uncertain — missing a trade is better than a losing one.\n"
+        "</rules>\n\n"
+        "<example>\n"
+        'Stock: NVDA composite=+52.1 RSI=54.2(+1.5) MACD=+0.0031 SENT:BULLISH(+20) cat="AI beat"\n'
+        "Response: "
+        '{"NVDA": {"action": "BUY", "confidence": 74, "reasoning": "Strong composite with bullish catalyst, RSI not overbought", "stop_loss_pct": 3.5, "take_profit_pct": 5.5, "indicator_signals": {"VWAP": "correct", "RSI": "correct", "MACD": "correct", "BB": "neutral", "EMA": "correct", "Volume": "correct"}}}\n'
+        "</example>\n\n"
+        f"Decisions needed for {len(batch)} stock(s). Respond in JSON keyed by symbol:\n"
         '{\n  "<SYMBOL>": {\n'
         '    "action": "<BUY|HOLD|CLOSE>",\n'
         '    "confidence": <0-100>,\n'
@@ -158,6 +171,7 @@ def _ask_claude_batch(
             max_tokens=300 * len(batch),
             system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
+            output_config={"effort": "medium"},
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
@@ -228,18 +242,29 @@ def _ask_claude_exit_batch(
         logger.warning("Exit budget blocked for thesis-break eval — HOLD for %s", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 
+    now_exit = datetime.now(ET)
     exit_blocks = "\n\n".join(
-        build_exit_stock_block(sym, iv, pos, snap.research)
+        build_exit_stock_block(
+            sym, iv, pos, snap.research,
+            intraday_news=snap.intraday_news.get(sym, {}),
+            now=now_exit,
+        )
         for sym, iv, pos in exit_candidates
     )
 
     system_text = (
-        "You are an expert intraday trader evaluating thesis-break candidates.\n"
-        "CLOSE only if: (1) composite score dropped ≥10pts from entry AND thesis broken, "
-        "(2) intraday news shock ≥60, (3) position near stop-loss, OR (4) clear regime shift to CRISIS.\n"
-        "Default to HOLD — premature exits destroy returns.\n"
+        "You are an expert intraday trader evaluating thesis-break candidates.\n\n"
+        "<rules>\n"
+        "CLOSE only if one of these is true — each criterion has a clear rationale:\n"
+        "(1) Composite score dropped ≥10pts from entry AND thesis broken — "
+        "the original edge is gone and holding adds risk with no edge.\n"
+        "(2) Intraday news shock ≥60 — a material event has changed the risk profile.\n"
+        "(3) Position within 0.5% of stop-loss — better to exit cleanly than be stopped out on a spike.\n"
+        "(4) Regime shift to CRISIS — capital preservation overrides all trade theses.\n"
+        "Default to HOLD — premature exits destroy returns; the stop-loss exists precisely to cap downside.\n"
+        "</rules>\n\n"
         f"Current regime: {snap.regime} | VIX: {snap.regime_info.get('vix_current', 'N/A')}\n"
-        'Respond in JSON: {"<symbol>": {"action": "HOLD"|"CLOSE", "reasoning": "<brief>"}}'
+        'Respond in JSON: {"<symbol>": {"action": "HOLD"|"CLOSE", "confidence": <0-100>, "reasoning": "<brief>"}}'
     )
     system_blocks = [
         {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}},

@@ -17,8 +17,9 @@ def build_stock_block(
     research: dict,
     existing_pos: dict | None,
     atr_suggested_tp_pct: float | None = None,
+    intraday_news: dict | None = None,
 ) -> str:
-    """Compact per-symbol block (~130 tokens) sent to Claude."""
+    """Compact per-symbol block sent to Claude."""
     from calendars.earnings import detect_pead_setup
     price           = iv.current_price
     research_sym    = research.get(symbol, {})
@@ -47,10 +48,14 @@ def build_stock_block(
     pead_ok, pead_score = detect_pead_setup(symbol)
     pead_line = f" PEAD={pead_score}/100" if pead_ok else ""
 
-    vwap_dir = "↑" if price >= iv.vwap else "↓"
+    vwap_dir  = "↑" if price >= iv.vwap else "↓"
     risk_str  = f" risk={risk_flag}" if risk_flag else ""
     cat_str   = f' cat="{catalyst}"' if catalyst else ""
     news_str  = f"\n  {news_summary}" if news_summary else ""
+
+    intraday    = intraday_news or {}
+    intra_shock = intraday.get("shock_score", 0)
+    intra_sent  = intraday.get("sentiment_score", sentiment_score)
 
     atr_tp_line = (
         f"\n  ATR-TP={atr_suggested_tp_pct:.1f}% (ATR-based). Override if catalyst justifies."
@@ -58,14 +63,19 @@ def build_stock_block(
     )
 
     return (
-        f"=={symbol}== composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
-        f"  P=${price:.2f} VWAP{vwap_dir} RSI={iv.rsi:.1f}({iv.rsi_slope:+.1f})"
+        f'<stock symbol="{symbol}">\n'
+        f"  composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
+        f"  P=${price:.2f} VWAP{vwap_dir}({iv.vwap_slope:+.3f})"
+        f" RSI={iv.rsi:.1f}({iv.rsi_slope:+.1f})"
         f" MACD={iv.macd_hist:+.4f} BB[{iv.bb_lower:.2f},{iv.bb_upper:.2f}]"
         f" EMA9/21={iv.ema9:.2f}/{iv.ema21:.2f} Stoch={iv.stoch_k:.0f}/{iv.stoch_d:.0f}"
-        f" Vol={dvol}{pead_line}"
+        f" OR={iv.or_position} Vol={dvol}{pead_line}"
         f"{atr_tp_line}\n"
-        f"  SENT:{sentiment_label}({sentiment_score:+d}){cat_str}{risk_str}"
-        f"{news_str}"
+        f"  SENT:{sentiment_label}({sentiment_score:+d})"
+        f" intraday:shock={intra_shock} sent={intra_sent:+d}"
+        f"{cat_str}{risk_str}"
+        f"{news_str}\n"
+        f"</stock>"
     )
 
 
@@ -74,19 +84,40 @@ def build_exit_stock_block(
     iv: IndicatorValues,
     position: dict,
     research: dict,
+    intraday_news: dict | None = None,
+    now: datetime | None = None,
 ) -> str:
-    """Compact ~100-token block for thesis-break exit evaluation."""
+    """Compact block for thesis-break exit evaluation."""
     entry_price = position.get("entry_price", 0)
     pnl_pct = (iv.current_price - entry_price) / entry_price * 100 if entry_price > 0 else 0.0
     entry_composite = position.get("entry_composite_score", 0)
     composite_delta = iv.composite_score - entry_composite
     sentiment_score = research.get(symbol, {}).get("sentiment_score", 0)
     sl_pct = position.get("stop_loss_pct", config.STOP_LOSS_PCT)
+
+    held_str = ""
+    entry_ts = position.get("timestamp", "")
+    if entry_ts and now:
+        try:
+            entry_dt = datetime.fromisoformat(entry_ts)
+            if entry_dt.tzinfo is None:
+                entry_dt = entry_dt.replace(tzinfo=now.tzinfo)
+            held_str = f" held={int((now - entry_dt).total_seconds() / 60)}min"
+        except Exception:
+            pass
+
+    intraday    = intraday_news or {}
+    intra_shock = intraday.get("shock_score", 0)
+    intra_sent  = intraday.get("sentiment_score", sentiment_score)
+
     return (
-        f"=={symbol}== P=${iv.current_price:.2f} entry=${entry_price:.2f}"
-        f" PnL={pnl_pct:+.2f}% SL={sl_pct:.1f}%\n"
+        f'<stock symbol="{symbol}">\n'
+        f"  P=${iv.current_price:.2f} entry=${entry_price:.2f}"
+        f" PnL={pnl_pct:+.2f}% SL={sl_pct:.1f}%{held_str}\n"
         f"  composite={iv.composite_score:+.1f} (Δ{composite_delta:+.1f} from entry)"
         f" sentiment={sentiment_score:+d}"
+        f" intraday:shock={intra_shock} sent={intra_sent:+d}\n"
+        f"</stock>"
     )
 
 

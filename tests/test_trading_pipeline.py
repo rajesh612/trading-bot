@@ -502,6 +502,7 @@ def test_stock_block_is_under_150_tokens():
     iv.ema9 = 100.2; iv.ema21 = 99.8; iv.atr = 0.05
     iv.stoch_k = 65.0; iv.stoch_d = 60.0
     iv.daily_volume_ratio = 1.2
+    iv.vwap_slope = 0.023; iv.or_position = "outside"
 
     research = {"TEST": {
         "sentiment_score": 35, "sentiment_label": "BULLISH",
@@ -513,9 +514,11 @@ def test_stock_block_is_under_150_tokens():
         block = build_stock_block("TEST", iv, research, None)
 
     approx_tokens = len(block) / 4
-    assert approx_tokens < 150, f"Stock block too large: ~{approx_tokens:.0f} tokens\n{block}"
+    assert approx_tokens < 200, f"Stock block too large: ~{approx_tokens:.0f} tokens\n{block}"
     assert "ATR=" not in block, "ATR is not directional — remove from Claude block"
     assert "No summary" not in block, "Empty summary must be omitted"
+    assert '<stock symbol="TEST">' in block, "Stock block must use XML wrapper"
+    assert "OR=outside" in block, "Opening range position must be in block"
 
 
 @pytest.mark.unit
@@ -532,6 +535,7 @@ def test_stock_block_includes_sl_tp_for_existing_position():
     iv.ema9 = 104.5; iv.ema21 = 104.0
     iv.stoch_k = 60.0; iv.stoch_d = 55.0
     iv.daily_volume_ratio = 1.0
+    iv.vwap_slope = 0.0; iv.or_position = "unknown"
 
     existing_pos = {
         "entry_price": 100.0, "qty": 10,
@@ -707,7 +711,7 @@ def test_exit_batch_system_prompt_has_cache_control(monkeypatch):
     iv.current_price = 100.0
 
     monkeypatch.setattr("trading.claude_caller.build_exit_stock_block",
-                        lambda sym, iv, pos, research: f"EXIT BLOCK {sym}")
+                        lambda sym, iv, pos, research, **kw: f"EXIT BLOCK {sym}")
     monkeypatch.setattr("trading.claude_caller.risk_manager.check_exit_budget",
                         lambda cost, count, regime: True)
     monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage",
@@ -805,6 +809,7 @@ def test_atr_tp_injected_into_claude_context():
     iv.ema9 = 99.8; iv.ema21 = 99.5; iv.atr = 2.0
     iv.stoch_k = 60.0; iv.stoch_d = 58.0
     iv.daily_volume_ratio = 1.2
+    iv.vwap_slope = 0.0; iv.or_position = "unknown"
     research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL",
                          "key_catalyst": None, "risk_flag": None, "summary": ""}}
 
@@ -826,7 +831,7 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
 
     captured = {}
 
-    def mock_build_stock_block(sym, iv, research, existing_pos, atr_suggested_tp_pct=None):
+    def mock_build_stock_block(sym, iv, research, existing_pos, atr_suggested_tp_pct=None, **kw):
         captured["atr_suggested_tp_pct"] = atr_suggested_tp_pct
         return f"=={sym}=="
 
@@ -869,6 +874,7 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
     snap.regime = "NORMAL"
     snap.weights = {}
     snap.strategy_memory = ""
+    snap.intraday_news = {}
 
     monkeypatch.setattr("trading.claude_caller._get_cached_stable_context", lambda *a, **kw: "ctx")
     monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context", lambda now: "dynamic")
