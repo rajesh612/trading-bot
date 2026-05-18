@@ -35,9 +35,9 @@ def catchup_missed_agents() -> None:
         logger.info("CATCHUP: post-market start — skipping agent catch-up.")
         return
 
-    pre_market_started = now.hour > 8 or (now.hour == 8 and now.minute >= 45)
+    pre_market_started = now.hour >= 8
     if not pre_market_started:
-        logger.info("CATCHUP: too early (before 8:45 AM) — no catch-up needed yet.")
+        logger.info("CATCHUP: too early (before 8:00 AM) — no catch-up needed yet.")
         return
 
     logger.info("CATCHUP: checking for missed pre-market agents…")

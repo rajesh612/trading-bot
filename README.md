@@ -81,7 +81,7 @@ tail -f logs/trading_bot.log
 | Time | Job | What it does |
 |---|---|---|
 | 8:00 AM | Earnings Calendar | Fetches next-earnings dates + PEAD detection for watch list + tier-1 stocks |
-| 8:30 AM | Economic Calendar | Loads FOMC/NFP/CPI event-risk windows for the day |
+| 8:20 AM | Economic Calendar | Loads FOMC/NFP/CPI event-risk windows for the day |
 | 8:45 AM | Volatility Screener | Filters ticker universe to top 50 most volatile |
 | 8:55 AM | Macro Regime | 9-state regime classification (CRISIS / BULL_TREND / CHOPPY / etc.) |
 | 9:00 AM | Watch List Agent | Claude picks 10–15 stocks for the day |
@@ -166,6 +166,7 @@ Edit `config.py`. Key parameters:
 | `RISK_PER_TRADE_PCT` | `0.005` | Risk 0.5% per trade (ATR-based sizing) |
 | `STOP_LOSS_PCT` | `4.0` | Fallback stop loss % (overridden by mode/regime table) |
 | `TAKE_PROFIT_PCT` | `5.0` | Fallback take profit % (overridden by mode/regime table) |
+| `ATR_TP_MULT_DEFAULT` | `2.0` | ATR-based TP multiplier — TP = ATR% × this; tuned nightly by learning agent (bounds: 1.0×–4.0×) |
 | `MAX_DAILY_LOSS_PCT` | `0.03` | Circuit breaker — halts new entries if down 3% |
 | `DAILY_LOSS_WARN_PCT` | `0.015` | Telegram alert when intraday loss hits 1.5% |
 | `AUTO_EXECUTE_COMPOSITE_MIN` | `55` | composite > this + positive intraday sentiment → skip Claude, auto-execute |
@@ -350,7 +351,7 @@ All state files live under `data/state/`.
 | `trade_journal.json` | Recent trade history — entries older than 90 days archived at startup |
 | `trade_journal_archive.json` | Long-term trade archive (auto-populated from `trade_journal.json`) |
 | `indicator_weights.json` | Per-indicator weights (updated nightly; clamped to 0.3×–2.0× defaults) |
-| `trading_params.json` | Learned entry thresholds (updated nightly from 5-day rolling window) |
+| `trading_params.json` | Learned entry thresholds + `atr_tp_multiplier` (updated nightly from 5-day rolling window) |
 | `macro_regime.json` | Today's 9-state regime + macro health score + flash-crash lockout |
 | `earnings_calendar.json` | Next earnings dates + PEAD data per symbol (refreshed 8:00 AM) |
 | `economic_calendar.json` | Today's FOMC/NFP/CPI events + 45-min risk windows |

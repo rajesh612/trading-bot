@@ -25,7 +25,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | Time | Job |
 |---|---|
 | 8:00 AM | `earnings_calendar.refresh_earnings_calendar()` |
-| 8:30 AM | `economic_calendar.refresh_economic_calendar()` |
+| 8:20 AM | `economic_calendar.refresh_economic_calendar()` |
 | 8:45 AM | `agents/volatility_screener.run_volatility_screener()` — top 50 tickers → `daily_tradeable.txt` |
 | 8:55 AM | `macro.regime.fetch_macro_regime()` — 9-state regime |
 | 9:00 AM | `agents/watch_list.run_watch_list_agent()` — Claude picks 10–15 stocks |
@@ -46,6 +46,8 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 |---|---|
 | `indicators/engine.py` | 10+ technicals → `composite_score` [-100,+100]. Score >15 → BUY, <-15 → CLOSE |
 | `indicators/values.py` | `IndicatorValues` dataclass: all computed signals incl. `relative_volume`, `or_position` |
+| `indicators/precompute.py` | `precompute_indicators_for_day()` — vectorized EWM/RSI/MACD precompute; eliminates per-bar recomputation (15× speedup for backtests) |
+| `signals/atr_tp.py` | `compute_atr_tp_pct()` — ATR-based take-profit: `ATR% × atr_tp_multiplier`, clamped to floor/ceiling |
 | `trading/pre_claude_filter.py` | **Quality router only** (5 layers): routes each symbol to SKIP / AUTO_EXECUTE / CLAUDE. No safety gates here — see Rule 23 |
 | `signals/entry_gates.py` | `check_all_gates()` — **sole enforcer of all safety gates** (time window, earnings, event risk, Stoch, parabolic, herding, gap-skip, soft flags) |
 | `signals/volume_guard.py` | `is_volume_weak()` — relative-volume soft gate (< `REL_VOLUME_MIN`) |
@@ -63,10 +65,11 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `research/agent.py` | RSS + Reddit + StockTwits sentiment; `__meta__` macro shock score |
 | `calendars/earnings_calendar.py` | Next-earnings dates + PEAD detection (5-condition score ≥ 80) |
 | `trading/journal.py` | JSON state R/W with locks: `_POSITIONS_LOCK`, `_DAILY_CLOSED_LOCK`, `_JOURNAL_LOCK` |
-| `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping, strategy_memory versioning |
+| `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping, ATR-TP multiplier tuning, strategy_memory versioning |
 | `utils/metrics.py` | `record_cycle_metric()` + `get_daily_summary()` — JSONL cycle telemetry |
-| `utils/http.py` | Shared `yahoo_get()` — Session + 429 backoff |
+| `utils/http.py` | Shared `yahoo_get()` — Session + 429 backoff (3 retries) |
 | `utils/io_utils.py` | `load_json` / `save_json` — atomic writes, corrupt-file recovery |
+| `utils/catchup.py` | `catchup_missed_agents()` — runs stale pre-market agents on startup if bot missed their cron window (threshold: 8:00 AM ET) |
 | `utils/constants.py` | `ET = ZoneInfo("America/New_York")` — single source |
 
 ### Gate Architecture (Option A)
@@ -98,7 +101,7 @@ All JSON state files live under `data/state/`. Log files live under `logs/`.
 | `data/state/swing_positions.json` | Active overnight swing positions |
 | `data/state/trade_journal.json` | Trade history (BUY + CLOSE); entries > 90 days archived at startup |
 | `data/state/indicator_weights.json` | Per-indicator weights updated nightly |
-| `data/state/trading_params.json` | Learned entry hours, RSI/VWAP thresholds (bounded by min/max multipliers) |
+| `data/state/trading_params.json` | Learned entry hours, RSI/VWAP thresholds, `atr_tp_multiplier` (bounded by min/max multipliers) |
 | `data/state/macro_regime.json` | Today's regime + health score |
 | `data/state/economic_calendar.json` | High-impact events + 45-min risk windows |
 | `data/state/earnings_calendar.json` | Next earnings dates + PEAD data |
@@ -135,6 +138,9 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `TRAILING_STOP_PCT_FALLBACK` | 0.03 | 3% trailing stop when ATR is unavailable |
 | `DRAWDOWN_WARN_PCT` | 2.0 | Alert when position unrealised loss ≥ this % |
 | `REGIME_ADAPTIVE_LOGIC` | True | CHOPPY blocks high-RSI entries; DEFENSIVE raises composite bar |
+| `ATR_TP_MULT_DEFAULT` | 2.0 | Default ATR-TP multiplier (TP = ATR% × multiplier) |
+| `ATR_TP_MULT_MIN` / `ATR_TP_MULT_MAX` | 1.0 / 4.0 | Learning agent bounds for ATR-TP multiplier |
+| `ATR_TP_FLOOR_PCT` / `ATR_TP_CEILING_PCT` | 1.5 / 12.0 | Hard floor/ceiling for computed ATR-TP % |
 
 ---
 

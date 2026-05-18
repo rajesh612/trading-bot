@@ -339,3 +339,75 @@ class TestStartupExitAlerts:
             with patch("sys.exit") as mock_exit:
                 main._exit_with_alert("msg", code=2)
         mock_exit.assert_called_once_with(2)
+
+
+# ── utils/catchup: pre-market threshold ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestCatchupMissedAgents:
+    """Verify catchup fires calendar jobs when bot starts after 8:00 AM (e.g. 8:30 restart)."""
+
+    def _run_catchup(self, monkeypatch, tmp_path, now_et):
+        import utils.catchup as cu
+        import config
+        import pathlib
+
+        # Stale state files (yesterday) so all checks trigger
+        stale_files = [
+            config.EARNINGS_CALENDAR_FILE,
+            config.ECONOMIC_CALENDAR_FILE,
+            config.DAILY_TRADEABLE_FILE,
+            config.MACRO_REGIME_FILE,
+            config.WATCH_LIST_FILE,
+            config.RESEARCH_REPORT_FILE,
+        ]
+        for attr in ["EARNINGS_CALENDAR_FILE", "ECONOMIC_CALENDAR_FILE",
+                     "DAILY_TRADEABLE_FILE", "MACRO_REGIME_FILE",
+                     "WATCH_LIST_FILE", "RESEARCH_REPORT_FILE"]:
+            p = tmp_path / f"{attr}.json"
+            monkeypatch.setattr(config, attr, p)
+
+        monkeypatch.setattr(cu, "_file_is_from_today", lambda _: False)
+
+        called = []
+        import types
+        fake_sj = types.SimpleNamespace(
+            job_earnings_calendar=lambda: called.append("earnings"),
+            job_economic_calendar=lambda: called.append("economic"),
+            job_volatility_screener=lambda: called.append("vol"),
+            job_macro_regime=lambda: called.append("macro"),
+            job_watch_list=lambda: called.append("watch"),
+            job_research=lambda: called.append("research"),
+        )
+        monkeypatch.setattr("utils.catchup.datetime", type("dt", (), {
+            "now": staticmethod(lambda tz=None: now_et),
+            "fromtimestamp": datetime.fromtimestamp,
+        }))
+
+        import sys
+        sys.modules["scheduler_jobs"] = fake_sj
+        try:
+            cu.catchup_missed_agents()
+        finally:
+            del sys.modules["scheduler_jobs"]
+
+        return called
+
+    def test_catchup_fires_at_830_et(self, monkeypatch, tmp_path):
+        """Bot restart at 8:30 ET must catch up earnings + economic calendar."""
+        now = datetime(2026, 5, 19, 8, 30, tzinfo=ET)
+        called = self._run_catchup(monkeypatch, tmp_path, now)
+        assert "earnings" in called
+        assert "economic" in called
+
+    def test_no_catchup_before_8am(self, monkeypatch, tmp_path):
+        """Before 8:00 AM ET nothing should run."""
+        now = datetime(2026, 5, 19, 7, 59, tzinfo=ET)
+        called = self._run_catchup(monkeypatch, tmp_path, now)
+        assert called == []
+
+    def test_no_catchup_on_weekend(self, monkeypatch, tmp_path):
+        """Weekends must be skipped entirely."""
+        now = datetime(2026, 5, 17, 9, 0, tzinfo=ET)  # Sunday
+        called = self._run_catchup(monkeypatch, tmp_path, now)
+        assert called == []
