@@ -732,3 +732,26 @@ def test_auto_execute_confidence_scales_with_composite(monkeypatch):
     assert conf_low >= config.AUTO_EXECUTE_CONFIDENCE_BASE
     assert conf_low <= conf
 
+
+@pytest.mark.unit
+def test_atr_tp_injected_into_claude_context():
+    """build_stock_block emits ATR-TP line when atr_suggested_tp_pct is provided."""
+    from trading.context_builder import build_stock_block
+    from unittest.mock import MagicMock, patch
+
+    iv = MagicMock()
+    iv.composite_score = 42.5; iv.signal = "BUY"
+    iv.current_price = 100.0; iv.vwap = 99.5
+    iv.rsi = 58.0; iv.rsi_slope = 1.0; iv.macd_hist = 0.002
+    iv.bb_lower = 98.0; iv.bb_upper = 102.0
+    iv.ema9 = 99.8; iv.ema21 = 99.5; iv.atr = 2.0
+    iv.stoch_k = 60.0; iv.stoch_d = 58.0
+    iv.daily_volume_ratio = 1.2
+    research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL",
+                         "key_catalyst": None, "risk_flag": None, "summary": ""}}
+
+    with patch("calendars.earnings.detect_pead_setup", return_value=(False, 0)):
+        block = build_stock_block("TEST", iv, research, None, atr_suggested_tp_pct=4.5)
+
+    assert "ATR-TP=4.5%" in block
+

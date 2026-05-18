@@ -16,6 +16,7 @@ def build_stock_block(
     iv: IndicatorValues,
     research: dict,
     existing_pos: dict | None,
+    atr_suggested_tp_pct: float | None = None,
 ) -> str:
     """Compact per-symbol block (~130 tokens) sent to Claude."""
     from calendars.earnings import detect_pead_setup
@@ -51,12 +52,18 @@ def build_stock_block(
     cat_str   = f' cat="{catalyst}"' if catalyst else ""
     news_str  = f"\n  {news_summary}" if news_summary else ""
 
+    atr_tp_line = (
+        f"\n  ATR-TP={atr_suggested_tp_pct:.1f}% (ATR-based). Override if catalyst justifies."
+        if atr_suggested_tp_pct is not None else ""
+    )
+
     return (
         f"=={symbol}== composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
         f"  P=${price:.2f} VWAP{vwap_dir} RSI={iv.rsi:.1f}({iv.rsi_slope:+.1f})"
         f" MACD={iv.macd_hist:+.4f} BB[{iv.bb_lower:.2f},{iv.bb_upper:.2f}]"
         f" EMA9/21={iv.ema9:.2f}/{iv.ema21:.2f} Stoch={iv.stoch_k:.0f}/{iv.stoch_d:.0f}"
-        f" Vol={dvol}{pead_line}\n"
+        f" Vol={dvol}{pead_line}"
+        f"{atr_tp_line}\n"
         f"  SENT:{sentiment_label}({sentiment_score:+d}){cat_str}{risk_str}"
         f"{news_str}"
     )
