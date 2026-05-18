@@ -115,7 +115,7 @@ def _ask_claude_batch(
 
     now = datetime.now(ET)
     stable_ctx = _get_cached_stable_context(snap.fred_cache, snap.research_meta, snap.regime_info)
-    dynamic_ctx = build_dynamic_user_context(now)
+    dynamic_ctx = build_dynamic_user_context(now, portfolio_gain_pct=snap.portfolio_gain_pct)
 
     stable_system_text = (
         "You are an expert intraday day trader making final buy/sell decisions.\n"
@@ -273,7 +273,12 @@ def _ask_claude_exit_batch(
         {"type": "text", "text": f"Strategy memory:\n{snap.strategy_memory or '(no strategy memory yet)'}"},
     ]
 
+    pnl_note = f"{snap.portfolio_gain_pct:+.2f}%"
+    if snap.portfolio_gain_pct <= -config.DAILY_LOSS_WARN_PCT * 100:
+        pnl_note += " ⚠ elevated daily loss — lean toward protecting remaining capital"
+
     user_msg = (
+        f"Portfolio P&L today: {pnl_note} | Time: {now_exit.strftime('%H:%M')} ET\n\n"
         f"Thesis-break evaluation for {len(exit_candidates)} open position(s):\n\n"
         f"{exit_blocks}\n\n"
         "For each position: should we CLOSE (thesis broken) or HOLD?\n"

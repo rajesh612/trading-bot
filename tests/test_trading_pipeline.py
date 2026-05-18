@@ -704,6 +704,7 @@ def test_exit_batch_system_prompt_has_cache_control(monkeypatch):
     snap.regime_info = {"vix_current": 15}
     snap.strategy_memory = ""
     snap.research = {}
+    snap.portfolio_gain_pct = 0.0
 
     iv = MagicMock()
     iv.composite_score = 20.0
@@ -759,7 +760,7 @@ def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
     monkeypatch.setattr("trading.claude_caller.build_stable_system_context",
                         lambda *a: "STABLE CTX")
     monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context",
-                        lambda now: "DYNAMIC CTX")
+                        lambda now, **kw: "DYNAMIC CTX")
     monkeypatch.setattr("trading.claude_caller.risk_manager.check_entry_budget",
                         lambda cost, regime: True)
     monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage",
@@ -875,9 +876,10 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
     snap.weights = {}
     snap.strategy_memory = ""
     snap.intraday_news = {}
+    snap.portfolio_gain_pct = 0.0
 
     monkeypatch.setattr("trading.claude_caller._get_cached_stable_context", lambda *a, **kw: "ctx")
-    monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context", lambda now: "dynamic")
+    monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context", lambda now, **kw: "dynamic")
 
     _ask_claude_batch([("TEST", iv, None)], snap, FakeAI())
 

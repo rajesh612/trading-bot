@@ -177,10 +177,10 @@ def build_stable_system_context(
     )
 
 
-def build_dynamic_user_context(now: datetime) -> str:
+def build_dynamic_user_context(now: datetime, portfolio_gain_pct: float = 0.0) -> str:
     """
     Assemble the dynamic (per-call) market snapshot for the Claude user message.
-    Contains live intraday bias, event risk, and current time.
+    Contains live intraday bias, event risk, current time, and today's P&L.
     Must NOT be placed in the system block — changes every few minutes.
     """
     from macro.intraday_context import get_intraday_context
@@ -190,8 +190,13 @@ def build_dynamic_user_context(now: datetime) -> str:
     event_active, event_name = _ec_mod.is_event_risk_window(now)
     event_line = f"⚠ ACTIVE: {event_name} — avoid new entries" if event_active else "None active"
 
+    pnl_note = f"{portfolio_gain_pct:+.2f}%"
+    if portfolio_gain_pct <= -config.DAILY_LOSS_WARN_PCT * 100:
+        pnl_note += " ⚠ elevated daily loss — tighten criteria"
+
     return (
         f"MARKET SNAPSHOT ({now.strftime('%H:%M')} ET):\n"
         f"{intraday_lines}\n"
+        f"Portfolio P&L today: {pnl_note}\n"
         f"Event risk: {event_line}"
     )
