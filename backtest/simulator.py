@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 import config
-from indicators.engine import compute_indicators
+from indicators.precompute import precompute_indicators_for_day
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
@@ -231,6 +231,13 @@ def simulate_day(
         logger.info("  No bars for this day — skipping.")
         return
 
+    # Precompute indicators for all watch-list symbols for this day (vectorized, ~60× faster)
+    precomp: dict[str, dict] = {}
+    for sym in watch_list:
+        df_sym = all_bars.get(sym)
+        if df_sym is not None and not df_sym.empty:
+            precomp[sym] = precompute_indicators_for_day(sym, df_sym, day)
+
     pending_signals: dict[str, dict] = {}
 
     for i, ts in enumerate(sorted_ts):
@@ -279,12 +286,7 @@ def simulate_day(
 
         for sym in watch_list:
             if sym in state.positions or sym in state.daily_closed: continue
-            df_sym = all_bars.get(sym)
-            if df_sym is None or df_sym.empty: continue
-            if df_sym.index.tz is None: df_sym.index = df_sym.index.tz_localize("UTC")
-            df_window = df_sym[df_sym.index <= ts].tail(LOOKBACK_BARS)
-            if len(df_window) < 30: continue
-            iv = compute_indicators(sym, df_window, as_of=ts_et)
+            iv = precomp.get(sym, {}).get(ts)
             if iv is None: continue
             if iv.composite_score > MIN_COMPOSITE and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
                 pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr}

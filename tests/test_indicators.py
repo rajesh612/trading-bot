@@ -673,3 +673,46 @@ def test_relative_volume_defaults_to_one():
 def test_or_position_defaults_to_unknown():
     from indicators.values import IndicatorValues
     assert IndicatorValues.__dataclass_fields__["or_position"].default == "unknown"
+
+
+# ── precompute_indicators_for_day ─────────────────────────────────────────────
+
+def _make_precomp_df():
+    """50 warmup bars (prev day) + 78 intraday bars (market hours)."""
+    warmup_ts   = pd.date_range("2026-05-05 09:30", periods=50, freq="5min", tz="UTC")
+    intraday_ts = pd.date_range("2026-05-06 13:30", periods=78, freq="5min", tz="UTC")
+    all_ts = warmup_ts.append(intraday_ts)
+    return pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 10000},
+        index=all_ts,
+    )
+
+
+@pytest.mark.unit
+def test_precompute_indicators_for_day_returns_dict_keyed_by_timestamp():
+    """Returns a non-empty dict with Timestamp keys for intraday bars."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from indicators.precompute import precompute_indicators_for_day
+    day = datetime(2026, 5, 6, tzinfo=ZoneInfo("America/New_York"))
+    result = precompute_indicators_for_day("TEST", _make_precomp_df(), day)
+    assert isinstance(result, dict)
+    assert len(result) > 0
+    assert len(result) <= 78
+
+
+@pytest.mark.unit
+def test_precompute_indicators_for_day_values_are_indicator_values():
+    """Each value is an IndicatorValues with correct symbol and bounded fields."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from indicators.precompute import precompute_indicators_for_day
+    from indicators.values import IndicatorValues
+    day = datetime(2026, 5, 6, tzinfo=ZoneInfo("America/New_York"))
+    result = precompute_indicators_for_day("TEST", _make_precomp_df(), day)
+    first_iv = next(iter(result.values()))
+    assert isinstance(first_iv, IndicatorValues)
+    assert first_iv.symbol == "TEST"
+    assert first_iv.current_price == pytest.approx(100.0, abs=1.0)
+    assert 0 <= first_iv.rsi <= 100
+    assert first_iv.atr >= 0
