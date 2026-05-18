@@ -677,7 +677,9 @@ def _make_fake_ai(calls: list, response_text: str):
     def fake_create(**kwargs):
         calls.append(kwargs)
         r = MagicMock()
-        r.content = [MagicMock(text=response_text)]
+        block = MagicMock(text=response_text)
+        block.type = "text"
+        r.content = [block]
         r.usage = MagicMock(input_tokens=100, output_tokens=20,
                             cache_creation_input_tokens=0, cache_read_input_tokens=0)
         return r
@@ -687,9 +689,8 @@ def _make_fake_ai(calls: list, response_text: str):
 
 
 @pytest.mark.unit
-def test_exit_batch_system_prompt_has_no_cache_control(monkeypatch):
-    """Exit-batch system blocks must NOT use cache_control — Claude calls are 10+ min apart,
-    well beyond the 5-min Anthropic TTL, so cache writes cost extra with zero benefit."""
+def test_exit_batch_system_prompt_has_cache_control(monkeypatch):
+    """Exit-batch stable system block must have cache_control for prompt caching."""
     from trading.claude_caller import _ask_claude_exit_batch
     from unittest.mock import MagicMock
 
@@ -720,15 +721,15 @@ def test_exit_batch_system_prompt_has_no_cache_control(monkeypatch):
     assert calls, "Claude was not called"
     system_blocks = calls[0].get("system", [])
     assert system_blocks, "No system blocks in exit-batch call"
-    assert not any(
+    assert any(
         isinstance(b, dict) and b.get("cache_control")
         for b in system_blocks
-    ), "System blocks must NOT have cache_control (TTL 5min < 10min cycle gap)"
+    ), "Stable system block must have cache_control for prompt caching"
 
 
 @pytest.mark.unit
-def test_entry_batch_system_prompt_has_no_cache_control(monkeypatch, tmp_path):
-    """Entry-batch system block must NOT use cache_control — same TTL/gap reasoning."""
+def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
+    """Entry-batch stable system block must have cache_control for prompt caching."""
     from trading.claude_caller import _ask_claude_batch
     from unittest.mock import MagicMock
 
@@ -770,10 +771,10 @@ def test_entry_batch_system_prompt_has_no_cache_control(monkeypatch, tmp_path):
     assert calls, "Claude was not called"
     system_blocks = calls[0].get("system", [])
     assert system_blocks, "No system blocks in entry-batch call"
-    assert not any(
+    assert any(
         isinstance(b, dict) and b.get("cache_control")
         for b in system_blocks
-    ), "System blocks must NOT have cache_control (TTL 5min < 10min cycle gap)"
+    ), "Stable system block must have cache_control for prompt caching"
 
 
 # ── P4-T5: _compute_auto_execute_confidence ───────────────────────────────────
@@ -840,7 +841,7 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
             output_tokens = 0
             cache_creation_input_tokens = 0
             cache_read_input_tokens = 0
-        content = [type("C", (), {"text": '{"TEST": {"action": "HOLD", "confidence": 50, "reasoning": "test", "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "indicator_signals": {}}}'})]
+        content = [type("C", (), {"type": "text", "text": '{"TEST": {"action": "HOLD", "confidence": 50, "reasoning": "test", "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "indicator_signals": {}}}'})]
 
     class FakeAI:
         class messages:

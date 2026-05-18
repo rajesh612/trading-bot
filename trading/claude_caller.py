@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 import time
 from datetime import datetime
@@ -116,18 +115,21 @@ def _ask_claude_batch(
     stable_ctx = _get_cached_stable_context(snap.fred_cache, snap.research_meta, snap.regime_info)
     dynamic_ctx = build_dynamic_user_context(now)
 
-    system_text = (
+    stable_system_text = (
         "You are an expert intraday day trader making final buy/sell decisions.\n"
         "You receive technical indicators, news sentiment, and market context.\n"
         "You may OVERRIDE technical signals when news sentiment strongly contradicts them.\n"
-        "Prioritise capital preservation. Never hold overnight.\n"
-        f"Current indicator weights: {json.dumps(snap.weights)}\n\n"
+        "Prioritise capital preservation. Never hold overnight.\n\n"
         f"{stable_ctx}"
     )
+    volatile_text = f"Current indicator weights: {json.dumps(snap.weights)}"
     if snap.strategy_memory:
-        system_text += f"\n\nToday's strategy memory:\n{snap.strategy_memory}"
+        volatile_text += f"\n\nToday's strategy memory:\n{snap.strategy_memory}"
 
-    system_blocks = [{"type": "text", "text": system_text}]
+    system_blocks = [
+        {"type": "text", "text": stable_system_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": volatile_text},
+    ]
 
     user_msg = (
         f"{dynamic_ctx}\n\n"
@@ -155,6 +157,7 @@ def _ask_claude_batch(
             max_tokens=300 * len(batch),
             system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
+            output_config={"format": {"type": "json_object"}},
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
@@ -191,17 +194,13 @@ def _ask_claude_batch(
     except Exception:
         pass
 
-    text = response.content[0].text.strip()
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        try:
-            parsed = json.loads(match.group())
-            return {sym: _validate_decision(dec, sym) for sym, dec in parsed.items()}
-        except json.JSONDecodeError:
-            pass
-
-    logger.warning("Claude JSON parse error for batch %s — defaulting to HOLD", symbols)
-    return {sym: _default_hold(sym) for sym in symbols}
+    text = next((b.text for b in response.content if b.type == "text"), None)
+    try:
+        parsed = json.loads(text)
+        return {sym: _validate_decision(dec, sym) for sym, dec in parsed.items()}
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Claude JSON parse error for batch %s — defaulting to HOLD", symbols)
+        return {sym: _default_hold(sym) for sym in symbols}
 
 
 def _ask_claude_exit_batch(
@@ -241,10 +240,9 @@ def _ask_claude_exit_batch(
         f"Current regime: {snap.regime} | VIX: {snap.regime_info.get('vix_current', 'N/A')}\n"
         'Respond in JSON: {"<symbol>": {"action": "HOLD"|"CLOSE", "reasoning": "<brief>"}}'
     )
-    mem = snap.strategy_memory or "(no strategy memory yet)"
     system_blocks = [
-        {"type": "text", "text": system_text},
-        {"type": "text", "text": f"Strategy memory:\n{mem}"},
+        {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"Strategy memory:\n{snap.strategy_memory or '(no strategy memory yet)'}"},
     ]
 
     user_msg = (
@@ -266,6 +264,8 @@ def _ask_claude_exit_batch(
             max_tokens=150 * len(exit_candidates),
             system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
+            thinking={"type": "adaptive"},
+            output_config={"format": {"type": "json_object"}},
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
@@ -297,13 +297,9 @@ def _ask_claude_exit_batch(
     except Exception:
         pass
 
-    text = response.content[0].text.strip()
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
-
-    logger.warning("Claude exit JSON parse error for %s — defaulting to HOLD", symbols)
-    return {sym: _default_hold(sym) for sym in symbols}
+    text = next((b.text for b in response.content if b.type == "text"), None)
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Claude exit JSON parse error for %s — defaulting to HOLD", symbols)
+        return {sym: _default_hold(sym) for sym in symbols}

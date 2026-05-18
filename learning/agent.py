@@ -145,13 +145,13 @@ def run_learning_agent():
                 "role": "user",
                 "content": (
                     f"Date: {today}\n"
-                    f"VIX regime today: {json.dumps(regime_info, indent=2)}\n\n"
-                    f"Performance by regime/mode:\n{json.dumps(regime_agg, indent=2)}\n\n"
-                    f"Regime win rates:\n{json.dumps(regime_winrate, indent=2)}\n\n"
-                    f"Loss source classification:\n{json.dumps(loss_sources, indent=2)}\n\n"
-                    f"Closed trades:\n{json.dumps(closed_trades, indent=2)}\n\n"
-                    f"Current indicator weights:\n{json.dumps(current_weights, indent=2)}\n\n"
-                    f"Current trading params:\n{json.dumps(current_params, indent=2)}\n\n"
+                    f"VIX regime today: {json.dumps(regime_info)}\n\n"
+                    f"Performance by regime/mode:\n{json.dumps(regime_agg)}\n\n"
+                    f"Regime win rates:\n{json.dumps(regime_winrate)}\n\n"
+                    f"Loss source classification:\n{json.dumps(loss_sources)}\n\n"
+                    f"Closed trades:\n{json.dumps(closed_trades)}\n\n"
+                    f"Current indicator weights:\n{json.dumps(current_weights)}\n\n"
+                    f"Current trading params:\n{json.dumps(current_params)}\n\n"
                     "Return JSON:\n"
                     "{\n"
                     '  "total_trades": <int>,\n'
@@ -330,9 +330,9 @@ def run_learning_agent():
             {
                 "role": "user",
                 "content": (
-                    f"Today's analysis ({today}):\n{json.dumps(analysis, indent=2)}\n\n"
-                    f"Updated weights:\n{json.dumps(new_weights, indent=2)}\n\n"
-                    f"Updated params:\n{json.dumps(new_params, indent=2)}\n\n"
+                    f"Today's analysis ({today}):\n{json.dumps(analysis)}\n\n"
+                    f"Updated weights:\n{json.dumps(new_weights)}\n\n"
+                    f"Updated params:\n{json.dumps(new_params)}\n\n"
                     f"VIX regime: {json.dumps(regime_info)}\n\n"
                     f"Current memory:\n{current_memory or 'No prior memory.'}\n\n"
                     "Write the complete updated strategy_memory.md. Keep it under 1000 words."
