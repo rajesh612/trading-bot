@@ -198,7 +198,7 @@ def _ask_claude_batch(
     try:
         parsed = json.loads(text)
         return {sym: _validate_decision(dec, sym) for sym, dec in parsed.items()}
-    except (json.JSONDecodeError, TypeError):
+    except Exception:
         logger.warning("Claude JSON parse error for batch %s — defaulting to HOLD", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
 
@@ -300,6 +300,6 @@ def _ask_claude_exit_batch(
     text = next((b.text for b in response.content if b.type == "text"), None)
     try:
         return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
+    except Exception:
         logger.warning("Claude exit JSON parse error for %s — defaulting to HOLD", symbols)
         return {sym: _default_hold(sym) for sym in symbols}
