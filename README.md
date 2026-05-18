@@ -90,12 +90,14 @@ tail -f logs/trading_bot.log
 | Every 10 min (9:30–3:50) | Trading Cycle | Technicals + Claude BUY/HOLD/CLOSE; mode-aware sizing and SL/TP |
 | Every 60 sec (9:30–3:50) | Position Monitor | Enforces SL/TP on day-trades; tiered TP on swing positions |
 | Every 5 min (9:30–3:50) | Market Monitor | Flash-crash detection via SPY (free, no Claude calls) |
+| Every 30 min (9:05–2:35) | Intraday News | Refreshes headlines for active watch list; updates intraday sentiment |
 | Every 30 min | Heartbeat | Confirms scheduler is alive; watchdog exits if missed |
+| 12:00 PM | Midday Check | Telegram alert if zero BUY trades executed by noon |
 | 3:50 PM | Swing EOD Evaluation | Promotes qualifying positions to overnight swing holds |
 | 3:55 PM | Force Close | Cancels orders, closes all day-trade positions (swing positions preserved) |
 | 4:00 PM | FRED Cache Refresh | Updates Fed/CPI/unemployment macro modifiers |
 | 4:15 PM | Learning Agent | Reviews closed trades, updates indicator weights and trading params |
-| 4:20 PM | Daily Email Report | P&L summary, trade log, updated weights (optional — needs Gmail config) |
+| 4:20 PM | Daily Report | Telegram EOD P&L summary always fires; email report optional (needs Gmail config) |
 
 If you start the bot mid-day, it automatically catches up any missed pre-market agents.
 

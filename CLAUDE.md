@@ -24,21 +24,24 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 
 | Time | Job |
 |---|---|
-| 8:00 AM | `earnings_calendar.refresh_earnings_calendar()` |
-| 8:20 AM | `economic_calendar.refresh_economic_calendar()` |
-| 8:45 AM | `agents/volatility_screener.run_volatility_screener()` — top 50 tickers → `daily_tradeable.txt` |
+| 8:00 AM | `calendars.earnings.refresh_earnings_calendar()` |
+| 8:20 AM | `macro.economic_calendar.refresh_economic_calendar()` |
+| 8:45 AM | `agents.volatility_screener.run_volatility_screener()` — top 50 tickers → `daily_tradeable.txt` |
 | 8:55 AM | `macro.regime.fetch_macro_regime()` — 9-state regime |
-| 9:00 AM | `agents/watch_list.run_watch_list_agent()` — Claude picks 10–15 stocks |
-| 9:15 AM | `research/agent.run_research_agent()` — sentiment + `__meta__` |
+| 9:00 AM | `agents.watch_list.run_watch_list_agent()` — Claude picks 10–15 stocks |
+| 9:15 AM | `research.agent.run_research_agent()` — sentiment + `__meta__` |
+| 9:30 AM | `trading.swing_manager.run_gap_check()` — pre-market gap evaluation on swing positions |
 | Every 10 min (9:30–3:50) | `trading.cycle.run_trading_cycle()` |
 | Every 60 sec (9:30–3:50) | `trading.monitor.run_position_monitor()` |
+| Every 5 min (9:30–3:50) | `utils.market_monitor.run_market_monitor()` — flash-crash detection via SPY |
+| Every 30 min (9:05–2:35) | `research.intraday.refresh_intraday_news()` — intraday news refresh |
+| 12:00 PM | Midday check — Telegram alert if zero BUY trades executed today |
 | 3:50 PM | `trading.swing_manager.evaluate_eod_holds()` |
-| 3:55 PM | `trading.cycle.force_close_all()` |
+| 3:55 PM | `trading.closer.force_close_all()` |
 | 4:00 PM | `macro.regime.refresh_fred_cache()` |
-| 4:15 PM | `learning/agent.run_learning_agent()` |
-| 4:20 PM | `notifications/daily_report.send_daily_report()` |
+| 4:15 PM | `learning.agent.run_learning_agent()` |
+| 4:20 PM | `notifications.daily_report.send_daily_report()` |
 | Every 30 min | Heartbeat |
-| 9:30 AM next day | `trading.swing_manager.run_gap_check()` |
 
 ### Key Modules
 
@@ -63,7 +66,10 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `macro/breadth_signals.py` | `get_advance_decline_ratio()` — IWM/SPY session return ratio; < 0.85 → soft flag |
 | `data/market_data.py` | Provider-agnostic OHLCV (Yahoo/Alpaca/hybrid via `MARKET_DATA_PROVIDER`) |
 | `research/agent.py` | RSS + Reddit + StockTwits sentiment; `__meta__` macro shock score |
-| `calendars/earnings_calendar.py` | Next-earnings dates + PEAD detection (5-condition score ≥ 80) |
+| `calendars/earnings.py` | Next-earnings dates + PEAD detection (5-condition score ≥ 80) |
+| `macro/economic_calendar.py` | `refresh_economic_calendar()` — loads FOMC/NFP/CPI event-risk windows |
+| `trading/closer.py` | `force_close_all()` — cancels orders and closes all day-trade positions at 3:55 PM |
+| `research/intraday.py` | `refresh_intraday_news()` — intraday headline refresh for active watch list |
 | `trading/journal.py` | JSON state R/W with locks: `_POSITIONS_LOCK`, `_DAILY_CLOSED_LOCK`, `_JOURNAL_LOCK` |
 | `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping, ATR-TP multiplier tuning, strategy_memory versioning |
 | `utils/metrics.py` | `record_cycle_metric()` + `get_daily_summary()` — JSONL cycle telemetry |
