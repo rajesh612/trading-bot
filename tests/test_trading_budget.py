@@ -775,3 +775,75 @@ def test_rollover_not_applied_twice(monkeypatch, tmp_path):
 
     # Both threads complete without exception — idempotency guaranteed
     assert len(results) == 2
+
+
+@pytest.mark.unit
+def test_auto_execute_uses_atr_tp(monkeypatch, tmp_path):
+    """Phase 4a AUTO_EXECUTE decision uses ATR-based TP, not flat TAKE_PROFIT_PCT."""
+    import config
+    from trading.pipeline import TradingPipeline
+    from trading.cycle_context import CycleSnapshot
+    from indicators.values import IndicatorValues
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    ET = ZoneInfo("America/New_York")
+    captured_decision = {}
+
+    def mock_execute_buy(symbol, iv, decision, **kwargs):
+        captured_decision.update(decision)
+        return None  # no position opened
+
+    monkeypatch.setattr("trading.pipeline.execute_buy", mock_execute_buy)
+    monkeypatch.setattr("trading.pipeline.load_open_positions", lambda: {})
+    monkeypatch.setattr("trading.pipeline.load_daily_closed", lambda: set())
+    monkeypatch.setattr("trading.pipeline.pre_claude_filter", lambda *a, **kw: type("F", (), {"decision": "AUTO_EXECUTE", "reason": "test"})())
+    monkeypatch.setattr("trading.pipeline.risk_manager.is_entry_budget_exhausted", lambda: False)
+    monkeypatch.setattr("trading.pipeline.risk_manager.needs_exit_evaluation", lambda *a, **kw: False)
+    monkeypatch.setattr("trading.pipeline.telegram_notify.notify_buy_batch", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.pipeline._ask_claude_batch", lambda *a, **kw: {})
+    monkeypatch.setattr("trading.pipeline._ask_claude_exit_batch", lambda *a, **kw: {})
+
+    # Patch data fetch to return one symbol with atr=3.0, price=100.0
+    iv = IndicatorValues.__new__(IndicatorValues)
+    for field in ["composite_score", "rsi", "rsi_slope", "macd_hist", "bb_lower", "bb_upper",
+                  "ema9", "ema21", "stoch_k", "stoch_d", "vwap", "daily_volume_ratio",
+                  "vwap_slope", "parabolic", "stop_hunt_zone"]:
+        setattr(iv, field, 0.0)
+    iv.composite_score = 60.0
+    iv.signal = "BUY"
+    iv.current_price = 100.0
+    iv.atr = 3.0
+    iv.parabolic = False
+    iv.stop_hunt_zone = False
+
+    monkeypatch.setattr("trading.pipeline._fetch_symbol_data", lambda sym, alpaca, open_pos: (sym, iv, None, 0.0))
+
+    snap = CycleSnapshot.__new__(CycleSnapshot)
+    snap.params = {"atr_tp_multiplier": 2.0}
+    snap.research = {"__meta__": {"shock_score": 0}}
+    snap.research_meta = {"timestamp": datetime.now(ET).isoformat()}
+    snap.fred_cache = {}
+    snap.regime_info = {"spy_5day_return": 0.0, "vix_current": 15.0}
+    snap.regime = "NORMAL"
+    snap.weights = {}
+    snap.strategy_memory = ""
+    snap.intraday_news = {}
+    snap.sector_today = {}
+    snap.advance_decline_ratio = 1.0
+
+    pipeline = TradingPipeline()
+    pipeline.run(
+        symbols=["TEST"],
+        snap=snap,
+        ai=None,
+        now=datetime(2026, 5, 18, 10, 30, tzinfo=ET),
+        alpaca=None,
+        portfolio_value=100_000.0,
+        buying_power=50_000.0,
+        can_open=True,
+        daily_pnl_pct=0.0,
+    )
+
+    # atr=3.0, price=100.0, mult=2.0 → atr_pct=3.0% → raw=6.0% → clamped to 6.0
+    assert abs(captured_decision.get("take_profit_pct", -1) - 6.0) < 0.01

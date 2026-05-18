@@ -23,6 +23,7 @@ from broker.alpaca_client import AlpacaClient
 from indicators.values import IndicatorValues
 from indicators.engine import compute_indicators
 import notifications.telegram as telegram_notify
+from signals.atr_tp import compute_atr_tp_pct
 from trading.cycle_context import CycleSnapshot
 from trading.journal import (
     load_daily_closed,
@@ -275,6 +276,8 @@ class TradingPipeline:
         entries_this_cycle = 0
         _batch_entries: list[dict] = []
 
+        _atr_tp_multiplier = snap.params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT)
+
         # ── Phase 4a: Auto-execute (no Claude) ───────────────────────────────
         for symbol, iv in auto_execute:
             if not can_open or buying_power < config.MIN_BUYING_POWER:
@@ -287,7 +290,7 @@ class TradingPipeline:
                     decision={"action": "BUY", "confidence": confidence,
                               "reasoning": "auto-execute: composite+sentiment threshold met",
                               "stop_loss_pct": config.STOP_LOSS_PCT,
-                              "take_profit_pct": config.TAKE_PROFIT_PCT,
+                              "take_profit_pct": compute_atr_tp_pct(iv.atr, iv.current_price, _atr_tp_multiplier),
                               "source": "auto_execute"},
                     regime=snap.regime, regime_info=snap.regime_info,
                     research=snap.research, open_positions=open_positions,
