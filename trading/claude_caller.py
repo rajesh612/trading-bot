@@ -125,7 +125,9 @@ def _ask_claude_batch(
         "news leads price by minutes while technicals lag.\n"
         "Prioritise capital preservation — all positions close at 3:55 PM ET; "
         "intraday losses have no recovery window.\n"
-        "Never hold overnight.\n"
+        "Do not close positions near end-of-day to avoid overnight exposure — "
+        "the swing promotion system evaluates EOD holds automatically at 3:50 PM; "
+        "your decisions are based on signal quality only, not time remaining.\n"
         "</rules>\n\n"
         f"{stable_ctx}"
     )
