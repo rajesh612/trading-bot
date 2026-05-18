@@ -6,9 +6,7 @@ ARM
 QCOM
 MRVL
 MU
-SNDK
 STX
-WDC
 TSM
 INTC
 ASML
@@ -16,8 +14,9 @@ AMAT
 LRCX
 KLAC
 ON
-SMCI
 DELL
+TXN
+ADI
 
 # ── AI Infrastructure & Networking ────────────────────────────────────────────
 ANET
@@ -26,7 +25,6 @@ EQIX
 GLW
 COHR
 LITE
-AAOI
 CIEN
 NET
 
@@ -55,22 +53,14 @@ SNOW
 HUBS
 DDOG
 TTD
-TWLO
-MNDY
 
-# ── Emerging AI / High-Growth Tech ────────────────────────────────────────────
-CRWV
-NBIS
+# ── High-Growth Tech & Consumer ───────────────────────────────────────────────
 AAPL
 TSLA
 NFLX
 DIS
 UBER
 SPOT
-PINS
-RDDT
-SOUN
-CELH
 
 # ── Energy & Power (Data Center Demand) ───────────────────────────────────────
 VST
@@ -79,24 +69,25 @@ NEE
 XOM
 CVX
 MPC
-OKLO
-BE
-NLR
-ENPH
 
-# ── Financials ────────────────────────────────────────────────────────────────
+# ── Financials & Fintech ──────────────────────────────────────────────────────
 JPM
 GS
 MS
+BRK.B
 V
 MA
 AXP
 PYPL
-HOOD
-SOFI
 COIN
-AFRM
-UPST
+SPGI
+BLK
+
+# ── Travel & Leisure ──────────────────────────────────────────────────────────
+BKNG
+ABNB
+MAR
+HLT
 
 # ── Healthcare & Pharma ───────────────────────────────────────────────────────
 LLY
@@ -105,36 +96,42 @@ AMGN
 ISRG
 DXCM
 CRSP
+JNJ
+ABBV
+MRK
+REGN
+
+# ── Industrial ────────────────────────────────────────────────────────────────
+CAT
+HON
+GE
+GEV
 
 # ── Defense ───────────────────────────────────────────────────────────────────
 RTX
 LMT
 NOC
-KTOS
 
-# ── Crypto & Digital Assets ───────────────────────────────────────────────────
-MSTR
-MARA
-RIOT
-IBIT
+# ── Aerospace & Space ─────────────────────────────────────────────────────────
+BA
+GD
+LHX
+TDG
+HWM
+HEI
 
-# ── Quantum & Next-Gen Computing ──────────────────────────────────────────────
-IONQ
-QBTS
-RGTI
+# ── Consumer Staples ──────────────────────────────────────────────────────────
+WMT
+COST
+PG
+KO
 
-# ── Space, EV & Advanced Transport ───────────────────────────────────────────
-RKLB
-ASTS
-ACHR
-JOBY
-LUNR
-RIVN
+# ── Macro Hedges ──────────────────────────────────────────────────────────────
+NEM
+GLD
 
 # ── Sector ETFs & Broad Market (regime/macro signals) ────────────────────────
 SPY
 QQQ
 VOOG
 SMH
-DRAM
-BAI
