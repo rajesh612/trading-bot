@@ -1,4 +1,6 @@
 """ATR-based take-profit calculation — pure, no I/O."""
+from __future__ import annotations
+
 import config
 
 
