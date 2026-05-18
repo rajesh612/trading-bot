@@ -57,7 +57,7 @@ _ZERO_TRADE_BOUNDS = {
 }
 
 
-def _handle_zero_trade_day(params_path, ai) -> None:
+def _handle_zero_trade_day(params_path) -> None:
     """Deterministic single-param relaxation on zero-trade days. No Claude call."""
     from utils.io_utils import load_json, save_json
     from datetime import datetime
@@ -92,7 +92,7 @@ def run_learning_agent():
 
     if not closed_trades:
         logger.info("No closed trades today — running deterministic param relaxation.")
-        _handle_zero_trade_day(config.TRADING_PARAMS_FILE, None)
+        _handle_zero_trade_day(config.TRADING_PARAMS_FILE)
         return
 
     current_weights = _load_weights()

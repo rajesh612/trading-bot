@@ -575,7 +575,7 @@ def test_zero_trade_day_updates_trading_params(monkeypatch, tmp_path):
 # ── P4-T4: _handle_zero_trade_day ─────────────────────────────────────────────
 
 @pytest.mark.unit
-def test_zero_trade_day_skips_claude_call(monkeypatch, tmp_path):
+def test_zero_trade_day_relaxes_one_param(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "TRADING_PARAMS_FILE", tmp_path / "params.json")
     from utils.io_utils import save_json
     save_json(config.TRADING_PARAMS_FILE, {
@@ -584,11 +584,8 @@ def test_zero_trade_day_skips_claude_call(monkeypatch, tmp_path):
         "high_vol_position_mult": 0.5, "rsi_buy_max_high_vol": 65,
         "vwap_slope_min": -0.3,
     })
-    from unittest.mock import MagicMock
-    ai_mock = MagicMock()
     from learning.agent import _handle_zero_trade_day
-    _handle_zero_trade_day(params_path=config.TRADING_PARAMS_FILE, ai=ai_mock)
-    ai_mock.messages.create.assert_not_called()
+    _handle_zero_trade_day(params_path=config.TRADING_PARAMS_FILE)
 
 
 @pytest.mark.unit
@@ -600,9 +597,8 @@ def test_zero_trade_day_changes_at_most_one_param(monkeypatch, tmp_path):
                 "entry_start_hour": 10, "entry_end_hour": 15,
                 "high_vol_position_mult": 0.5, "rsi_buy_max_high_vol": 65}
     save_json(config.TRADING_PARAMS_FILE, original)
-    from unittest.mock import MagicMock
     from learning.agent import _handle_zero_trade_day
-    _handle_zero_trade_day(params_path=config.TRADING_PARAMS_FILE, ai=MagicMock())
+    _handle_zero_trade_day(params_path=config.TRADING_PARAMS_FILE)
     updated = load_json(config.TRADING_PARAMS_FILE, {})
     changed = [k for k in original if updated.get(k) != original[k]]
     assert len(changed) <= 1, f"Too many params changed: {changed}"

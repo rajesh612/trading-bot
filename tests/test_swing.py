@@ -163,7 +163,7 @@ class TestSwingManager:
         assert result["action"] == "NONE"
 
     def test_qualifies_for_eod_hold_all_pass(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA",
             is_tier1=True,
@@ -178,7 +178,7 @@ class TestSwingManager:
         assert reason == ""
 
     def test_qualifies_for_eod_hold_not_tier1(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="APP", is_tier1=False, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=False,
@@ -189,7 +189,7 @@ class TestSwingManager:
         assert "tier-1" in reason
 
     def test_qualifies_for_eod_hold_wrong_regime(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="NORMAL",
             event_risk_tomorrow=False, earnings_in_2_days=False,
@@ -200,7 +200,7 @@ class TestSwingManager:
         assert "regime" in reason
 
     def test_qualifies_for_eod_hold_event_risk(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
             event_risk_tomorrow=True, earnings_in_2_days=False,
@@ -211,7 +211,7 @@ class TestSwingManager:
         assert "event" in reason
 
     def test_qualifies_for_eod_hold_earnings_blocks(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=True,
@@ -222,7 +222,7 @@ class TestSwingManager:
         assert "earnings" in reason
 
     def test_qualifies_for_eod_hold_ptj_rule(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=False,
@@ -233,7 +233,7 @@ class TestSwingManager:
         assert "PTJ" in reason
 
     def test_qualifies_for_eod_hold_swing_limit(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         import config
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
@@ -246,7 +246,7 @@ class TestSwingManager:
         assert "swing limit" in reason
 
     def test_qualifies_for_eod_hold_low_sector_sentiment(self):
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=False,
@@ -411,7 +411,7 @@ class TestSwingManagerOrchestration:
 
     def test_earnings_allowed_in_capitulation_regime(self):
         """Earnings-within-2-days must NOT block holds when regime is CAPITULATION."""
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="CAPITULATION",
             event_risk_tomorrow=False, earnings_in_2_days=True,
@@ -423,7 +423,7 @@ class TestSwingManagerOrchestration:
 
     def test_sector_sentiment_at_boundary_passes(self):
         """Sentiment exactly at threshold (>=10) must pass."""
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, _ = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=False,
@@ -434,7 +434,7 @@ class TestSwingManagerOrchestration:
 
     def test_pnl_exactly_minus_two_blocks(self):
         """P&L of exactly -2% must block the hold (PTJ rule uses <=)."""
-        from trading.swing_manager import qualifies_for_eod_hold
+        from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", is_tier1=True, regime="BULL_TREND",
             event_risk_tomorrow=False, earnings_in_2_days=False,

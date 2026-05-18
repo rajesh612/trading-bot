@@ -108,13 +108,9 @@ class TestForceCloseAll:
         mock_alpaca.get_positions.return_value = {}  # AAPL not in live positions (empty dict)
         mock_alpaca.cancel_all_orders.return_value = None
 
-        orig = config.EOD_VERIFY_FILLS
-        config.EOD_VERIFY_FILLS = True
-        try:
-            with patch("trading.closer.AlpacaClient", return_value=mock_alpaca):
-                closer.force_close_all()
-        finally:
-            config.EOD_VERIFY_FILLS = orig
+        monkeypatch.setattr(config, "EOD_VERIFY_FILLS", True)
+        with patch("trading.closer.AlpacaClient", return_value=mock_alpaca):
+            closer.force_close_all()
 
         # journal should NOT have a CLOSE entry for AAPL
         journal = json.loads((tmp_path / "trade_journal.json").read_text())
