@@ -295,3 +295,10 @@ STRATEGY_MEMORY_BACKUP_MAX         = 7   # keep this many daily .bak files befor
 
 # ── SoT-AUDIT: Magic Number Elimination ──────────────────────────────────────
 TRAILING_STOP_PCT_FALLBACK = 0.03  # 3% trailing stop when ATR unavailable
+
+# ── ATR-based TP (Phase 1: backtest; Phase 2: live) ──────────────────────────
+ATR_TP_MULT_DEFAULT = 2.0   # TP = ATR% × this multiplier
+ATR_TP_MULT_MIN     = 1.0   # learning agent lower bound
+ATR_TP_MULT_MAX     = 4.0   # learning agent upper bound
+ATR_TP_FLOOR_PCT    = 1.5   # TP never below 1.5% (slow/thinly-traded stocks)
+ATR_TP_CEILING_PCT  = 12.0  # TP never above 12%
