@@ -170,9 +170,10 @@ class TestLearningAgentHelpers:
 
     def test_load_todays_closed_trades_filters_by_today(self, tmp_path, monkeypatch):
         import config, json
-        from datetime import date
+        from datetime import datetime
+        from utils.constants import ET
         monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
-        today = date.today().isoformat()
+        today = datetime.now(ET).date().isoformat()
         journal = [
             {"type": "CLOSE", "timestamp": f"{today}T10:30:00", "symbol": "NVDA",
              "pnl_pct": 2.0, "pnl_dollar": 100.0, "close_reason": "tp"},
@@ -197,13 +198,14 @@ class TestLearningAgentHelpers:
 
     def test_save_trading_params_adds_last_updated(self, tmp_path, monkeypatch):
         import config, json
-        from datetime import date
+        from datetime import datetime
+        from utils.constants import ET
         params_file = tmp_path / "trading_params.json"
         monkeypatch.setattr(config, "TRADING_PARAMS_FILE", params_file)
         from learning.data import _save_trading_params
         _save_trading_params({"stop_loss_pct": 4.0})
         saved = json.loads(params_file.read_text())
-        assert saved["last_updated"] == date.today().isoformat()
+        assert saved["last_updated"] == datetime.now(ET).date().isoformat()
 
 
 # ── macro_regime: load_trading_params ────────────────────────────────────────
@@ -275,8 +277,9 @@ class TestCapabilitySummary:
 class TestProgressiveLoss:
     def _journal_entry(self, action: str, pnl_pct: float, today: bool = True) -> dict:
         """Create a synthetic journal entry with optional date override."""
-        from datetime import date
-        ts = date.today().isoformat() if today else "2020-01-01"
+        from datetime import datetime
+        from utils.constants import ET
+        ts = datetime.now(ET).date().isoformat() if today else "2020-01-01"
         return {"action": action, "pnl_pct": pnl_pct, "timestamp": f"{ts}T10:00:00"}
 
     def test_zero_losses_returns_full_multiplier(self):
@@ -782,7 +785,7 @@ def test_atr_pct_preserved_in_rolling_trades(monkeypatch, tmp_path):
 def test_learning_agent_tunes_atr_multiplier(monkeypatch, tmp_path):
     """run_learning_agent writes atr_tp_multiplier to trading_params when rolling window has 15+ annotated trades."""
     import json as _json
-    from datetime import date
+    from datetime import datetime
     from unittest.mock import MagicMock, patch
     from utils.io_utils import save_json, load_json
 
@@ -803,7 +806,8 @@ def test_learning_agent_tunes_atr_multiplier(monkeypatch, tmp_path):
     save_json(params_file, {"atr_tp_multiplier": 2.0, "rsi_buy_max": 65})
     save_json(weights_file, {"rsi": 10.0, "macd": 10.0})
 
-    today = date.today().isoformat()
+    from utils.constants import ET
+    today = datetime.now(ET).date().isoformat()
     save_json(journal_file, [{
         "type": "CLOSE", "timestamp": f"{today}T11:00:00", "symbol": "AAPL",
         "pnl_pct": 2.0, "pnl_dollar": 100.0, "close_reason": "tp",
