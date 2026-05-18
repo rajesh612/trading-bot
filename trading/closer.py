@@ -101,6 +101,7 @@ def close_position(
         "indicator_signals_at_entry": pos.get("indicator_signals", {}),
         "mode_at_entry": pos.get("mode_at_entry"),
         "regime_at_entry": pos.get("regime_at_entry"),
+        "atr_pct": pos.get("atr_pct", 0.0),
     })
 
     record_daily_closed(symbol)
@@ -222,6 +223,7 @@ def _force_close_body() -> None:
             "indicator_signals_at_entry": pos.get("indicator_signals", {}),
             "mode_at_entry": pos.get("mode_at_entry"),
             "regime_at_entry": pos.get("regime_at_entry"),
+            "atr_pct": pos.get("atr_pct", 0.0),
         })
         to_remove.append(symbol)
         logger.info("EOD close %s: P&L=%+.2f%% ($%+.2f)", symbol, pnl_pct, pnl_dollar)

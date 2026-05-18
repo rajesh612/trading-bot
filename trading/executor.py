@@ -166,6 +166,7 @@ def execute_buy(
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
         "order_id": order.get("id"), "mode_at_entry": mode, "regime_at_entry": regime,
+        "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.current_price > 0 else 0.0,
     }
     open_positions[symbol] = position_data
 

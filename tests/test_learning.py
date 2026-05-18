@@ -705,3 +705,158 @@ def test_strategy_memory_backup_pruned_to_max(monkeypatch, tmp_path):
     _write_strategy_memory("new rules")
     bak_files = sorted(tmp_path.glob("strategy_memory.*.bak.md"))
     assert len(bak_files) <= config.STRATEGY_MEMORY_BACKUP_MAX
+
+
+# ── Phase 3: ATR-TP multiplier grid search ───────────────────────────────────
+
+@pytest.mark.unit
+class TestTuneAtrTpMultiplier:
+    """_tune_atr_tp_multiplier: grid-search for best-Sharpe ATR-TP multiplier."""
+
+    @staticmethod
+    def _trade(atr_pct: float, pnl_pct: float) -> dict:
+        return {"atr_pct": atr_pct, "pnl_pct": pnl_pct}
+
+    def test_returns_none_when_too_few_annotated_trades(self):
+        from learning.trade_analysis import _tune_atr_tp_multiplier
+        trades = [self._trade(2.0, 1.5) for _ in range(14)]
+        assert _tune_atr_tp_multiplier(trades) is None
+
+    def test_returns_none_when_no_atr_pct_field(self):
+        from learning.trade_analysis import _tune_atr_tp_multiplier
+        trades = [{"pnl_pct": 2.0} for _ in range(20)]
+        assert _tune_atr_tp_multiplier(trades) is None
+
+    def test_returns_float_with_enough_annotated_trades(self):
+        from learning.trade_analysis import _tune_atr_tp_multiplier
+        trades = [self._trade(2.0, 3.0) for _ in range(20)]
+        result = _tune_atr_tp_multiplier(trades)
+        assert isinstance(result, float)
+
+    def test_grid_search_picks_best_sharpe(self):
+        """atr_pct=4%, pnl=6%: mult=1.5 captures sim_tp=6% (first grid entry to reach max mean)."""
+        from learning.trade_analysis import _tune_atr_tp_multiplier
+        # mult=1.0  → sim_tp=4.0%, pnl=6.0 ≥ 4.0 → capped at 4.0, mean=4.0
+        # mult=1.25 → sim_tp=5.0%, pnl=6.0 ≥ 5.0 → capped at 5.0, mean=5.0
+        # mult=1.5  → sim_tp=6.0%, pnl=6.0 ≥ 6.0 → capped at 6.0, mean=6.0  ← wins (first)
+        # mult≥1.75 → sim_tp>6.0%, pnl=6.0 < sim_tp → sim_pnl=6.0, mean=6.0  (ties, no update)
+        trades = [self._trade(4.0, 6.0) for _ in range(20)]
+        assert _tune_atr_tp_multiplier(trades) == pytest.approx(1.5)
+
+    def test_result_clamped_to_config_bounds(self, monkeypatch):
+        """Result is always clamped to [ATR_TP_MULT_MIN, ATR_TP_MULT_MAX]."""
+        from learning.trade_analysis import _tune_atr_tp_multiplier
+        monkeypatch.setattr(config, "ATR_TP_MULT_MIN", 1.5)
+        # pnl_pct=1.0 never reaches ATR_TP_FLOOR_PCT=1.5%, so all mults give same outcome;
+        # first grid entry (1.0) wins raw, then clamped up to ATR_TP_MULT_MIN=1.5
+        trades = [self._trade(0.5, 1.0) for _ in range(20)]
+        result = _tune_atr_tp_multiplier(trades)
+        assert result >= config.ATR_TP_MULT_MIN
+        assert result <= config.ATR_TP_MULT_MAX
+
+    def test_falls_back_to_mean_when_std_zero(self):
+        """std=0 across all trades must not raise; function returns a valid float."""
+        from learning.trade_analysis import _tune_atr_tp_multiplier
+        trades = [self._trade(0.3, 0.8) for _ in range(20)]
+        result = _tune_atr_tp_multiplier(trades)
+        assert isinstance(result, float)
+
+
+@pytest.mark.unit
+def test_atr_pct_preserved_in_rolling_trades(monkeypatch, tmp_path):
+    """atr_pct field must survive _load_rolling_trades key-filtering."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from utils.io_utils import save_json
+    ET = ZoneInfo("America/New_York")
+    monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "journal.json")
+    now = datetime.now(ET)
+    save_json(config.TRADE_JOURNAL_FILE, [{
+        "type": "CLOSE", "symbol": "AAPL",
+        "timestamp": (now - timedelta(days=1)).isoformat(),
+        "pnl_pct": 2.5, "atr_pct": 3.2,
+    }])
+    from learning.data import _load_rolling_trades
+    result = _load_rolling_trades(days=3)
+    assert len(result) == 1
+    assert result[0].get("atr_pct") == pytest.approx(3.2)
+
+
+@pytest.mark.unit
+def test_learning_agent_tunes_atr_multiplier(monkeypatch, tmp_path):
+    """run_learning_agent writes atr_tp_multiplier to trading_params when rolling window has 15+ annotated trades."""
+    import json as _json
+    from datetime import date
+    from unittest.mock import MagicMock, patch
+    from utils.io_utils import save_json, load_json
+
+    params_file = tmp_path / "trading_params.json"
+    weights_file = tmp_path / "weights.json"
+    journal_file = tmp_path / "journal.json"
+    perf_log = tmp_path / "perf.md"
+    memory_file = tmp_path / "strategy_memory.md"
+
+    monkeypatch.setattr(config, "TRADING_PARAMS_FILE", params_file)
+    monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", weights_file)
+    monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", journal_file)
+    monkeypatch.setattr(config, "INDICATOR_PERFORMANCE_LOG", perf_log)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", memory_file)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_MAX_CHARS", 10000)
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_BACKUP_MAX", 3)
+
+    save_json(params_file, {"atr_tp_multiplier": 2.0, "rsi_buy_max": 65})
+    save_json(weights_file, {"rsi": 10.0, "macd": 10.0})
+
+    today = date.today().isoformat()
+    save_json(journal_file, [{
+        "type": "CLOSE", "timestamp": f"{today}T11:00:00", "symbol": "AAPL",
+        "pnl_pct": 2.0, "pnl_dollar": 100.0, "close_reason": "tp",
+        "regime_at_entry": "NORMAL", "mode_at_entry": "DAY_TRADE",
+        "entry_sentiment_score": 10, "atr_pct": 4.0,
+    }])
+
+    annotated = [{"atr_pct": 4.0, "pnl_pct": 6.0, "pnl_dollar": 100.0}] * 20
+
+    analysis_json = _json.dumps({
+        "total_trades": 1, "winning_trades": 1, "losing_trades": 0,
+        "total_pnl_dollar": 100.0, "win_rate_pct": 100.0,
+        "market_conditions": "trending", "regime_impact": "positive",
+        "indicator_performance": {
+            "rsi": {"accuracy_pct": 80, "weight_adjustment": 1, "notes": "good"}
+        },
+        "suggested_params": {
+            "rsi_buy_max": 65, "entry_start_hour": 10, "entry_end_hour": 15,
+            "rsi_buy_max_high_vol": 50, "vwap_slope_min": -0.3,
+            "high_vol_position_mult": 0.5, "stop_loss_pct": 3.0, "take_profit_pct": 5.0,
+        },
+        "strategy_learnings": ["lesson"],
+        "per_stock_notes": {"AAPL": "good"},
+    })
+    mock_analysis = MagicMock()
+    mock_analysis.content = [MagicMock(text=analysis_json)]
+    mock_analysis.usage = MagicMock(
+        input_tokens=100, output_tokens=50,
+        cache_creation_input_tokens=0, cache_read_input_tokens=0,
+    )
+    mock_memory = MagicMock()
+    mock_memory.content = [MagicMock(text="# Memory\nrules")]
+    mock_memory.usage = MagicMock(
+        input_tokens=100, output_tokens=50,
+        cache_creation_input_tokens=0, cache_read_input_tokens=0,
+    )
+
+    with patch("learning.agent._load_rolling_trades", return_value=annotated), \
+         patch("anthropic.Anthropic") as MockAI, \
+         patch("trading.risk_manager.record_usage"), \
+         patch("macro.regime.load_macro_regime", return_value={
+             "regime": "NORMAL", "vix_current": 20.0, "vix_90d_avg": 18.0,
+             "spy_5day_return": 0.5, "health_score": 75,
+         }), \
+         patch("macro.regime.load_trading_params", return_value={"rsi_buy_max": 65}):
+        MockAI.return_value.messages.create.side_effect = [mock_analysis, mock_memory]
+        from learning.agent import run_learning_agent
+        run_learning_agent()
+
+    saved = load_json(params_file, {})
+    assert "atr_tp_multiplier" in saved
+    assert config.ATR_TP_MULT_MIN <= saved["atr_tp_multiplier"] <= config.ATR_TP_MULT_MAX

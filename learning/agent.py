@@ -18,9 +18,11 @@ from learning.trade_analysis import (
     _classify_loss_source,
     _compute_regime_winrate,
     _clamp_threshold,
+    _tune_atr_tp_multiplier,
 )
 from learning.data import (
     _load_todays_closed_trades,
+    _load_rolling_trades,
     _load_weights,
     _save_weights,
     _save_trading_params,
@@ -230,6 +232,18 @@ def run_learning_agent():
             if new_val != old_val:
                 new_params[key] = new_val
                 changed_params.append(f"{key}: {old_val} → {new_val}")
+
+    # ── Phase 3: ATR-TP multiplier auto-tuning ──────────────────────────────
+    rolling_trades = _load_rolling_trades()
+    best_mult = _tune_atr_tp_multiplier(rolling_trades)
+    if best_mult is not None:
+        new_params["atr_tp_multiplier"] = best_mult
+        logger.info("ATR-TP multiplier tuned to %.2f×", best_mult)
+    else:
+        logger.info(
+            "ATR-TP multiplier unchanged — insufficient annotated trades (%d < 15).",
+            len([t for t in rolling_trades if t.get("atr_pct")]),
+        )
 
     _save_trading_params(new_params)
     if changed_params:

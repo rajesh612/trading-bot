@@ -13,7 +13,7 @@ _TRADE_SUMMARY_KEYS = {
     "symbol", "timestamp", "pnl_pct", "pnl_dollar", "close_reason",
     "entry_composite_score", "exit_composite_score",
     "indicator_signals_at_entry", "claude_reasoning", "entry_sentiment_score",
-    "mode_at_entry", "regime_at_entry",
+    "mode_at_entry", "regime_at_entry", "atr_pct",
 }
 
 # Hard bounds on learnable thresholds — prevents Claude from disabling stops or
@@ -164,3 +164,49 @@ def _classify_loss_source(trade: dict) -> str:
         return "sector_narrative"
 
     return "unknown"
+
+
+_ATR_TP_GRID = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0]
+_ATR_TP_MIN_TRADES = 15
+
+
+def _tune_atr_tp_multiplier(trades: list[dict]) -> float | None:
+    """Grid-search for the ATR-TP multiplier that maximises Sharpe over recent trades.
+
+    For each candidate multiplier M, simulates what P&L each trade would have produced:
+    - sim_tp = clamp(atr_pct × M, FLOOR, CEILING)
+    - If actual pnl_pct >= sim_tp: trade hit the target → credit sim_tp (locked in)
+    - Otherwise: trade missed the target → use actual pnl_pct
+
+    Ranks candidates by Sharpe (mean/std); falls back to mean when std == 0.
+    Returns None if fewer than _ATR_TP_MIN_TRADES trades have an `atr_pct` field.
+    """
+    annotated = [
+        t for t in trades
+        if t.get("atr_pct") and t.get("pnl_pct") is not None
+    ]
+    if len(annotated) < _ATR_TP_MIN_TRADES:
+        return None
+
+    best_mult = _ATR_TP_GRID[0]
+    best_score: float = float("-inf")
+
+    for mult in _ATR_TP_GRID:
+        pnl_series = []
+        for t in annotated:
+            sim_tp = max(config.ATR_TP_FLOOR_PCT,
+                         min(config.ATR_TP_CEILING_PCT, t["atr_pct"] * mult))
+            actual = t["pnl_pct"]
+            pnl_series.append(sim_tp if actual >= sim_tp else actual)
+
+        n = len(pnl_series)
+        mean = sum(pnl_series) / n
+        variance = sum((x - mean) ** 2 for x in pnl_series) / n
+        std = variance ** 0.5
+        score = mean / std if std > 0 else mean
+
+        if score > best_score:
+            best_score = score
+            best_mult = mult
+
+    return float(max(config.ATR_TP_MULT_MIN, min(config.ATR_TP_MULT_MAX, best_mult)))

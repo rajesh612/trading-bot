@@ -109,6 +109,7 @@ def run_position_monitor():
                 "entry_sentiment_score": pos.get("entry_sentiment_score"),
                 "claude_reasoning": pos.get("claude_reasoning", ""),
                 "indicator_signals_at_entry": pos.get("indicator_signals", {}),
+                "atr_pct": pos.get("atr_pct", 0.0),
             })
             record_daily_closed(symbol)
             logger.info(
