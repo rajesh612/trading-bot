@@ -127,13 +127,7 @@ def _ask_claude_batch(
     if snap.strategy_memory:
         system_text += f"\n\nToday's strategy memory:\n{snap.strategy_memory}"
 
-    system_blocks = [
-        {
-            "type": "text",
-            "text": system_text,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
+    system_blocks = [{"type": "text", "text": system_text}]
 
     user_msg = (
         f"{dynamic_ctx}\n\n"
@@ -249,8 +243,8 @@ def _ask_claude_exit_batch(
     )
     mem = snap.strategy_memory or "(no strategy memory yet)"
     system_blocks = [
-        {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": f"Strategy memory:\n{mem}", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": system_text},
+        {"type": "text", "text": f"Strategy memory:\n{mem}"},
     ]
 
     user_msg = (

@@ -670,31 +670,35 @@ def test_validate_decision_passthrough_valid():
     assert result["stop_loss_pct"] == 4.0
 
 
-# ── P4-T2: exit-batch system prompt + cache_control ───────────────────────────
+# ── P4-T2: system prompt structure (no cache_control — TTL 5 min < 10 min cycle gap) ──
+
+def _make_fake_ai(calls: list, response_text: str):
+    from unittest.mock import MagicMock
+    def fake_create(**kwargs):
+        calls.append(kwargs)
+        r = MagicMock()
+        r.content = [MagicMock(text=response_text)]
+        r.usage = MagicMock(input_tokens=100, output_tokens=20,
+                            cache_creation_input_tokens=0, cache_read_input_tokens=0)
+        return r
+    ai_mock = MagicMock()
+    ai_mock.messages.create.side_effect = fake_create
+    return ai_mock
+
 
 @pytest.mark.unit
-def test_exit_batch_includes_system_prompt(monkeypatch):
-    """_ask_claude_exit_batch must send a system block with cache_control."""
+def test_exit_batch_system_prompt_has_no_cache_control(monkeypatch):
+    """Exit-batch system blocks must NOT use cache_control — Claude calls are 10+ min apart,
+    well beyond the 5-min Anthropic TTL, so cache writes cost extra with zero benefit."""
     from trading.claude_caller import _ask_claude_exit_batch
     from unittest.mock import MagicMock
 
     calls = []
-    def fake_create(**kwargs):
-        calls.append(kwargs)
-        r = MagicMock()
-        r.content = [MagicMock(text='{"AAPL": {"action": "HOLD", "reasoning": "ok"}}')]
-        r.usage = MagicMock(input_tokens=100, output_tokens=20,
-                            cache_creation_input_tokens=0, cache_read_input_tokens=0)
-        return r
-
     snap = MagicMock()
     snap.regime = "NORMAL"
     snap.regime_info = {"vix_current": 15}
     snap.strategy_memory = ""
     snap.research = {}
-
-    ai_mock = MagicMock()
-    ai_mock.messages.create.side_effect = fake_create
 
     iv = MagicMock()
     iv.composite_score = 20.0
@@ -708,15 +712,68 @@ def test_exit_batch_includes_system_prompt(monkeypatch):
     monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage",
                         lambda **kw: None)
 
-    _ask_claude_exit_batch([("AAPL", iv, {"entry_price": 102.0})], snap, ai_mock)
+    _ask_claude_exit_batch(
+        [("AAPL", iv, {"entry_price": 102.0})], snap,
+        _make_fake_ai(calls, '{"AAPL": {"action": "HOLD", "reasoning": "ok"}}'),
+    )
 
     assert calls, "Claude was not called"
-    assert "system" in calls[0], "No system block in exit-batch call"
-    system_blocks = calls[0]["system"]
-    assert any(
+    system_blocks = calls[0].get("system", [])
+    assert system_blocks, "No system blocks in exit-batch call"
+    assert not any(
         isinstance(b, dict) and b.get("cache_control")
         for b in system_blocks
-    ), "System blocks must have cache_control"
+    ), "System blocks must NOT have cache_control (TTL 5min < 10min cycle gap)"
+
+
+@pytest.mark.unit
+def test_entry_batch_system_prompt_has_no_cache_control(monkeypatch, tmp_path):
+    """Entry-batch system block must NOT use cache_control — same TTL/gap reasoning."""
+    from trading.claude_caller import _ask_claude_batch
+    from unittest.mock import MagicMock
+
+    calls = []
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.regime_info = {"vix_current": 15, "spy_5day_return": 0.1}
+    snap.strategy_memory = ""
+    snap.research = {}
+    snap.research_meta = {}
+    snap.fred_cache = {}
+    snap.weights = {}
+    snap.params = {}
+
+    iv = MagicMock()
+    iv.composite_score = 60.0
+    iv.rsi = 55.0
+    iv.current_price = 100.0
+    iv.atr = 1.5
+
+    monkeypatch.setattr("trading.claude_caller.build_stock_block",
+                        lambda sym, iv, research, pos, **kw: f"BLOCK {sym}")
+    monkeypatch.setattr("trading.claude_caller.build_stable_system_context",
+                        lambda *a: "STABLE CTX")
+    monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context",
+                        lambda now: "DYNAMIC CTX")
+    monkeypatch.setattr("trading.claude_caller.risk_manager.check_entry_budget",
+                        lambda cost, regime: True)
+    monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage",
+                        lambda **kw: None)
+
+    _ask_claude_batch(
+        [("AAPL", iv, None)], snap,
+        _make_fake_ai(calls, '{"AAPL": {"action": "HOLD", "confidence": 50, '
+                             '"reasoning": "ok", "stop_loss_pct": 4.0, '
+                             '"take_profit_pct": 5.0, "indicator_signals": {}}}'),
+    )
+
+    assert calls, "Claude was not called"
+    system_blocks = calls[0].get("system", [])
+    assert system_blocks, "No system blocks in entry-batch call"
+    assert not any(
+        isinstance(b, dict) and b.get("cache_control")
+        for b in system_blocks
+    ), "System blocks must NOT have cache_control (TTL 5min < 10min cycle gap)"
 
 
 # ── P4-T5: _compute_auto_execute_confidence ───────────────────────────────────
