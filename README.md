@@ -176,7 +176,7 @@ Edit `config.py`. Key parameters:
 | `REL_VOLUME_MIN` | `0.60` | Volume < 60% of 20-day average → soft flag |
 | `BREADTH_WEAK_THRESHOLD` | `0.85` | IWM/SPY session return ratio < this → breadth soft flag |
 | `OPENING_RANGE_MINUTES` | `60` | First N minutes define the opening range for position detection |
-| `SENTIMENT_HARD_BLOCK` | `-2` | Research sentiment below this → hard skip |
+| `SENTIMENT_HARD_BLOCK` | `-15` | Research sentiment below this → hard skip |
 | `API_BUDGET_NORMAL_CEILING` | `$1.00` | Daily Claude spend cap (normal conditions) |
 | `API_BUDGET_ELEVATED_CEILING` | `$1.50` | Daily Claude spend cap (CRISIS / high-gain day) |
 | `DRAWDOWN_WARN_PCT` | `2.0` | Alert when a position's unrealised loss ≥ this % (above stop) |
@@ -381,7 +381,7 @@ All state files live under `data/state/`.
 # Last 30 trading days (default)
 .venv/bin/python3 backtest.py
 
-# Last N trading days
+# Last N trading days (60d recommended for validation — covers multiple regime transitions)
 .venv/bin/python3 backtest.py --days 60
 
 # Specific date range
@@ -391,7 +391,23 @@ All state files live under `data/state/`.
 
 Weekends and NYSE holidays are automatically excluded. Uses Alpaca IEX feed (no Claude API calls). Picks up learned `trading_params.json` automatically so the backtest reflects your bot's current tuning.
 
-Outputs `backtest_trades.csv` and `backtest_equity.json`.
+Outputs:
+- `backtest_trades.csv` — every trade with entry/exit timestamps, P&L, and exit reason
+- `backtest_equity.json` — daily equity curve
+
+**Interpreting results:**
+
+| Metric | What to look for |
+|---|---|
+| Force-close % | Should be < 40%. High % means TP is too wide for intraday moves |
+| Win rate | Healthy range: 52–65%. Below 50% = entry quality issue |
+| Avg winner / loser ratio | Should be ≥ 1.2×. Lower = exits are cutting winners short |
+| Max drawdown | Target < 3% (matches `MAX_DAILY_LOSS_PCT` circuit breaker) |
+| Swing win rate | Swing setups are selective — 50%+ with 9–10% avg winner is good |
+
+**Benchmark:** SPY is not a meaningful comparison — the bot trades speculative growth stocks (IONQ, LUNR, CRWV class) with a 3% drawdown cap. A fairer baseline is the equal-weight daily return of the bot's own watch list on the same days.
+
+**Tip:** Run 60d minimum for parameter validation. 30d covers too few regime transitions to distinguish signal from noise.
 
 ---
 

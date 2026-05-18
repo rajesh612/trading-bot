@@ -86,7 +86,9 @@ Validate that ATR-based TP improves backtest performance before touching live co
 4. `backtest/runner.py` — loads `atr_tp_multiplier` from trading_params (default `ATR_TP_MULT_DEFAULT`)
 5. `backtest/report.py` — add universe benchmark (equal-weight daily hold of watch list)
 
-**Validation:** run backtest sweep at multipliers 1.0, 1.5, 2.0, 2.5, 3.0 and compare total P&L, win rate, % trades force-closed, Sharpe. If 2.0× improves on current results, proceed to Phase 2.
+**Validation window: 60 trading days minimum.** 30 days is insufficient — it starts at the April tariff recovery (a specific market condition) with only 6 HIGH_VOL days and produces only ~168 trades, too few to distinguish signal from noise across multipliers. 60d covers multiple regime transitions (HIGH_VOL → NORMAL → NORMAL) and ~300+ trades for meaningful Sharpe comparison.
+
+Run backtest sweep at multipliers 1.0, 1.5, 2.0, 2.5, 3.0. Compare total P&L, win rate, % trades force-closed, and Sharpe. If 2.0× improves on current results, proceed to Phase 2.
 
 **New constants in `config.py`:**
 ```python
@@ -147,10 +149,22 @@ Also: store `atr_pct` in the BUY journal record to enable Phase 3.
 1. `learning/agent.py` — add `atr_tp_multiplier` grid search using recent trade ATRs
 2. `trading/journal.py` — confirm `atr_pct` is stored per BUY trade
 
+**Setup requirements for Phase 3:**
+
+Phase 3 cannot produce useful results until Phase 2 has been live for at least `LEARNING_ROLLING_DAYS` (5 trading days = 1 week). The learning agent must have a minimum number of ATR-annotated trades before the grid search runs.
+
+1. **Phase 2 live prerequisite:** `atr_pct` must be stored in every BUY journal record (Phase 2 delivers this). Phase 3 will silently skip the multiplier update if fewer than 15 trades in the rolling window have `atr_pct`.
+2. **Minimum trade guard:** `if len([t for t in trades if t.get("atr_pct")]) < 15: skip update`. Keeps current multiplier rather than producing a noisy result from too-few trades.
+3. **Sharpe edge case:** if simulated P&L values have std = 0 (e.g., all trades hit TP at the same multiplier), fall back to average P&L as the ranking metric.
+4. **No scheduler change needed:** Phase 3 logic runs inside the existing 4:15 PM `run_learning_agent()` job. No new cron jobs required.
+5. **Bootstrap period:** the multiplier stays at `ATR_TP_MULT_DEFAULT = 2.0` until Phase 2 accumulates 15+ annotated trades. This takes 2–3 live trading days at current trade frequency (~6 trades/day).
+
 **Optimization logic (learning agent, nightly):**
 - Load last `LEARNING_ROLLING_DAYS` closed trades from journal
-- For each trade with `atr_pct` stored: simulate TP hit at multipliers [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0]
-- Compute per-multiplier Sharpe: `mean(simulated_pnl_pct) / std(simulated_pnl_pct)`
+- Filter to trades with `atr_pct` field set (Phase 2 annotates these)
+- If fewer than 15 annotated trades → skip multiplier update, log reason
+- For each trade: simulate TP hit at multipliers [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0]
+- Rank by Sharpe (`mean / std`); fall back to mean if std = 0
 - Pick best multiplier; clamp to `[ATR_TP_MULT_MIN, ATR_TP_MULT_MAX]`
 - Write to `trading_params.json` as `atr_tp_multiplier`
 - Claude's existing param update also allowed to tune `atr_tp_multiplier`

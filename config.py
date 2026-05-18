@@ -29,10 +29,8 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
 # Social media (optional — bot degrades gracefully if not set)
-REDDIT_CLIENT_ID     = os.getenv("REDDIT_CLIENT_ID", "")
-REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET", "")
-REDDIT_USER_AGENT    = os.getenv("REDDIT_USER_AGENT", "TradingBot/1.0")
-X_BEARER_TOKEN       = os.getenv("X_BEARER_TOKEN", "")   # requires X Basic API ($100/mo)
+# Reddit uses the public JSON API (no auth required)
+X_BEARER_TOKEN = os.getenv("X_BEARER_TOKEN", "")   # requires X Basic API ($100/mo)
 
 # Ticker limits
 MAX_TICKERS_DIRECT = 50
@@ -130,7 +128,6 @@ TRAILING_STOP_ATR_MULT   = 1.5  # trailing stop = ATR × this; 3% fallback if AT
 SWING_MAX_POSITIONS      = 2    # max concurrent swing positions
 SWING_MAX_DAYS           = 5    # max trading days to hold a swing position
 SHORT_TERM_MAX_POSITIONS = 2    # max concurrent short-term positions
-SHORT_TERM_MAX_DAYS      = 21   # max calendar days to hold a short-term position
 
 # ── Plan 2: Swing & Signals ────────────────────────────────────────────────────
 
@@ -257,8 +254,6 @@ AUTO_EXECUTE_COMPOSITE_MIN    = 65    # raised from 55 — reserve auto-execute 
 AUTO_EXECUTE_SENTIMENT_MIN    = 20    # intraday sentiment_score must exceed this
 AUTO_EXECUTE_CONFIDENCE       = 90    # confidence score assigned to auto-execute decisions (legacy fallback)
 AUTO_EXECUTE_CONFIDENCE_BASE  = 75    # base confidence for dynamic auto-execute derivation
-# Flags that indicate data-fetch failures (not bearish signals) — safe to ignore in auto-execute
-AUTO_EXECUTE_DATA_ONLY_FLAGS: frozenset = frozenset({"mtf_unavailable"})
 
 # ── Budget Rollover ───────────────────────────────────────────────────────────
 BUDGET_ROLLOVER_FRACTION      = 0.5   # fraction of unused exit budget to roll into entry
@@ -284,7 +279,6 @@ DRAWDOWN_WARN_PCT = 2.0  # alert when position unrealised loss >= this % (but ab
 # ── Plan 7: Architecture & Observability ─────────────────────────────────────
 METRICS_FILE                = STATE_DIR / "metrics.jsonl"
 REGIME_ADAPTIVE_LOGIC       = True   # enable directional strategy layer (beyond threshold adjustment)
-BULL_TREND_BREAKOUT_MIN_SCORE = 25   # composite min for breakout setup in BULL_TREND
 CHOPPY_RSI_PULLBACK_MAX     = 60     # in CHOPPY, only enter if RSI < this (avoid buying the bounce top)
 
 # ── Plan 5: Missing Entry Gates ───────────────────────────────────────────────
@@ -293,10 +287,8 @@ BREADTH_WEAK_THRESHOLD  = 0.85   # IWM/SPY breadth ratio below this → soft fla
 OPENING_RANGE_MINUTES   = 60     # first N minutes of session form the opening range
 
 # ── Learning Agent ─────────────────────────────────────────────────────────────
-LEARNING_MAX_PARAMS_PER_DAY        = 1   # max param changes on zero-trade days
-LEARNING_ZERO_TRADE_RSI_STEP       = 2   # relax RSI_BUY_MAX by this on zero-trade days
-LEARNING_ZERO_TRADE_COMPOSITE_STEP = 2   # relax COMPOSITE_MIN_NORMAL by this
-LEARNING_ROLLING_DAYS              = 5   # days of trade history to analyze (prevents single-day overfit)
+LEARNING_ZERO_TRADE_RSI_STEP = 2   # relax RSI_BUY_MAX by this on zero-trade days
+LEARNING_ROLLING_DAYS        = 5   # days of trade history to analyze (prevents single-day overfit)
 INDICATOR_WEIGHT_MAX_MULT          = 2.0 # max multiplier vs. default weight (prevents one indicator dominating)
 INDICATOR_WEIGHT_MIN_MULT          = 0.3 # min multiplier vs. default weight
 STRATEGY_MEMORY_BACKUP_MAX         = 7   # keep this many daily .bak files before pruning

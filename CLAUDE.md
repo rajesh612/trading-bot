@@ -227,6 +227,9 @@ Split by domain, sub-domain when > 700 lines:
 | `tests/test_foundation.py` | macro, regime, swing, research, earnings, metrics, stale-research |
 | `tests/test_learning.py` | learning agent, rolling window, weight clamping, memory versioning |
 | `tests/test_entry_gates.py` | check_all_gates() — all gate paths |
+| `tests/test_pipeline.py` | `cycle_context`, `pre_claude_filter`, `budget_guard`, pipeline tiers |
+| `tests/test_market.py` | `api_budget`, Telegram, daily report, `io_utils`, market monitor |
+| `tests/test_core.py` | `main.py` crash-loop, `alpaca_client`, `market_monitor` |
 
 ### 20. Naming conventions
 | Kind | Style | Example |
