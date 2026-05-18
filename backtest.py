@@ -3,11 +3,9 @@
 import argparse
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from backtest.runner import run_backtest
-
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 

@@ -1,7 +1,7 @@
 """
 Persistence helpers for the learning agent — JSON file reads and writes only.
 """
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import config
 from learning.trade_analysis import _TRADE_SUMMARY_KEYS
@@ -13,7 +13,7 @@ def _load_todays_closed_trades() -> list[dict]:
     if not config.TRADE_JOURNAL_FILE.exists():
         return []
     journal = load_json(config.TRADE_JOURNAL_FILE, [])
-    today = date.today().isoformat()
+    today = datetime.now(ET).date().isoformat()
     # Strip full indicator snapshots — learning agent only needs summary fields
     return [
         {k: v for k, v in t.items() if k in _TRADE_SUMMARY_KEYS}
@@ -55,5 +55,5 @@ def _save_weights(weights: dict):
 
 
 def _save_trading_params(params: dict):
-    params["last_updated"] = date.today().isoformat()
+    params["last_updated"] = datetime.now(ET).date().isoformat()
     save_json(config.TRADING_PARAMS_FILE, params)

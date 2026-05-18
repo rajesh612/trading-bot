@@ -205,7 +205,7 @@ class TradingPipeline:
         needs_claude:  list[tuple[str, IndicatorValues, dict | None]] = []
         auto_execute:  list[tuple[str, IndicatorValues]] = []
 
-        ts_str = now.strftime("%Y-%m-%dT%H:%M:%S")
+        ts_str = now.isoformat()
         for symbol, iv, existing_pos, _ret5d in stock_data:
             if existing_pos:
                 pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100

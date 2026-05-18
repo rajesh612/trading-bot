@@ -103,8 +103,7 @@ def _entry_timestamp(entry: dict) -> datetime:
 
 def count_todays_losses() -> int:
     """Count CLOSE entries in today's journal with negative pnl_pct."""
-    from datetime import date
-    today_str = date.today().isoformat()
+    today_str = datetime.now(ET).date().isoformat()
     journal = load_journal()
     return sum(
         1 for e in journal

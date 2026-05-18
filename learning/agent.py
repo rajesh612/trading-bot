@@ -5,7 +5,7 @@ trading params, and strategy memory based on today's closed trades.
 import json
 import logging
 import re
-from datetime import date, datetime
+from datetime import datetime
 import sys
 
 import anthropic
@@ -87,7 +87,7 @@ def run_learning_agent():
         logger.info("Learning agent skipped — weekend (weekday=%d).", datetime.now(ET).weekday())
         return
 
-    today = date.today().isoformat()
+    today = datetime.now(ET).date().isoformat()
     closed_trades = _load_todays_closed_trades()
 
     if not closed_trades:
