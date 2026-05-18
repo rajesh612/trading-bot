@@ -121,12 +121,20 @@ HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
 BOT_HERD_ALERT_SCORE     = 60   # herding score that triggers position-size reduction
 BOT_HERD_HIGH_SCORE      = 80   # herding score that blocks new entries
 SQUEEZE_CONFIDENCE_GATE  = 70   # min confidence to act on a squeeze setup
+SQUEEZE_SL_PCT           = 6.0  # stop-loss % applied when squeeze setup fires
+SQUEEZE_TP_PCT           = 5.0  # take-profit % applied when squeeze setup fires
 
 TRAILING_STOP_ATR_MULT   = 1.5  # trailing stop = ATR × this; 3% fallback if ATR unavailable
 
 # Swing / short-term position limits (enforced by Plan 2 swing_manager)
 SWING_MAX_POSITIONS      = 2    # max concurrent swing positions
 SWING_MAX_DAYS           = 5    # max trading days to hold a swing position
+SWING_TP1_PCT            = 5.0  # first TP tier % for normal swing holds
+SWING_TP2_PCT            = 10.0 # second TP tier % for normal swing holds
+SWING_SL_DEFAULT_PCT     = 7.0  # fallback SL % when position has no recorded stop
+SWING_TP1_PCT_CAPITULATION = 10.0  # first TP tier % in CAPITULATION regime
+SWING_TP2_PCT_CAPITULATION = 20.0  # second TP tier % in CAPITULATION regime
+SWING_SL_PCT_CAPITULATION  = 12.0  # stop-loss % in CAPITULATION regime
 SHORT_TERM_MAX_POSITIONS = 2    # max concurrent short-term positions
 
 # ── Plan 2: Swing & Signals ────────────────────────────────────────────────────

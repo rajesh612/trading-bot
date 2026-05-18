@@ -122,9 +122,9 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
 
             # Use capitulation TP tiers if in CAPITULATION regime
             capitulation = regime == "CAPITULATION"
-            tp1_pct  = 10.0 if capitulation else 5.0
-            tp2_pct  = 20.0 if capitulation else 10.0
-            sl_pct   = 12.0 if capitulation else pos.get("stop_loss_pct", 7.0)
+            tp1_pct  = config.SWING_TP1_PCT_CAPITULATION if capitulation else config.SWING_TP1_PCT
+            tp2_pct  = config.SWING_TP2_PCT_CAPITULATION if capitulation else config.SWING_TP2_PCT
+            sl_pct   = config.SWING_SL_PCT_CAPITULATION  if capitulation else pos.get("stop_loss_pct", config.SWING_SL_DEFAULT_PCT)
 
             total_qty = int(pos["qty"])
             tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)

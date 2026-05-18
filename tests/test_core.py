@@ -95,8 +95,8 @@ class TestOrphanOrderDrain:
     def _make_client(self, monkeypatch, orders):
         from unittest.mock import MagicMock
         import config
-        config.ALPACA_API_KEY = "test-key"
-        config.ALPACA_SECRET_KEY = "test-secret"
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test-key")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test-secret")
         from broker.alpaca_client import AlpacaClient
         client = AlpacaClient.__new__(AlpacaClient)
         mock_trading = MagicMock()
@@ -125,8 +125,8 @@ class TestOrphanOrderDrain:
     def test_cancel_order_delegates_to_alpaca(self, monkeypatch):
         from unittest.mock import MagicMock
         import config
-        config.ALPACA_API_KEY = "test-key"
-        config.ALPACA_SECRET_KEY = "test-secret"
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test-key")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test-secret")
         from broker.alpaca_client import AlpacaClient
         client = AlpacaClient.__new__(AlpacaClient)
         mock_trading = MagicMock()

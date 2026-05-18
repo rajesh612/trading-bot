@@ -128,7 +128,7 @@ def execute_buy(
     if decision.get("take_profit_pct"):
         tp_pct = float(decision["take_profit_pct"])
     if iv.squeeze_setup and decision.get("confidence", 0) >= config.SQUEEZE_CONFIDENCE_GATE:
-        sl_pct, tp_pct = 6.0, 5.0
+        sl_pct, tp_pct = config.SQUEEZE_SL_PCT, config.SQUEEZE_TP_PCT
 
     # Concurrent guard: re-read disk inside lock immediately before placing order
     with _POSITIONS_LOCK:

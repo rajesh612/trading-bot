@@ -216,8 +216,30 @@ Source files: 300 lines max. Test files: 700 lines max (split by sub-domain befo
 - No network calls. Patch paths via `tmp_path`
 - Assert on return value **and** its content — not just `assert result is not None`
 - One logical assertion per test method
-- **Never mutate `config.*` file paths directly** (`config.SOME_FILE = ...`). Always use `monkeypatch.setattr(config, "SOME_FILE", tmp_path / "file.json")`. Direct mutations persist across tests, write to real `data/state/` files, and produce unstaged git changes on every test run.
 - **Always patch Telegram when calling production entry points.** Functions like `run_watch_list_agent()`, `run_trading_cycle()`, `run_learning_agent()` fire `telegram_notify.*` which writes sentinel files to disk. Patch the relevant `telegram_notify` symbol before calling any such function in tests.
+
+#### Patching config — always use monkeypatch
+
+**Never mutate `config.*` directly.** Direct assignment (`config.X = value`) persists for the entire test session — it is not rolled back between tests, which causes ordering-dependent failures and may write to real `data/state/` files.
+
+Use `monkeypatch.setattr` for every config override, including file paths, API keys, thresholds, and boolean flags:
+
+```python
+# ✅ Correct — rolled back automatically after the test
+def test_something(self, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+    monkeypatch.setattr(config, "ALPACA_API_KEY", "test-key")
+    monkeypatch.setattr(config, "MAX_DAILY_LOSS_PCT", 0.01)
+
+# ❌ Wrong — persists across the entire test session
+def test_something(self, tmp_path):
+    config.OPEN_POSITIONS_FILE = tmp_path / "open_positions.json"
+    config.ALPACA_API_KEY = "test-key"
+```
+
+If a helper method (`_make_client`, `_setup`, etc.) sets config values, pass `monkeypatch` into it so it can use `setattr` — don't use a manual `try/finally` restore, which is fragile and misses exceptions before the restore runs.
+
+The only exception: reading config constants as inputs to derive test fixture values (e.g. `threshold = config.STOCH_HARD_VETO_THRESHOLD + 1`) is fine — that is not a mutation.
 
 ### 19. Test file naming
 Split by domain, sub-domain when > 700 lines:

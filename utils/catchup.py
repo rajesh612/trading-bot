@@ -3,6 +3,7 @@ import threading
 from datetime import datetime
 import config
 from utils.constants import ET
+import notifications.telegram as telegram_notify
 
 logger = logging.getLogger("main")
 
@@ -84,7 +85,13 @@ def catchup_missed_agents() -> None:
     if market_still_open:
         if not _file_is_from_today(config.RESEARCH_REPORT_FILE):
             logger.info("CATCHUP: research report stale — launching in background thread (will not block scheduler)…")
-            threading.Thread(target=_sj.job_research, daemon=True, name="catchup-research").start()
+            def _run_research():
+                try:
+                    _sj.job_research()
+                except Exception as exc:
+                    logger.exception("CATCHUP: background research thread failed: %s", exc)
+                    telegram_notify.notify_job_failure("catchup-research", f"{type(exc).__name__}: {exc}")
+            threading.Thread(target=_run_research, daemon=True, name="catchup-research").start()
         else:
             logger.info("CATCHUP: research report already built today — skipping.")
     else:
