@@ -24,7 +24,7 @@ SWING_EVAL_H  = 15; SWING_EVAL_M  = 50
 SWING_ENABLED = True; SWING_COMPOSITE_MIN = 50.0
 SWING_SL_PCT  = 7.0; SWING_TP_PCT = 10.0
 # ── Live-bot params — single source of truth is config.py ────────────────────
-STOP_LOSS_PCT = config.STOP_LOSS_PCT;   TAKE_PROFIT_PCT  = config.TAKE_PROFIT_PCT
+STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MIN_COMPOSITE = config.COMPOSITE_MIN_NORMAL; MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
 RSI_BUY_MAX   = config.RSI_BUY_MAX;    RSI_BUY_MAX_HV   = config.RSI_BUY_MAX_HIGH_VOL
 VWAP_SLOPE_MIN = config.VWAP_SLOPE_MIN; ENTRY_START_H   = config.ENTRY_START_HOUR
@@ -55,7 +55,7 @@ class SimState:
     daily_closed: set = field(default_factory=set)
     equity_curve: list = field(default_factory=list)
     trades: list = field(default_factory=list)
-    atr_tp_multiplier: float = field(default_factory=lambda: config.ATR_TP_MULT_DEFAULT)
+    atr_tp_multiplier: float = config.ATR_TP_MULT_DEFAULT
 
 
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:

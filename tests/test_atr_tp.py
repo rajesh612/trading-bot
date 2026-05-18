@@ -68,7 +68,6 @@ def test_simulator_open_trade_uses_atr_tp():
 
     _open_trade(state, "TEST", ts, entry_bar_open, atr, pos_mult=1.0, composite=25.0)
 
-    assert "TEST" in state.positions
     pos = state.positions["TEST"]
     expected_tp_pct = 7.0
     expected_entry = 50.025
@@ -91,6 +90,6 @@ def test_simulator_open_trade_flat_tp_not_used():
     _open_trade(state, "TEST", ts, entry_bar_open, atr, pos_mult=1.0, composite=25.0)
 
     pos = state.positions["TEST"]
-    expected_entry = 50.0005
+    expected_entry = 50.025
     flat_tp = round(expected_entry * (1 + 5.0 / 100), 4)
     assert pos["tp"] != flat_tp
