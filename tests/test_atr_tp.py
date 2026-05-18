@@ -129,8 +129,7 @@ def test_compute_universe_benchmark_basic():
         "2026-05-02": ["AAA", "BBB"],
     }
     result = _compute_universe_benchmark(day_watch_map, daily_bars)
-    assert result > 4.5
-    assert result < 6.0
+    assert abs(result - 5.06) < 0.05
 
 
 @pytest.mark.unit
