@@ -820,3 +820,101 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
     # atr=2.0, price=100.0, mult=2.0 → atr_pct=2.0% → raw=4.0% → clamped to 4.0
     assert abs(captured.get("atr_suggested_tp_pct", -1) - 4.0) < 0.01
 
+
+@pytest.mark.unit
+def test_journal_stores_atr_pct(monkeypatch, tmp_path):
+    """BUY journal entry written by execute_buy includes atr_pct field."""
+    import config
+    from trading.executor import execute_buy
+    from indicators.values import IndicatorValues
+    from trading.journal import _POSITIONS_LOCK
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    ET = ZoneInfo("America/New_York")
+    recorded_trades = []
+
+    def mock_append_trade(record):
+        recorded_trades.append(record)
+
+    monkeypatch.setattr("trading.executor.append_trade", mock_append_trade)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "daily_closed.json")
+    monkeypatch.setattr("trading.executor.check_all_gates", lambda **kwargs: type("G", (), {"passed": True, "reason": "", "flags": []})())
+    monkeypatch.setattr("trading.executor.effective_composite_gate", lambda iv, regime: 0)
+    monkeypatch.setattr("trading.executor.get_intraday_bars", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.executor.get_active_mode", lambda regime, sym: "DAY_TRADE")
+    monkeypatch.setattr("trading.executor.get_sl_tp_for_mode_and_regime", lambda mode, regime: (4.0, 5.0))
+    monkeypatch.setattr("trading.executor.compute_position_size_for_mode", lambda *a, **kw: 10)
+    monkeypatch.setattr("trading.executor.apply_regime_multiplier", lambda qty, mult: qty)
+    monkeypatch.setattr("trading.executor.apply_sentiment_multiplier", lambda qty, sent: qty)
+    monkeypatch.setattr("trading.executor.risk_manager.correct_bracket_after_fill", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.executor.telegram_notify.notify_buy", lambda **kw: None)
+    monkeypatch.setattr("trading.executor.telegram_notify.notify_daily_loss_warning", lambda *a, **kw: None)
+
+    # Build a minimal IndicatorValues
+    iv = IndicatorValues(
+        symbol="TEST",
+        timestamp="2026-05-18T10:30:00-04:00",
+        current_price=80.0,
+        vwap=80.0,
+        vwap_std1_upper=82.0,
+        vwap_std1_lower=78.0,
+        vwap_std2_upper=84.0,
+        vwap_std2_lower=76.0,
+        rsi=50.0,
+        macd=0.0,
+        macd_signal=0.0,
+        macd_hist=0.0,
+        bb_upper=82.0,
+        bb_mid=80.0,
+        bb_lower=78.0,
+        ema9=80.0,
+        ema21=80.0,
+        atr=2.4,  # atr_pct = (2.4 / 80.0) * 100 = 3.0
+        volume_ratio=1.0,
+        stoch_k=50.0,
+        stoch_d=50.0,
+        obv=0.0,
+        vwap_slope=0.0,
+        rsi_slope=0.0,
+        daily_volume_ratio=1.0,
+        daily_volume_trend=0.0,
+        daily_volume_mean=1000000.0,
+        composite_score=60.0,
+        signal="BUY",
+        confidence=80.0,
+        parabolic=False,
+        bot_herding_score=0,
+        squeeze_setup=False,
+        stop_hunt_zone=False,
+    )
+
+    class FakeOrder(dict):
+        def __init__(self):
+            super().__init__({
+                "id": "ord1",
+                "stop_loss_price": 76.8,
+                "take_profit_price": 84.0
+            })
+
+    class FakeAlpaca:
+        def place_bracket_order(self, **kw):
+            return FakeOrder()
+        _trading = None
+
+    execute_buy(
+        symbol="TEST", iv=iv,
+        decision={"action": "BUY", "confidence": 80, "reasoning": "test",
+                  "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "indicator_signals": {}},
+        regime="NORMAL", regime_info={"vix_current": 15.0},
+        research={}, open_positions={},
+        alpaca=FakeAlpaca(), portfolio_value=100_000.0,
+        pos_mult=1.0, spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=70.0,
+        params={}, now=datetime(2026, 5, 18, 10, 30, tzinfo=ET),
+        entries_this_cycle=0, daily_pnl_pct=0.0,
+        suppress_notify=True,
+    )
+
+    assert recorded_trades[0].get("atr_pct") == 3.0
+

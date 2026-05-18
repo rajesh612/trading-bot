@@ -186,6 +186,7 @@ def execute_buy(
         "take_profit_price": corrected["take_profit_price"] if corrected else order["take_profit_price"],
         "vix_regime": regime, "mode_at_entry": mode, "vix_level": regime_info.get("vix_current"),
         "vwap_slope": iv.vwap_slope, "pnl_pct": None, "pnl_dollar": None,
+        "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.current_price > 0 else 0.0,
     })
     final_sl = corrected["stop_loss_price"] if corrected else order["stop_loss_price"]
     final_tp = corrected["take_profit_price"] if corrected else order["take_profit_price"]
