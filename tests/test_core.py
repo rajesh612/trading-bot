@@ -367,14 +367,17 @@ class TestCatchupMissedAgents:
             p = tmp_path / f"{attr}.json"
             monkeypatch.setattr(config, attr, p)
 
-        monkeypatch.setattr(cu, "_file_is_from_today", lambda _: False)
+        # Simulate all files stale initially; screener success marks tradeable as fresh
+        fresh: set = set()
+        monkeypatch.setattr(cu, "_file_is_from_today", lambda p: p in fresh)
 
         called = []
         import types
+        daily_tradeable_path = config.DAILY_TRADEABLE_FILE
         fake_sj = types.SimpleNamespace(
             job_earnings_calendar=lambda: called.append("earnings"),
             job_economic_calendar=lambda: called.append("economic"),
-            job_volatility_screener=lambda: called.append("vol"),
+            job_volatility_screener=lambda: (called.append("vol"), fresh.add(daily_tradeable_path)),
             job_macro_regime=lambda: called.append("macro"),
             job_watch_list=lambda: called.append("watch"),
             job_research=lambda: called.append("research"),

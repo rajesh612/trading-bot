@@ -57,28 +57,39 @@ def catchup_missed_agents() -> None:
     else:
         logger.info("CATCHUP: volatility screener already ran today — skipping.")
 
-    # 2. Economic calendar (needed for event-risk gate)
+    if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
+        logger.error(
+            "CATCHUP: volatility screener failed — daily_tradeable.txt still missing. "
+            "Watch list and research depend on it; skipping downstream agents."
+        )
+        telegram_notify.notify_job_failure(
+            "catchup-volatility-screener",
+            "daily_tradeable.txt missing after screener run — downstream agents skipped."
+        )
+        return
+
+    # 3. Economic calendar (needed for event-risk gate)
     if not _file_is_from_today(config.ECONOMIC_CALENDAR_FILE):
         logger.info("CATCHUP: running economic calendar (economic_calendar.json is stale)…")
         _sj.job_economic_calendar()
     else:
         logger.info("CATCHUP: economic calendar already ran today — skipping.")
 
-    # 3. Macro regime (replaces VIX regime — needed by trading agent for position sizing)
+    # 4. Macro regime (replaces VIX regime — needed by trading agent for position sizing)
     if not _file_is_from_today(config.MACRO_REGIME_FILE):
         logger.info("CATCHUP: running macro regime (macro_regime.json is stale)…")
         _sj.job_macro_regime()
     else:
         logger.info("CATCHUP: macro regime already ran today — skipping.")
 
-    # 4. Watch list agent (needed by research + trading agents)
+    # 5. Watch list agent (needed by research + trading agents)
     if not _file_is_from_today(config.WATCH_LIST_FILE):
         logger.info("CATCHUP: running watch list agent (watch_list.txt is stale)…")
         _sj.job_watch_list()
     else:
         logger.info("CATCHUP: watch list already built today — skipping.")
 
-    # 5. Research agent — run in background thread so it doesn't block the scheduler.
+    # 6. Research agent — run in background thread so it doesn't block the scheduler.
     # Fetching news + 15 Claude calls can take 3-5 minutes; the scheduler must start
     # first so trading cycles don't miss their windows while research is running.
     market_still_open = now.hour < 15 or (now.hour == 15 and now.minute < 50)
