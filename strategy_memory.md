@@ -1,5 +1,5 @@
 # Trading Strategy Memory
-*Last updated: 2026-05-15*
+*Last updated: 2026-05-19*
 
 ---
 
@@ -46,8 +46,8 @@
 - RSI delta ≤ −7: **soft caution only** — not a block; composite ≥ 50 + catalyst → enter half-size
 
 ### Stochastic Filter
-- Stochastic > 93: hard veto (code gate — trust it)
-- Stochastic 88–93: **soft caution only, not a block** *(relaxed — prior hard block at >88 contributed to 8 zero-trade days with no supporting loss data)*; require composite ≥ 45
+- Stochastic > 97: hard veto (code gate — trust it)
+- Stochastic 88–97: **soft caution only, not a block** *(relaxed — prior hard block at >88 contributed to 8 zero-trade days with no supporting loss data)*; require composite ≥ 45
 - Stochastic 80–88: acceptable; prefer composite ≥ 40
 - PEAD/earnings exception: composite ≥ 65 + confirmed beat → Stochastic up to 95 acceptable
 
@@ -85,3 +85,4 @@
 - **RSI 68–72 relaxed to caution**: No documented losses in that band. Hard skip reserved for RSI > 72 only.
 - **Core principle**: Hard vetos require loss evidence, not theoretical risk. Single-trade loss = soft caution. Multiple losses = hard rule eligible.
 - **Today (2026-05-15)**: Zero trades again. With AI_SEMI and BROAD_TECH both at 100, filtering out every candidate in this regime signals remaining rules may still be over-fitted. If candidates exist tomorrow, default toward entry at appropriate size rather than finding reasons to skip.
+- **stop_hunt_zone gate fixed (2026-05-19)**: The gate had a mathematical defect — the 0.4% threshold with $0.50 spacing always fired for any stock above $62.50, blocking nearly every candidate regardless of actual stop-hunt risk. Fixed by changing threshold to 0.1% and using $1.00 boundaries. The gate now works selectively as intended. Do not treat stop_hunt_zone as a near-universal block.
