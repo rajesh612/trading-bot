@@ -166,7 +166,7 @@ def execute_buy(
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
         "order_id": order.get("id"), "mode_at_entry": mode, "regime_at_entry": regime,
-        "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.current_price > 0 else 0.0,
+        "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.atr > 0 and iv.current_price > 0 else None,
     }
     open_positions[symbol] = position_data
 
@@ -187,7 +187,7 @@ def execute_buy(
         "take_profit_price": corrected["take_profit_price"] if corrected else order["take_profit_price"],
         "vix_regime": regime, "mode_at_entry": mode, "vix_level": regime_info.get("vix_current"),
         "vwap_slope": iv.vwap_slope, "pnl_pct": None, "pnl_dollar": None,
-        "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.current_price > 0 else 0.0,
+        "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.atr > 0 and iv.current_price > 0 else None,
     })
     final_sl = corrected["stop_loss_price"] if corrected else order["stop_loss_price"]
     final_tp = corrected["take_profit_price"] if corrected else order["take_profit_price"]

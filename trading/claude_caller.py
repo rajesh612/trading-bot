@@ -177,11 +177,11 @@ def _ask_claude_batch(
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
-            base_ttl = 1800.0 if exc.status_code == 402 else 300.0
+            base_ttl = config.CLAUDE_CB_402_TTL if exc.status_code == 402 else config.CLAUDE_CB_429_TTL
             with _CLAUDE_LOCK:
                 now_m = time.monotonic()
                 remaining = max(0.0, _CLAUDE_DISABLED_UNTIL - now_m)
-                new_ttl = min(max(base_ttl, remaining * 2), 1800.0)
+                new_ttl = min(max(base_ttl, remaining * 2), config.CLAUDE_CB_402_TTL)
                 _CLAUDE_DISABLED_REASON = f"HTTP {exc.status_code} — {exc.message[:120]}"
                 _CLAUDE_DISABLED_UNTIL = now_m + new_ttl
                 _CLAUDE_DISABLED.set()
@@ -301,11 +301,11 @@ def _ask_claude_exit_batch(
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
-            base_ttl = 1800.0 if exc.status_code == 402 else 300.0
+            base_ttl = config.CLAUDE_CB_402_TTL if exc.status_code == 402 else config.CLAUDE_CB_429_TTL
             with _CLAUDE_LOCK:
                 now_m = time.monotonic()
                 remaining = max(0.0, _CLAUDE_DISABLED_UNTIL - now_m)
-                new_ttl = min(max(base_ttl, remaining * 2), 1800.0)
+                new_ttl = min(max(base_ttl, remaining * 2), config.CLAUDE_CB_402_TTL)
                 _CLAUDE_DISABLED_REASON = f"HTTP {exc.status_code} — {exc.message[:120]}"
                 _CLAUDE_DISABLED_UNTIL = now_m + new_ttl
                 _CLAUDE_DISABLED.set()

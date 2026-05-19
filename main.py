@@ -99,7 +99,7 @@ def _watchdog():
             _last_heartbeat_ts[0] = time.time()  # reset over the weekend
             continue
         elapsed = time.time() - _last_heartbeat_ts[0]
-        if elapsed > 35 * 60:  # 35 min — more than one 30-min heartbeat window
+        if elapsed > config.WATCHDOG_HEARTBEAT_TIMEOUT_S:
             logger.critical(
                 f"WATCHDOG: Scheduler frozen ({elapsed / 60:.1f} min since last heartbeat). "
                 "Forcing exit so launchd can restart."

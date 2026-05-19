@@ -10,6 +10,7 @@ from datetime import datetime
 import config
 import notifications.telegram as telegram_notify
 from broker.alpaca_client import AlpacaClient
+from indicators.engine import compute_indicators
 from trading.closer import close_position, _apply_profit_lock
 from trading.journal import (
     _POSITIONS_LOCK,
@@ -22,6 +23,15 @@ from utils.io_utils import load_json, save_json
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
+
+
+def _try_compute_iv(symbol: str, alpaca: AlpacaClient):
+    """Return fresh IndicatorValues for exit context, or None if bars unavailable."""
+    try:
+        bars = alpaca.get_intraday_bars(symbol)
+        return compute_indicators(symbol, bars)
+    except Exception:
+        return None
 
 
 def _check_drawdown_alerts(positions: dict, current_prices: dict) -> None:
@@ -151,13 +161,13 @@ def run_position_monitor():
                 "MONITOR STOP-LOSS: %s P&L=%+.2f%% breached SL=%.1f%% — closing (mid-cycle)",
                 symbol, pnl_pct, -sl_pct,
             )
-            close_position(symbol, alpaca, open_positions, current_price, None, "monitor_stop_loss")
+            close_position(symbol, alpaca, open_positions, current_price, _try_compute_iv(symbol, alpaca), "monitor_stop_loss")
         elif pnl_pct >= tp_pct:
             logger.info(
                 "MONITOR TAKE-PROFIT: %s P&L=%+.2f%% hit TP=%.1f%% — closing (mid-cycle)",
                 symbol, pnl_pct, tp_pct,
             )
-            close_position(symbol, alpaca, open_positions, current_price, None, "monitor_take_profit")
+            close_position(symbol, alpaca, open_positions, current_price, _try_compute_iv(symbol, alpaca), "monitor_take_profit")
 
     flush_profit_lock_updates(open_positions)
 

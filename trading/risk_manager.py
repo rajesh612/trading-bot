@@ -207,15 +207,16 @@ def record_usage(
 def is_entry_budget_exhausted() -> bool:
     """O(1) after first call. Reads disk exactly once after restart to sync with pre-crash state."""
     global _entry_exhausted_flag, _disk_rehydrated
-    if _entry_exhausted_flag:
-        return True
-    if not _disk_rehydrated:
-        _disk_rehydrated = True
-        b = load_budget()
-        if b.get("entry_exhausted", False):
-            _entry_exhausted_flag = True
+    with BUDGET_LOCK:
+        if _entry_exhausted_flag:
             return True
-    return False
+        if not _disk_rehydrated:
+            _disk_rehydrated = True
+            b = load_budget()
+            if b.get("entry_exhausted", False):
+                _entry_exhausted_flag = True
+                return True
+        return False
 
 
 def try_rollover_exit_to_entry(now: datetime) -> None:

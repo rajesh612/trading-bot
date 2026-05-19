@@ -155,8 +155,8 @@ def _classify_loss_source(trade: dict) -> str:
     if any(kw in close_reason for kw in ("fundamental", "guidance", "downgrade")):
         return "fundamental"
 
-    # Macro pressure: high shock score at entry
-    if (entry_ind.get("entry_macro_shock_score") or 0) >= 60:
+    # Macro pressure: high shock score at entry (threshold matches config.MACRO_SHOCK_SKIP_THRESHOLD)
+    if (entry_ind.get("entry_macro_shock_score") or 0) >= config.MACRO_SHOCK_SKIP_THRESHOLD:
         return "macro_pressure"
 
     # Sector narrative: negative sentiment at entry

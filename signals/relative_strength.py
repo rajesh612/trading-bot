@@ -10,9 +10,9 @@ def rs_rank(symbol: str, spy_ret5d: float, symbol_ret5d: float) -> float:
     """
     Returns RS ratio: symbol_ret5d / spy_ret5d.
     > 1.0 means symbol outperforming SPY.
-    When SPY is flat (spy_ret5d == 0.0), returns neutral 1.0.
+    When SPY is flat (|spy_ret5d| < 1e-9), returns neutral 1.0.
     """
-    if spy_ret5d == 0.0:
+    if abs(spy_ret5d) < 1e-9:
         return 1.0  # neutral when SPY is flat
     return symbol_ret5d / spy_ret5d
 

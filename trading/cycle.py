@@ -27,11 +27,8 @@ _zero_pass: dict = {"date": None, "count": 0, "alerted": False}
 _empty_watch_alerted: dict = {"date": None}
 _telemetry_rotated: dict = {"date": None}
 
-_TELEMETRY_KEEP_LINES = 500
-
-
 def _rotate_telemetry(today_str: str) -> None:
-    """Keep only the last _TELEMETRY_KEEP_LINES lines of cycle_telemetry.jsonl, once per day."""
+    """Keep only the last config.TELEMETRY_KEEP_LINES lines of cycle_telemetry.jsonl, once per day."""
     if _telemetry_rotated["date"] == today_str:
         return
     _telemetry_rotated["date"] = today_str
@@ -39,8 +36,8 @@ def _rotate_telemetry(today_str: str) -> None:
         path = config.CYCLE_TELEMETRY_FILE
         if path.exists():
             lines = path.read_text().splitlines()
-            if len(lines) > _TELEMETRY_KEEP_LINES:
-                path.write_text("\n".join(lines[-_TELEMETRY_KEEP_LINES:]) + "\n")
+            if len(lines) > config.TELEMETRY_KEEP_LINES:
+                path.write_text("\n".join(lines[-config.TELEMETRY_KEEP_LINES:]) + "\n")
     except Exception:
         pass
 
