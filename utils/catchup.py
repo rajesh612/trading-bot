@@ -53,18 +53,19 @@ def catchup_missed_agents() -> None:
     # 2. Volatility screener (needed by watch list agent)
     if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
         logger.info("CATCHUP: running volatility screener (daily_tradeable.txt is stale)…")
-        _sj.job_volatility_screener()
+        try:
+            _sj.job_volatility_screener()
+        except Exception as exc:
+            # _job_guard inside job_volatility_screener already sent a Telegram alert;
+            # swallow here so we can run the post-check and skip downstream agents cleanly.
+            logger.error("CATCHUP: volatility screener raised: %s — checking file state", exc)
     else:
         logger.info("CATCHUP: volatility screener already ran today — skipping.")
 
     if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
         logger.error(
-            "CATCHUP: volatility screener failed — daily_tradeable.txt still missing. "
-            "Watch list and research depend on it; skipping downstream agents."
-        )
-        telegram_notify.notify_job_failure(
-            "catchup-volatility-screener",
-            "daily_tradeable.txt missing after screener run — downstream agents skipped."
+            "CATCHUP: daily_tradeable.txt still missing after screener run — "
+            "watch list and research depend on it; skipping downstream agents."
         )
         return
 
