@@ -100,8 +100,7 @@ def check_entry_budget(estimated_cost: float, regime: str) -> bool:
         _save_budget(b)
         return False
 
-    entry_warn_pct = 0.75
-    if not b.get("entry_exhausted") and entry_ceil > 0 and spent / entry_ceil >= entry_warn_pct:
+    if not b.get("entry_exhausted") and entry_ceil > 0 and spent / entry_ceil >= config.ENTRY_BUDGET_WARNING_PCT:
         telegram_notify.notify_budget_intraday_warning(spent, entry_ceil)
 
     warning_threshold = entry_ceil * config.API_BUDGET_WARNING_PCT

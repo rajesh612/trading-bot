@@ -53,9 +53,9 @@ def _evaluate_gap_action(position: dict, current_price: float) -> str:
 
     if gap_pct <= -sl_pct:
         return "CLOSE_GAP_DOWN"
-    elif -sl_pct < gap_pct <= -2.0:
+    elif -sl_pct < gap_pct <= config.SWING_GAP_TIGHTEN_THRESHOLD:
         return "TIGHTEN_STOP"
-    elif gap_pct >= 3.0 and not position.get("tp1_hit"):
+    elif gap_pct >= config.SWING_GAP_TP1_THRESHOLD and not position.get("tp1_hit"):
         return "TAKE_TP1_GAP_UP"
     return "NONE"
 
@@ -91,7 +91,7 @@ def run_gap_check(alpaca_client) -> None:
             elif action == "TAKE_TP1_GAP_UP":
                 tp1_qty = pos.get("tp1_qty", 0)
                 if tp1_qty > 0:
-                    logger.info(f"GAP CHECK {symbol}: gap up ≥3% — taking TP1 ({tp1_qty} shares)")
+                    logger.info(f"GAP CHECK {symbol}: gap up ≥{config.SWING_GAP_TP1_THRESHOLD}% — taking TP1 ({tp1_qty} shares)")
                     alpaca_client.place_market_order(symbol, tp1_qty, "SELL")
                     with _SWING_LOCK:
                         s = load_swing_positions()

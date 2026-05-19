@@ -44,7 +44,7 @@ def compute_position_size_for_mode(
     3. Returns final integer share count (minimum 1).
     """
     risk_amount    = portfolio_value * config.RISK_PER_TRADE_PCT
-    shares_by_risk = risk_amount / (atr if atr > 0 else price * 0.02)
+    shares_by_risk = risk_amount / (atr if atr > 0 else price * config.ATR_FALLBACK_PROXY_PCT)
     max_pct        = _MODE_MAX_PCT.get(mode, config.MAX_POSITION_PCT)
     shares_by_pct  = (portfolio_value * max_pct) / price
     qty = max(1.0, round(min(shares_by_risk, shares_by_pct)))

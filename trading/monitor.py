@@ -82,10 +82,11 @@ def run_position_monitor():
             except Exception:
                 current_price = entry_price
 
-            if current_price <= sl_price * 1.005:
+            tol = config.BRACKET_FILL_TOLERANCE_PCT / 100
+            if current_price <= sl_price * (1 + tol):
                 close_reason = "bracket_stop_loss_filled"
                 exit_price   = sl_price
-            elif current_price >= tp_price * 0.995:
+            elif current_price >= tp_price * (1 - tol):
                 close_reason = "bracket_take_profit_filled"
                 exit_price   = tp_price
             else:

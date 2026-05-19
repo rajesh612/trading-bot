@@ -382,6 +382,7 @@ class TestRiskManagerAdditions:
             mc.ENTRY_BUDGET_RATIO = 0.7
             mc.EXIT_BUDGET_RATIO  = 0.3
             mc.API_BUDGET_WARNING_PCT = 0.8
+            mc.ENTRY_BUDGET_WARNING_PCT = 0.75
             result = risk_manager.check_entry_budget(0.001, "NORMAL")
         assert result is True
 
@@ -560,6 +561,7 @@ class TestEntryExhaustedFlagReset:
             mc.ENTRY_BUDGET_RATIO = 0.7
             mc.EXIT_BUDGET_RATIO  = 0.3
             mc.API_BUDGET_WARNING_PCT = 0.8
+            mc.ENTRY_BUDGET_WARNING_PCT = 0.75
             result = risk_manager.check_entry_budget(0.001, "NORMAL")
 
         assert result is True
