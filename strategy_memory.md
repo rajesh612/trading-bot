@@ -6,7 +6,7 @@
 ## General Rules
 
 - Entry window: **10:00–15:00 ET** only
-- Stop-loss: 3.0–4.0% | Take-profit: 5.0%
+- Stop-loss: 3.0–4.0% | Take-profit: ATR-based (ATR% × 2.5, floor 2.0%, ceiling 12%)
 - EOD force-close at 15:55 — do not enter after 14:55 unless composite ≥ 65
 - Parabolic prior run (>40% recent) = hard disqualifier unless PEAD catalyst confirmed
 

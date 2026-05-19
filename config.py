@@ -145,7 +145,7 @@ EARNINGS_CALENDAR_FILE = STATE_DIR / "earnings_calendar.json"
 # Counter-bot / parabolic signal thresholds
 PARABOLIC_5DAY_RETURN_PCT     = 15.0   # 5-day return % to flag as parabolic
 VOLUME_EXHAUSTION_RATIO       = 0.8    # vol < this × 20d avg at 5d high → exhaustion
-STOP_HUNT_ROUND_PROXIMITY_PCT = 0.4    # within 0.4% of round number ($X.00 / $X.50)
+STOP_HUNT_ROUND_PROXIMITY_PCT = 0.1    # within 0.1% of round number ($X.00); 0.4% always fired for stocks >$62.50
 STOP_HUNT_HILOW_PROXIMITY_PCT = 0.5    # within 0.5% of 5-day high or low
 
 # PEAD (post-earnings announcement drift) detection thresholds
@@ -305,8 +305,8 @@ STRATEGY_MEMORY_BACKUP_MAX         = 7   # keep this many daily .bak files befor
 TRAILING_STOP_PCT_FALLBACK = 0.03  # 3% trailing stop when ATR unavailable
 
 # ── ATR-based TP (Phase 1: backtest; Phase 2: live) ──────────────────────────
-ATR_TP_MULT_DEFAULT = 2.0   # TP = ATR% × this multiplier
+ATR_TP_MULT_DEFAULT = 2.5   # TP = ATR% × this multiplier; raised from 2.0 (avg win was ~1.7% vs 4% SL)
 ATR_TP_MULT_MIN     = 1.0   # learning agent lower bound
 ATR_TP_MULT_MAX     = 4.0   # learning agent upper bound
-ATR_TP_FLOOR_PCT    = 1.5   # TP never below 1.5% (slow/thinly-traded stocks)
+ATR_TP_FLOOR_PCT    = 2.0   # TP never below 2.0% (raised from 1.5% to ensure positive R:R vs 4% SL)
 ATR_TP_CEILING_PCT  = 12.0  # TP never above 12%
