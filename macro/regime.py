@@ -31,9 +31,9 @@ _TICKERS = {
 }
 
 
-def _normal_fallback(now: datetime) -> dict:
+def _crisis_fallback(now: datetime) -> dict:
     return {
-        "regime": "NORMAL", "macro_health_score": 0,
+        "regime": "CRISIS", "macro_health_score": -100,
         "sector_scores": {"AI_SEMI": 0, "BROAD_TECH": 0, "CYBERSECURITY": 0},
         "consecutive_green_days": 0, "consecutive_red_days": 0,
         "spy_5day_sign_changes": 0, "vix_current": 0.0, "vix_90d_avg": 0.0,
@@ -59,7 +59,7 @@ def _sector_scores(soxx_ret5d: float, qqq_ret5d: float) -> dict:
 
 
 def fetch_macro_regime() -> dict:
-    """Fetch Yahoo signals → classify regime → write macro_regime.json. Falls back to NORMAL."""
+    """Fetch Yahoo signals → classify regime → write macro_regime.json. Falls back to CRISIS on any data failure."""
     now = datetime.now(ET)
     try:
         closes = fetch_closes_for_regime(_TICKERS)
@@ -145,8 +145,8 @@ def fetch_macro_regime() -> dict:
             ),
         }
     except Exception as exc:
-        logger.warning(f"macro_regime fetch failed: {exc} — defaulting to NORMAL")
-        result = _normal_fallback(now)
+        logger.warning(f"macro_regime fetch failed: {exc} — defaulting to CRISIS")
+        result = _crisis_fallback(now)
 
     save_json(config.MACRO_REGIME_FILE, result)
     logger.info(
@@ -158,14 +158,14 @@ def fetch_macro_regime() -> dict:
 
 
 def load_macro_regime() -> dict:
-    """Return today's cached regime. Defaults to NORMAL if missing or unreadable."""
+    """Return today's cached regime. Defaults to CRISIS if missing or unreadable."""
     try:
         data = load_json(config.MACRO_REGIME_FILE, {})
         if data.get("regime") in _VALID_REGIMES:
             return data
     except Exception:
         pass
-    return _normal_fallback(datetime.now(ET))
+    return _crisis_fallback(datetime.now(ET))
 
 
 def load_trading_params() -> dict:

@@ -397,12 +397,12 @@ class TestMacroSignalScorers:
 
 @pytest.mark.unit
 class TestLoadMacroRegime:
-    def test_missing_file_returns_normal_default(self, tmp_path, monkeypatch):
+    def test_missing_file_returns_crisis_default(self, tmp_path, monkeypatch):
         import config
         monkeypatch.setattr(config, "MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         from macro.regime import load_macro_regime
         result = load_macro_regime()
-        assert result["regime"] == "NORMAL"
+        assert result["regime"] == "CRISIS"
         assert "macro_health_score" in result
 
     def test_loads_written_regime(self, tmp_path, monkeypatch):
@@ -417,25 +417,25 @@ class TestLoadMacroRegime:
         assert result["regime"] == "BULL_TREND"
         assert result["health_score"] == 55
 
-    def test_corrupt_file_returns_default(self, tmp_path, monkeypatch):
+    def test_corrupt_file_returns_crisis_default(self, tmp_path, monkeypatch):
         import config
         regime_file = tmp_path / "macro_regime.json"
         monkeypatch.setattr(config, "MACRO_REGIME_FILE", regime_file)
         regime_file.write_text("NOT JSON{{")
         from macro.regime import load_macro_regime
         result = load_macro_regime()
-        assert result["regime"] == "NORMAL"
+        assert result["regime"] == "CRISIS"
 
 
 # ── macro_regime: trading params helpers ─────────────────────────────────────
 
 @pytest.mark.unit
 class TestVixRegimeHelpers:
-    def test_load_macro_regime_missing_file_returns_normal(self, tmp_path, monkeypatch):
+    def test_load_macro_regime_missing_file_returns_crisis(self, tmp_path, monkeypatch):
         monkeypatch.setattr("config.MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
         from macro.regime import load_macro_regime
         result = load_macro_regime()
-        assert result["regime"] == "NORMAL"
+        assert result["regime"] == "CRISIS"
 
     def test_load_macro_regime_reads_written_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr("config.MACRO_REGIME_FILE", tmp_path / "macro_regime.json")
