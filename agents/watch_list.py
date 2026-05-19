@@ -38,7 +38,7 @@ def _score_stock(symbol: str, client: AlpacaClient) -> dict | None:
         atr14 = tr.ewm(com=13, min_periods=14).mean().iloc[-1]
         atr_pct = float(atr14 / close.iloc[-1] * 100)
 
-        gap_pct = float(
+        prev_gap_pct = float(
             (df["open"].iloc[-1] - close.iloc[-2]) / close.iloc[-2] * 100
         ) if len(df) >= 2 else 0.0
 
@@ -47,7 +47,7 @@ def _score_stock(symbol: str, client: AlpacaClient) -> dict | None:
             "price": round(float(close.iloc[-1]), 2),
             "vol_spike": round(vol_spike, 2),
             "atr_pct": round(atr_pct, 2),
-            "gap_pct": round(gap_pct, 2),
+            "prev_gap_pct": round(prev_gap_pct, 2),
         }
     except Exception as exc:
         logger.warning(f"Scoring failed for {symbol}: {exc}")
@@ -61,18 +61,19 @@ def _apply_technical_filter(
     stoch_limit: float,
 ) -> list[str]:
     """
-    Remove symbols that are already technically exhausted or gapped-up beyond entry gates.
+    Remove symbols that are already technically exhausted at yesterday's close.
+    Checks RSI and Stochastic only — no gap filter here because at 9:00 AM pre-market
+    we only have yesterday's intraday bars, so any gap_pct would reflect yesterday's
+    total price move, not today's actual pre-market gap. Today's gap is checked at
+    trade time by check_all_gates() in signals/entry_gates.py using real-time prices.
     If fewer than WATCH_LIST_MIN_AFTER_FILTER survive, retry with relaxed thresholds
     (+6 RSI, +7 Stochastic) so the list is never catastrophically short.
-    Gap filter is never relaxed — a > GAP_SKIP_PCT gap will be blocked all day.
     """
     def _passes(sym: str, rsi_lim: float, stoch_lim: float) -> bool:
+        """Return True if symbol passes RSI and Stochastic thresholds."""
         snap = snapshots.get(sym, {})
         if not snap:
             return True  # no data → assume clean
-        # Hard-filter gap-ups that will hit GAP_SKIP_PCT all day (non-relaxable)
-        if snap.get("gap_pct", 0) > config.GAP_SKIP_PCT:
-            return False
         return snap.get("rsi", 0) <= rsi_lim and snap.get("stoch_d", 0) <= stoch_lim
 
     filtered = [s for s in symbols if _passes(s, rsi_limit, stoch_limit)]
@@ -165,10 +166,7 @@ def run_watch_list_agent() -> list[str]:
             _bars = _alpaca.get_intraday_bars(_sym)
             _iv = compute_indicators(_sym, _bars)
             if _iv:
-                _gap = 0.0
-                if _iv.prev_close > 0:
-                    _gap = (_iv.current_price - _iv.prev_close) / _iv.prev_close * 100
-                _snapshots[_sym] = {"rsi": _iv.rsi, "stoch_d": _iv.stoch_d, "gap_pct": _gap}
+                _snapshots[_sym] = {"rsi": _iv.rsi, "stoch_d": _iv.stoch_d}
         except Exception:
             pass  # missing snapshot → symbol kept
 

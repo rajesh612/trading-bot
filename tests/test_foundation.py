@@ -488,6 +488,58 @@ def test_build_watch_list_system_includes_memory():
     assert any("RSI max = 72" in b.get("text", "") for b in blocks)
 
 
+@pytest.mark.unit
+def test_score_stock_returns_prev_gap_pct_not_gap_pct(monkeypatch):
+    """_score_stock() must label yesterday's gap as prev_gap_pct, not gap_pct."""
+    import pandas as pd
+    from agents.watch_list import _score_stock
+
+    closes = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]
+    opens  = [100.5, 101.5, 102.5, 103.5, 104.5, 106.0]  # last open = 106 → gap vs prev close 105
+    highs  = [c + 1 for c in closes]
+    lows   = [c - 1 for c in closes]
+    volumes = [1_000_000] * 6
+
+    df = pd.DataFrame({
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": volumes,
+    })
+
+    class _FakeClient:
+        def get_daily_bars(self, symbol, days=30):
+            return df
+
+    result = _score_stock("FAKE", _FakeClient())
+    assert result is not None
+    assert "prev_gap_pct" in result, "Expected 'prev_gap_pct' key in scored dict"
+    assert "gap_pct" not in result, "Old 'gap_pct' key must not appear in scored dict"
+
+
+@pytest.mark.unit
+def test_apply_technical_filter_ignores_high_gap_pct(monkeypatch):
+    """Symbols with high gap_pct but acceptable RSI/Stoch must NOT be filtered out."""
+    import config
+    from agents.watch_list import _apply_technical_filter
+
+    # Use thresholds slightly below the config limits so RSI/Stoch pass.
+    rsi_limit = config.WATCH_LIST_RSI_FILTER
+    stoch_limit = config.WATCH_LIST_STOCH_FILTER
+
+    snapshots = {
+        "AAPL": {
+            "rsi": rsi_limit - 5,
+            "stoch_d": stoch_limit - 5,
+            "gap_pct": config.GAP_SKIP_PCT + 5,  # would have triggered old block
+        }
+    }
+
+    result = _apply_technical_filter(["AAPL"], snapshots, rsi_limit, stoch_limit)
+    assert "AAPL" in result, "Symbol with high gap_pct but clean RSI/Stoch should pass filter"
+
+
 # ── Plan 7: metrics JSONL ─────────────────────────────────────────────────────
 
 @pytest.mark.unit
