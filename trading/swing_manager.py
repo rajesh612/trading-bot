@@ -45,7 +45,9 @@ def _evaluate_gap_action(position: dict, current_price: float) -> str:
     Evaluate pre-market gap vs stop loss.
     Returns: CLOSE_GAP_DOWN | TIGHTEN_STOP | TAKE_TP1_GAP_UP | NONE
     """
-    entry = position["entry_price"]
+    entry = position.get("entry_price", 0)
+    if entry <= 0:
+        return "NONE"
     gap_pct = (current_price - entry) / entry * 100
     sl_pct = position.get("stop_loss_pct", 7.0)
 

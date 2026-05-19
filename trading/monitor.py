@@ -71,7 +71,10 @@ def run_position_monitor():
                 open_positions.pop(symbol, None)
                 save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
-            entry_price = pos["entry_price"]
+            entry_price = pos.get("entry_price", 0)
+            if entry_price <= 0:
+                logger.warning("Position monitor: %s has zero/missing entry_price — skipping bracket reconciliation", symbol)
+                continue
             sl_price    = entry_price * (1 - pos.get("stop_loss_pct", config.STOP_LOSS_PCT) / 100)
             tp_price    = entry_price * (1 + pos.get("take_profit_pct", config.TAKE_PROFIT_PCT) / 100)
             try:
@@ -134,7 +137,10 @@ def run_position_monitor():
         pos = _apply_profit_lock(pos, current_price)
         open_positions[symbol] = pos
 
-        entry_price = pos["entry_price"]
+        entry_price = pos.get("entry_price", 0)
+        if entry_price <= 0:
+            logger.warning("Position monitor: %s has zero/missing entry_price — skipping SL/TP check", symbol)
+            continue
         pnl_pct     = (current_price - entry_price) / entry_price * 100
         sl_pct      = pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
         tp_pct      = pos.get("take_profit_pct", config.TAKE_PROFIT_PCT)

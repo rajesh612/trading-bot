@@ -234,7 +234,8 @@ class TradingPipeline:
         ts_str = now.isoformat()
         for symbol, iv, existing_pos, _ret5d in stock_data:
             if existing_pos:
-                pnl_pct = (iv.current_price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
+                _ep = existing_pos.get("entry_price", 0)
+                pnl_pct = (iv.current_price - _ep) / _ep * 100 if _ep > 0 else 0.0
                 logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
                 continue
             filt = pre_claude_filter(symbol, iv, snap, daily_closed)
