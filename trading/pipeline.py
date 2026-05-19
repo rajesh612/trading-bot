@@ -67,16 +67,42 @@ def _record_telemetry(ts: str, symbol: str, decision: str, reason: str, iv) -> N
 
 
 _SECTOR_ETF_MAP: dict[str, str] = {
+    # XLK — Technology
     "AAPL": "XLK", "MSFT": "XLK", "NVDA": "XLK", "AMD": "XLK", "INTC": "XLK",
     "GOOGL": "XLK", "META": "XLK", "AVGO": "XLK", "QCOM": "XLK", "MU": "XLK",
     "AMAT": "XLK", "KLAC": "XLK", "LRCX": "XLK", "MRVL": "XLK", "ON": "XLK",
+    "AMZN": "XLK", "TSLA": "XLK",
+    "ADI": "XLK", "ADBE": "XLK", "ANET": "XLK", "APP": "XLK", "ARM": "XLK",
+    "ASML": "XLK", "CIEN": "XLK", "COHR": "XLK", "CRM": "XLK", "CRWD": "XLK",
+    "DDOG": "XLK", "DELL": "XLK", "EQIX": "XLK", "GLW": "XLK", "HUBS": "XLK",
+    "IBM": "XLK", "INTU": "XLK", "LITE": "XLK", "MDB": "XLK", "NET": "XLK",
+    "NFLX": "XLK", "NOW": "XLK", "ORCL": "XLK", "PANW": "XLK", "PLTR": "XLK",
+    "SHOP": "XLK", "SNPS": "XLK", "SNOW": "XLK", "SPOT": "XLK", "STX": "XLK",
+    "TSM": "XLK", "TTD": "XLK", "TXN": "XLK", "UBER": "XLK", "VRT": "XLK",
+    "ZS": "XLK",
+    # XLF — Financials
     "JPM": "XLF", "BAC": "XLF", "WFC": "XLF", "GS": "XLF", "MS": "XLF",
     "C": "XLF", "BLK": "XLF", "AXP": "XLF", "V": "XLF", "MA": "XLF",
+    "BRK.B": "XLF", "COIN": "XLF", "PYPL": "XLF", "SPGI": "XLF",
+    # XLE — Energy
     "XOM": "XLE", "CVX": "XLE", "COP": "XLE", "EOG": "XLE", "SLB": "XLE",
+    "MPC": "XLE",
+    # XLV — Healthcare
     "JNJ": "XLV", "UNH": "XLV", "PFE": "XLV", "ABBV": "XLV", "MRK": "XLV",
     "LLY": "XLV", "AMGN": "XLV", "GILD": "XLV",
+    "CRSP": "XLV", "DXCM": "XLV", "ISRG": "XLV", "REGN": "XLV",
+    # XLI — Industrials/Defense/Aerospace
     "GE": "XLI", "CAT": "XLI", "BA": "XLI", "HON": "XLI", "UPS": "XLI",
-    "AMZN": "XLK", "TSLA": "XLK",
+    "GD": "XLI", "GEV": "XLI", "HEI": "XLI", "HWM": "XLI", "LHX": "XLI",
+    "LMT": "XLI", "NOC": "XLI", "RTX": "XLI", "TDG": "XLI",
+    # XLU — Utilities
+    "CEG": "XLU", "NEE": "XLU", "VST": "XLU",
+    # XLY — Consumer Discretionary
+    "ABNB": "XLY", "BKNG": "XLY", "DIS": "XLY", "HLT": "XLY", "MAR": "XLY",
+    # XLP — Consumer Staples
+    "COST": "XLP", "KO": "XLP", "PG": "XLP", "WMT": "XLP",
+    # XLB — Materials
+    "NEM": "XLB",
 }
 
 
