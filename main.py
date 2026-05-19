@@ -294,6 +294,18 @@ def main():
     set_heartbeat_refs(_file_handler, _last_heartbeat_ts)
 
     reconcile_positions()
+
+    # Send startup notification before catchup so it always arrives first in Telegram.
+    # catchup may fire watch_list / research notifications; those should follow, not precede.
+    from macro.regime import load_macro_regime
+    from trading.journal import load_open_positions
+    try:
+        regime = load_macro_regime().get("regime", "UNKNOWN")
+        n_pos  = len(load_open_positions())
+    except Exception:
+        regime, n_pos = "UNKNOWN", 0
+    telegram_notify.notify_startup(regime, n_pos)
+
     catchup_missed_agents()
     catchup_daily_report()
 
@@ -306,15 +318,6 @@ def main():
     threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()
     logger.info("Watchdog thread started.")
     logger.info("Bot is live. Press Ctrl+C to stop.")
-
-    from macro.regime import load_macro_regime
-    from trading.journal import load_open_positions
-    try:
-        regime = load_macro_regime().get("regime", "UNKNOWN")
-        n_pos  = len(load_open_positions())
-    except Exception:
-        regime, n_pos = "UNKNOWN", 0
-    telegram_notify.notify_startup(regime, n_pos)
 
     scheduler.start()
 
