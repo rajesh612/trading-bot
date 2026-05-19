@@ -24,6 +24,7 @@ from indicators.math_utils import (
 )
 from indicators.composite import _safe, _safe_penultimate, load_weights, _composite_score
 from indicators.counter_signals import (
+    _BARS_PER_5D,
     _is_parabolic,
     _is_volume_exhaustion,
     _obv_divergence_signal,
@@ -174,7 +175,7 @@ def compute_indicators(
     vol_surge = float(df["volume"].tail(5).mean() / (df["volume"].tail(20).mean() + 1e-9))
     _squeeze, _squeeze_conf = compute_squeeze_setup(
         float_turnover_3d=0.0,          # populated by trading_agent with float data
-        price_vs_resistance_pct=abs(price - float(df["high"].tail(5 * 78).max())) / price * 100,
+        price_vs_resistance_pct=abs(price - float(df["high"].tail(_BARS_PER_5D).max())) / price * 100,
         volume_surge=vol_surge,
         obv_rising_with_falling_price=(obv_div == "bullish"),
     )

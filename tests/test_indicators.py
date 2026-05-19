@@ -38,6 +38,16 @@ def _make_daily_df(n: int = 25, volume: float = 1_000_000.0, close: float = 100.
     )
 
 
+# ── _BARS_PER_5D constant ────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBarsPer5D:
+    def test_bars_per_5d_equals_390_with_default_timeframe(self):
+        """_BARS_PER_5D must equal 390 when BAR_TIMEFRAME_MINUTES=5 (5 days × 78 bars/day)."""
+        from indicators.counter_signals import _BARS_PER_5D
+        assert _BARS_PER_5D == 390
+
+
 # ── indicator_engine: Plan-2 signals ─────────────────────────────────────────
 
 @pytest.mark.unit

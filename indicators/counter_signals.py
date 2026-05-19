@@ -3,6 +3,9 @@ import pandas as pd
 
 import config
 
+# Number of intraday bars in 5 trading days; recalculates if BAR_TIMEFRAME_MINUTES changes
+_BARS_PER_5D = 5 * (390 // config.BAR_TIMEFRAME_MINUTES)
+
 
 def _approx_corr(a: list[float], b: list[float]) -> float:
     """Fast Pearson correlation for two short equal-length lists."""
@@ -32,7 +35,7 @@ def _is_volume_exhaustion(df: pd.DataFrame, daily_df: "pd.DataFrame | None") -> 
     """True if price is at/near 5-day high AND volume < VOLUME_EXHAUSTION_RATIO × 20-day average."""
     if df is None or len(df) < 5:
         return False
-    high_5d = df["high"].tail(5 * 78).max()  # ~78 5-min bars per session
+    high_5d = df["high"].tail(_BARS_PER_5D).max()  # bars_per_day = 390 // BAR_TIMEFRAME_MINUTES
     current_price = float(df["close"].iloc[-1])
     at_high = current_price >= high_5d * 0.995  # within 0.5%
     if not at_high:
@@ -66,21 +69,24 @@ def _obv_divergence_signal(df: pd.DataFrame, obv: pd.Series) -> str:
 
 def _is_stop_hunt_zone(df: pd.DataFrame) -> bool:
     """
-    True if within STOP_HUNT_ROUND_PROXIMITY_PCT of a round number ($X.00 / $X.50)
+    True if within STOP_HUNT_ROUND_PROXIMITY_PCT of a whole-dollar round number ($X.00)
     OR within STOP_HUNT_HILOW_PROXIMITY_PCT of the 5-day hi/lo.
+
+    Note: uses $1.00 boundaries (not $0.50) because $0.50 spacing + 0.4% threshold was
+    mathematically guaranteed to fire for every stock above $62.50.
     """
     if df is None or df.empty:
         return False
     price = float(df["close"].iloc[-1])
     round_pct = config.STOP_HUNT_ROUND_PROXIMITY_PCT / 100
     hilow_pct = config.STOP_HUNT_HILOW_PROXIMITY_PCT / 100
-    # Round number proximity
-    nearest_round = round(price * 2) / 2  # nearest $0.50
+    # Round number proximity — nearest whole dollar ($1.00 marks)
+    nearest_round = round(price)
     if abs(price - nearest_round) / price < round_pct:
         return True
     # 5-day high/low proximity
-    hi5 = df["high"].tail(5 * 78).max()
-    lo5 = df["low"].tail(5 * 78).min()
+    hi5 = df["high"].tail(_BARS_PER_5D).max()
+    lo5 = df["low"].tail(_BARS_PER_5D).min()
     if abs(price - hi5) / price < hilow_pct or abs(price - lo5) / price < hilow_pct:
         return True
     return False
