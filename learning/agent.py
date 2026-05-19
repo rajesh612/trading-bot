@@ -214,6 +214,17 @@ def run_learning_agent():
     if total > 0:
         new_weights = {k: round(v / total * 100, 2) for k, v in new_weights.items()}
 
+    # Clamp each normalized weight to [MIN_MULT, MAX_MULT] × equal share
+    equal_share = 100.0 / len(new_weights) if new_weights else 10.0
+    lo = equal_share * config.INDICATOR_WEIGHT_MIN_MULT
+    hi = equal_share * config.INDICATOR_WEIGHT_MAX_MULT
+    for key in new_weights:
+        raw = new_weights[key]
+        clamped = max(lo, min(hi, raw))
+        if abs(clamped - raw) > 0.01:
+            logger.warning("Weight %s clamped: %.2f → %.2f (bounds: %.2f–%.2f)", key, raw, clamped, lo, hi)
+        new_weights[key] = round(clamped, 4)
+
     _save_weights(new_weights)
     logger.info(f"Weights updated: {new_weights}")
 
