@@ -222,6 +222,7 @@ class TradingPipeline:
         fetch_elapsed = time.monotonic() - t_fetch
         if not stock_data:
             logger.warning("No valid indicator data — skipping cycle.")
+            result.skipped = True
             return result
 
         # ── Phase 2: Pre-Claude filter ────────────────────────────────────────

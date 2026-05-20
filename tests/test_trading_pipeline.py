@@ -86,17 +86,23 @@ class TestTradingPipeline:
         stale_ts = (datetime.now(ET) - timedelta(minutes=config.RESEARCH_STALE_BLOCK_MIN + 10)).isoformat()
         research = {"__meta__": {"timestamp": stale_ts}}
 
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_intraday_bars.return_value = None
+        mock_alpaca.get_daily_bars.return_value = None
+
         with patch("trading.pipeline.load_open_positions", return_value={}), \
              patch("trading.pipeline.load_daily_closed", return_value=set()), \
              patch("notifications.telegram.notify_alert"), \
-             patch("notifications.telegram.notify_stale_research"):
+             patch("notifications.telegram.notify_stale_research"), \
+             patch("trading.pipeline._fetch_symbol_data", return_value=None):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], snap=self._snap(research=research),
-                ai=None, now=datetime.now(ET), alpaca=MagicMock(),
+                symbols=["TEST"], snap=self._snap(research=research),
+                ai=None, now=datetime.now(ET), alpaca=mock_alpaca,
                 portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
-        assert result.skipped is False
+        # Should skip because no stock_data was fetched, but research check should execute first
+        assert result.skipped is True
 
     def test_research_staleness_no_skip_when_fresh(self, monkeypatch):
         """pipeline.run() does not skip when research is within acceptable age."""
@@ -113,14 +119,16 @@ class TestTradingPipeline:
         mock_alpaca.get_daily_bars.return_value = None
 
         with patch("trading.pipeline.load_open_positions", return_value={}), \
-             patch("trading.pipeline.load_daily_closed", return_value=set()):
+             patch("trading.pipeline.load_daily_closed", return_value=set()), \
+             patch("trading.pipeline._fetch_symbol_data", return_value=None):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], snap=self._snap(research=research),
+                symbols=["TEST"], snap=self._snap(research=research),
                 ai=None, now=datetime.now(ET), alpaca=mock_alpaca,
                 portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
-        assert result.skipped is False
+        # Should skip because no stock_data was fetched
+        assert result.skipped is True
 
     def test_missing_meta_timestamp_no_crash(self, monkeypatch):
         """pipeline.run() handles missing __meta__.timestamp without raising."""
@@ -129,14 +137,16 @@ class TestTradingPipeline:
 
         research = {"__meta__": {}}  # no timestamp key
         with patch("trading.pipeline.load_open_positions", return_value={}), \
-             patch("trading.pipeline.load_daily_closed", return_value=set()):
+             patch("trading.pipeline.load_daily_closed", return_value=set()), \
+             patch("trading.pipeline._fetch_symbol_data", return_value=None):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], snap=self._snap(research=research),
+                symbols=["TEST"], snap=self._snap(research=research),
                 ai=None, now=datetime.now(ET), alpaca=MagicMock(),
                 portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
-        assert result.skipped is False
+        # Should skip because no stock_data was fetched
+        assert result.skipped is True
 
     def test_malformed_timestamp_no_crash(self, monkeypatch):
         """pipeline.run() handles unparseable timestamp without raising."""
@@ -145,14 +155,16 @@ class TestTradingPipeline:
 
         research = {"__meta__": {"timestamp": "not-a-date"}}
         with patch("trading.pipeline.load_open_positions", return_value={}), \
-             patch("trading.pipeline.load_daily_closed", return_value=set()):
+             patch("trading.pipeline.load_daily_closed", return_value=set()), \
+             patch("trading.pipeline._fetch_symbol_data", return_value=None):
             pipeline = TradingPipeline()
             result = pipeline.run(
-                symbols=[], snap=self._snap(research=research),
+                symbols=["TEST"], snap=self._snap(research=research),
                 ai=None, now=datetime.now(ET), alpaca=MagicMock(),
                 portfolio_value=10000.0, buying_power=5000.0, can_open=True,
             )
-        assert result.skipped is False
+        # Should skip because no stock_data was fetched
+        assert result.skipped is True
 
 
 # ── trading/pipeline: per-cycle entry cap ─────────────────────────────────────
