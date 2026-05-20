@@ -84,6 +84,13 @@ def check_all_gates(
     if not is_entry_allowed(now):
         return GateResult(False, "outside entry time window")
 
+    # 1b. Late-day composite gate — after 2 PM require higher conviction
+    if now.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
+        return GateResult(
+            False,
+            f"late entry ({now.strftime('%H:%M')} ET): composite {iv.composite_score:.0f} < {config.ENTRY_LATE_COMPOSITE_MIN} required after {config.ENTRY_LATE_HOUR}:00",
+        )
+
     # 2. Per-cycle entry cap
     if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE:
         return GateResult(False, "per-cycle entry cap reached")

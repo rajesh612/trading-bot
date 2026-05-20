@@ -299,6 +299,8 @@ def simulate_day(
             iv = precomp.get(sym, {}).get(ts)
             if iv is None: continue
             if iv.composite_score > MIN_COMPOSITE and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
+                if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
+                    continue
                 pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr}
 
         equity = state.cash + _pos_value_at(state, day_bars, ts)
