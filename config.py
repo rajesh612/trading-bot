@@ -92,7 +92,7 @@ SENTIMENT_SIZE_FLOOR     = 0.50
 POST_EVENT_POSITION_MULT = 0.6   # 60% sizing on post-FOMC/NFP/CPI days
 HIGH_VOL_POSITION_MULT   = 0.75  # Raised from 0.5 — capture recovery moves in HIGH_VOL regime
 
-SWING_MAX_POSITIONS        = 2    # max concurrent swing positions
+SWING_MAX_POSITIONS        = 6    # max concurrent swing positions
 SHORT_TERM_MAX_POSITIONS   = 2    # max concurrent short-term positions
 SWING_TP1_PCT              = 5.0  # first TP tier % for normal swing holds
 SWING_TP2_PCT              = 10.0 # second TP tier % for normal swing holds
@@ -111,7 +111,7 @@ ENTRY_END_HOUR         = 15   # No entries at or after 3:00 PM
 ENTRY_GATE_OPEN_MINUTES  = 30 # block entries for first N minutes after open
 ENTRY_GATE_CLOSE_MINUTES = 35 # block entries for last N minutes before close
 ENTRY_LATE_HOUR          = 14   # 2:00 PM ET — after this, require higher composite for entry
-ENTRY_LATE_COMPOSITE_MIN = 50   # composite threshold for entries after ENTRY_LATE_HOUR
+ENTRY_LATE_COMPOSITE_MIN = 55   # composite threshold for entries after ENTRY_LATE_HOUR
 MARKET_OPEN_HOUR   = 9    # NYSE market open hour (ET)
 MARKET_OPEN_MINUTE = 30   # NYSE market open minute (ET)
 TRADING_MINUTES_PER_DAY = 390  # 6.5 hours × 60 — used for session-fraction calculations
@@ -131,12 +131,13 @@ OPENING_RANGE_MINUTES    = 60    # first N minutes of session form the opening r
 
 # ── INDICATOR & COMPOSITE THRESHOLDS ─────────────────────────────────────────
 
-COMPOSITE_MIN_NORMAL   = 30   # raised from 20 — filters noise entries, improves win rate
-COMPOSITE_MIN_HIGH_VOL = 35   # raised composite minimum — HIGH_VOL / DEFENSIVE regime
-CHOPPY_COMPOSITE_GATE  = 35   # higher bar to enter in CHOPPY regime
+COMPOSITE_MIN_NORMAL   = 50   # raised from 20 — filters noise entries, improves win rate
+COMPOSITE_MIN_HIGH_VOL = 55   # raised composite minimum — HIGH_VOL / DEFENSIVE regime
+CHOPPY_COMPOSITE_GATE  = 55   # higher bar to enter in CHOPPY regime
+COMPOSITE_MIN_BULL_TREND = 45  # BULL_TREND: slightly relaxed, wider TP justifies it
 HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
 
-AUTO_EXECUTE_COMPOSITE_MIN   = 65  # raised from 55 — reserve auto-execute for high-conviction setups
+AUTO_EXECUTE_COMPOSITE_MIN   = 70  # raised from 55 — reserve auto-execute for high-conviction setups
 AUTO_EXECUTE_SENTIMENT_MIN   = 20  # intraday sentiment_score must exceed this
 AUTO_EXECUTE_CONFIDENCE      = 90  # confidence score assigned to auto-execute decisions (legacy fallback)
 AUTO_EXECUTE_CONFIDENCE_BASE = 75  # base confidence for dynamic auto-execute derivation
@@ -154,6 +155,11 @@ VWAP_OVEREXTENSION_GATE = True # block price > VWAP+2σ
 
 PARABOLIC_5DAY_RETURN_PCT = 15.0  # 5-day return % to flag as parabolic
 PARABOLIC_ENTRY_BLOCK     = True  # block parabolic=True entries
+
+MAX_ENTRY_PRICE        = 400   # hard block: stocks > $400 excluded
+SECTOR_ENTRY_MIN_SCORE = 0     # soft flag threshold: sector NLP sentiment
+SWING_NEWS_MIN_SCORE   = 50    # soft flag: news sentiment for swing candidates
+MIN_MARKET_CAP_B       = 25    # screener pre-filter: $25B minimum market cap
 
 RS_MIN_RATIO          = 0.0    # symbol must not underperform SPY by more than this
 MTF_BARS_LOOKBACK     = 40     # 15-min bars to fetch for multi-timeframe filter
@@ -212,6 +218,9 @@ EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
 EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
 SWING_MIN_PNL_PCT        = -2.0 # PTJ rule: don't hold overnight if P&L <= this %
+SWING_MIN_PNL_PCT_BULL         = -3.0   # BULL_TREND: wider PTJ rule (SL is 7%)
+SWING_MIN_PNL_PCT_CAPITULATION = -5.0   # CAPITULATION: widest PTJ rule (SL is 12%)
+SWING_MIN_PNL_PCT_CRASH        = -3.0   # CRASH_RECOVERY: wider PTJ rule (SL is 10%)
 
 # ── BUDGET & API COST ─────────────────────────────────────────────────────────
 
@@ -328,7 +337,7 @@ PEAD_FWD_REVISION_MIN   = 3.0   # forward EPS revision % to qualify as 6th condi
 BACKTEST_STARTING_CAPITAL    = 100_000.0  # initial portfolio value for simulation
 BACKTEST_SLIPPAGE_PCT        = 0.0005     # 0.05% slippage on entry and exit fills
 BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in simulation
-BACKTEST_SWING_COMPOSITE_MIN = 40.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
+BACKTEST_SWING_COMPOSITE_MIN = 50.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
 BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
 BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY
 BACKTEST_SWING_MAX_DAYS          = 3     # conservative swing duration cap for backtests
