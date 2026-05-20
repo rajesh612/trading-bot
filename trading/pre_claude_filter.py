@@ -66,7 +66,7 @@ def pre_claude_filter(
                 return FilterResult("SKIP",
                     f"choppy regime: RSI {iv.rsi:.1f} > pullback max {choppy_rsi_max}")
         elif snap.regime == "DEFENSIVE":
-            if iv.composite_score < config.COMPOSITE_MIN_HIGH_VOL * 1.5:
+            if iv.composite_score < config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT:
                 return FilterResult("SKIP",
                     f"defensive regime: composite {iv.composite_score:+.1f} below elevated bar")
 

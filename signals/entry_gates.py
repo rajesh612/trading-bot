@@ -40,11 +40,11 @@ def effective_composite_gate(iv: IndicatorValues, regime: str, params: dict | No
     if regime in ("HIGH_VOL", "DEFENSIVE"):
         return config.COMPOSITE_MIN_HIGH_VOL   # 35
     if iv.squeeze_setup:
-        return 12                              # strong squeeze signal lowers bar
+        return config.SQUEEZE_COMPOSITE_MIN    # strong squeeze signal lowers bar
     if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
         return config.HERD_ENTRY_GATE          # 25
     if regime == "CHOPPY":
-        return config.CHOPPY_COMPOSITE_GATE   # 30
+        return config.CHOPPY_COMPOSITE_GATE   # 35
     return (params or {}).get("composite_min_normal", config.COMPOSITE_MIN_NORMAL)
 
 

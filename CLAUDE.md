@@ -129,7 +129,7 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `STOP_LOSS_PCT` / `TAKE_PROFIT_PCT` | 4.0 / 5.0 | Defaults (Claude can override within bounds) |
 | `MAX_DAILY_LOSS_PCT` | 0.03 | 3% daily loss circuit breaker |
 | `DAILY_LOSS_WARN_PCT` | 0.015 | Warn Telegram at 1.5% intraday loss |
-| `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 20 / 35 | Pre-Claude composite threshold (regime-adjusted) |
+| `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 30 / 35 | Pre-Claude composite threshold (regime-adjusted) |
 | `AUTO_EXECUTE_COMPOSITE_MIN` | 55 | Auto-execute (skip Claude) composite threshold |
 | `ENTRY_START_HOUR` / `ENTRY_END_HOUR` | 10 / 15 | ET entry window |
 | `BAR_TIMEFRAME_MINUTES` / `BARS_LOOKBACK` | 5 / 100 | Bar config |
