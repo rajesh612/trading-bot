@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
@@ -77,9 +78,21 @@ def run_volatility_screener() -> list[str]:
     # Pre-filter: exclude symbols below market cap threshold
     if config.MIN_MARKET_CAP_B > 0:
         min_cap = config.MIN_MARKET_CAP_B * 1e9
+
+        # Fetch market caps concurrently
+        cap_results: dict[str, float | None] = {}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            future_to_sym = {pool.submit(_fetch_market_cap, t): t for t in tickers}
+            for fut in as_completed(future_to_sym):
+                sym = future_to_sym[fut]
+                try:
+                    cap_results[sym] = fut.result()
+                except Exception:
+                    cap_results[sym] = None
+
         eligible = []
-        for ticker in tickers:
-            cap = _fetch_market_cap(ticker)
+        for ticker in tickers:  # preserve original order
+            cap = cap_results.get(ticker)
             if cap is not None and cap >= min_cap:
                 eligible.append(ticker)
             elif cap is not None:
