@@ -142,6 +142,8 @@ def run_position_monitor():
                     "atr_pct": pos.get("atr_pct", 0.0),
                 })
                 record_daily_closed(symbol)
+                if close_reason == "bracket_stop_loss_filled":
+                    record_sl_hit(symbol)
             logger.info(
                 "BRACKET FILL detected: %s closed via %s | P&L=%+.2f%% ($%+.2f) | no re-entry today",
                 symbol, close_reason, pnl_pct, pnl_dollar,
