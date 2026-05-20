@@ -549,12 +549,13 @@ def test_zero_trade_day_updates_trading_params(monkeypatch, tmp_path):
     from unittest.mock import MagicMock, patch
     from utils.io_utils import save_json, load_json
 
-    # Seed stale params with rsi_buy_max below the upper bound (80) so relaxation fires
+    # Seed stale params with values below their upper bounds so relaxation fires on any weekday
     stale_params = {
         "entry_start_hour": 10, "entry_end_hour": 15,
         "rsi_buy_max": 70, "rsi_buy_max_high_vol": 65,
         "vwap_slope_min": -0.3, "high_vol_position_mult": 0.5,
         "stop_loss_pct": 3.0, "take_profit_pct": 5.0,
+        "composite_min_normal": 20,  # below upper bound of 30 — ensures Tuesday relaxation fires
     }
     params_file = tmp_path / "trading_params.json"
     monkeypatch.setattr(config, "TRADING_PARAMS_FILE", params_file)

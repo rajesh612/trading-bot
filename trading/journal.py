@@ -35,7 +35,7 @@ def flush_profit_lock_updates(updates: dict[str, dict]) -> None:
         disk = load_json(config.OPEN_POSITIONS_FILE, {})
         for sym, pos in updates.items():
             if sym in disk:
-                disk[sym] = pos
+                disk[sym].update(pos)  # field-level merge — preserves concurrent BUY updates
             else:
                 logger.warning(
                     "flush_profit_lock_updates: %s not found on disk — likely closed concurrently; "

@@ -111,7 +111,11 @@ class AlpacaClient:
             logger.error(f"Error closing all positions: {exc}")
 
     def cancel_all_orders(self) -> None:
-        self._trading.cancel_orders()
+        try:
+            self._trading.cancel_orders()
+            logger.info("All open orders cancelled.")
+        except Exception as exc:
+            logger.error("cancel_all_orders failed: %s", exc)
 
     def get_open_buy_orders(self) -> list[dict]:
         """Return all pending BUY orders (free Trading API, all Alpaca tiers)."""

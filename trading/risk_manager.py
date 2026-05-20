@@ -77,79 +77,81 @@ def get_ceiling() -> float:
 def check_entry_budget(estimated_cost: float, regime: str) -> bool:
     """Return True if entry call is within the 70% entry pool."""
     global _entry_exhausted_flag
-    b = load_budget()
-    if not b.get("entry_exhausted"):
-        _entry_exhausted_flag = False
+    with BUDGET_LOCK:
+        b = load_budget()
+        if not b.get("entry_exhausted"):
+            _entry_exhausted_flag = False
 
-    if b.get("entry_exhausted"):
-        logger.warning("Entry budget pool exhausted — blocking entry call.")
-        return False
+        if b.get("entry_exhausted"):
+            logger.warning("Entry budget pool exhausted — blocking entry call.")
+            return False
 
-    entry_ceil = b.get("entry_ceiling_usd", round(b["ceiling_usd"] * config.ENTRY_BUDGET_RATIO, 4))
-    spent = b.get("entry_spent_usd", 0.0)
-    projected = spent + estimated_cost
+        entry_ceil = b.get("entry_ceiling_usd", round(b["ceiling_usd"] * config.ENTRY_BUDGET_RATIO, 4))
+        spent = b.get("entry_spent_usd", 0.0)
+        projected = spent + estimated_cost
 
-    if projected > entry_ceil:
-        logger.warning(
-            "Entry budget ceiling reached: $%.4f + $%.4f > $%.4f — blocking entry.",
-            spent, estimated_cost, entry_ceil,
-        )
-        b["entry_exhausted"] = True
-        _entry_exhausted_flag = True
-        _check_both_exhausted(b)
-        _save_budget(b)
-        return False
+        if projected > entry_ceil:
+            logger.warning(
+                "Entry budget ceiling reached: $%.4f + $%.4f > $%.4f — blocking entry.",
+                spent, estimated_cost, entry_ceil,
+            )
+            b["entry_exhausted"] = True
+            _entry_exhausted_flag = True
+            _check_both_exhausted(b)
+            _save_budget(b)
+            return False
 
-    if not b.get("entry_exhausted") and entry_ceil > 0 and spent / entry_ceil >= config.ENTRY_BUDGET_WARNING_PCT:
-        telegram_notify.notify_budget_intraday_warning(spent, entry_ceil)
+        if not b.get("entry_exhausted") and entry_ceil > 0 and spent / entry_ceil >= config.ENTRY_BUDGET_WARNING_PCT:
+            telegram_notify.notify_budget_intraday_warning(spent, entry_ceil)
 
-    warning_threshold = entry_ceil * config.API_BUDGET_WARNING_PCT
-    if spent >= warning_threshold and (spent - estimated_cost) < warning_threshold:
-        logger.warning(
-            "Entry budget at %.0f%% of pool ($%.4f / $%.4f) — approaching limit.",
-            spent / entry_ceil * 100, spent, entry_ceil,
-        )
+        warning_threshold = entry_ceil * config.API_BUDGET_WARNING_PCT
+        if spent >= warning_threshold and (spent - estimated_cost) < warning_threshold:
+            logger.warning(
+                "Entry budget at %.0f%% of pool ($%.4f / $%.4f) — approaching limit.",
+                spent / entry_ceil * 100, spent, entry_ceil,
+            )
 
-    return True
+        return True
 
 
 def check_exit_budget(estimated_cost: float, open_position_count: int, regime: str) -> bool:
     """Return True if exit call is within the 30% exit pool. Auto-escalates once."""
-    b = load_budget()
+    with BUDGET_LOCK:
+        b = load_budget()
 
-    exit_ceil = b.get("exit_ceiling_usd", round(b["ceiling_usd"] * config.EXIT_BUDGET_RATIO, 4))
-    spent = b.get("exit_spent_usd", 0.0)
-    projected = spent + estimated_cost
-
-    if projected > exit_ceil and not b.get("escalated") and open_position_count > 0:
-        # Escalate to elevated ceiling and recompute pools
-        new_total = config.API_BUDGET_ELEVATED_CEILING
-        new_exit_ceil = round(new_total * config.EXIT_BUDGET_RATIO, 4)
-        b["ceiling_usd"] = new_total
-        b["entry_ceiling_usd"] = round(new_total * config.ENTRY_BUDGET_RATIO, 4)
-        b["exit_ceiling_usd"] = new_exit_ceil
-        b["escalated"] = True
-        b["ceiling_mode"] = "elevated"
-        _save_budget(b)
-        try:
-            telegram_notify.notify_budget_escalation(spent, new_exit_ceil)
-        except Exception as exc:
-            logger.warning("Telegram escalation notify failed: %s", exc)
-
-        exit_ceil = new_exit_ceil
+        exit_ceil = b.get("exit_ceiling_usd", round(b["ceiling_usd"] * config.EXIT_BUDGET_RATIO, 4))
+        spent = b.get("exit_spent_usd", 0.0)
         projected = spent + estimated_cost
 
-    if projected > exit_ceil:
-        logger.warning(
-            "Exit budget ceiling reached: $%.4f + $%.4f > $%.4f — blocking exit call.",
-            spent, estimated_cost, exit_ceil,
-        )
-        b["exit_exhausted"] = True
-        _check_both_exhausted(b)
-        _save_budget(b)
-        return False
+        if projected > exit_ceil and not b.get("escalated") and open_position_count > 0:
+            # Escalate to elevated ceiling and recompute pools
+            new_total = config.API_BUDGET_ELEVATED_CEILING
+            new_exit_ceil = round(new_total * config.EXIT_BUDGET_RATIO, 4)
+            b["ceiling_usd"] = new_total
+            b["entry_ceiling_usd"] = round(new_total * config.ENTRY_BUDGET_RATIO, 4)
+            b["exit_ceiling_usd"] = new_exit_ceil
+            b["escalated"] = True
+            b["ceiling_mode"] = "elevated"
+            _save_budget(b)
+            try:
+                telegram_notify.notify_budget_escalation(spent, new_exit_ceil)
+            except Exception as exc:
+                logger.warning("Telegram escalation notify failed: %s", exc)
 
-    return True
+            exit_ceil = new_exit_ceil
+            projected = spent + estimated_cost
+
+        if projected > exit_ceil:
+            logger.warning(
+                "Exit budget ceiling reached: $%.4f + $%.4f > $%.4f — blocking exit call.",
+                spent, estimated_cost, exit_ceil,
+            )
+            b["exit_exhausted"] = True
+            _check_both_exhausted(b)
+            _save_budget(b)
+            return False
+
+        return True
 
 
 def _check_both_exhausted(b: dict) -> None:
@@ -169,39 +171,40 @@ def record_usage(
     kind='entry' → entry pool; 'exit' → exit pool; 'other' → total only (no pool deduction).
     """
     global _entry_exhausted_flag
-    b = load_budget()
+    with BUDGET_LOCK:
+        b = load_budget()
 
-    b["calls_made"]         += 1
-    b["input_tokens"]       += input_tokens
-    b["output_tokens"]      += output_tokens
-    b["cache_write_tokens"] += cache_write_tokens
-    b["cache_read_tokens"]  += cache_read_tokens
+        b["calls_made"]         += 1
+        b["input_tokens"]       += input_tokens
+        b["output_tokens"]      += output_tokens
+        b["cache_write_tokens"] += cache_write_tokens
+        b["cache_read_tokens"]  += cache_read_tokens
 
-    call_cost = (
-        input_tokens       * _INPUT_COST_PER_TOKEN
-        + output_tokens    * _OUTPUT_COST_PER_TOKEN
-        + cache_write_tokens * _CACHE_WRITE_COST_PER_TOKEN
-        + cache_read_tokens  * _CACHE_READ_COST_PER_TOKEN
-    )
-    b["estimated_cost_usd"] = round(b["estimated_cost_usd"] + call_cost, 6)
+        call_cost = (
+            input_tokens       * _INPUT_COST_PER_TOKEN
+            + output_tokens    * _OUTPUT_COST_PER_TOKEN
+            + cache_write_tokens * _CACHE_WRITE_COST_PER_TOKEN
+            + cache_read_tokens  * _CACHE_READ_COST_PER_TOKEN
+        )
+        b["estimated_cost_usd"] = round(b["estimated_cost_usd"] + call_cost, 6)
 
-    if kind == "exit":
-        b["exit_calls"]    += 1
-        b["exit_spent_usd"] = round(b.get("exit_spent_usd", 0.0) + call_cost, 6)
-    elif kind == "entry":
-        b["entry_calls"]    += 1
-        b["entry_spent_usd"] = round(b.get("entry_spent_usd", 0.0) + call_cost, 6)
-    # kind="other" → only estimated_cost_usd updated; no pool deduction
+        if kind == "exit":
+            b["exit_calls"]    += 1
+            b["exit_spent_usd"] = round(b.get("exit_spent_usd", 0.0) + call_cost, 6)
+        elif kind == "entry":
+            b["entry_calls"]    += 1
+            b["entry_spent_usd"] = round(b.get("entry_spent_usd", 0.0) + call_cost, 6)
+        # kind="other" → only estimated_cost_usd updated; no pool deduction
 
-    # Sync in-process flag to disk state so flag never outlives a budget reset (new day)
-    if not b.get("entry_exhausted"):
-        _entry_exhausted_flag = False
+        # Sync in-process flag to disk state so flag never outlives a budget reset (new day)
+        if not b.get("entry_exhausted"):
+            _entry_exhausted_flag = False
 
-    logger.debug(
-        "API budget: $%.4f total | entry=$%.4f exit=$%.4f | calls=%d",
-        b["estimated_cost_usd"], b["entry_spent_usd"], b["exit_spent_usd"], b["calls_made"],
-    )
-    _save_budget(b)
+        logger.debug(
+            "API budget: $%.4f total | entry=$%.4f exit=$%.4f | calls=%d",
+            b["estimated_cost_usd"], b["entry_spent_usd"], b["exit_spent_usd"], b["calls_made"],
+        )
+        _save_budget(b)
 
 
 def is_entry_budget_exhausted() -> bool:

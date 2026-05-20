@@ -158,6 +158,11 @@ def _load_cache() -> dict:
     data = load_json(config.EARNINGS_CALENDAR_FILE, {})
     today = datetime.now(ET).strftime("%Y-%m-%d")
     if data.get("date") != today:
+        logger.warning(
+            "earnings_calendar.json is stale or missing (date=%r, expected %s) — "
+            "earnings gate disabled for today; 8:00 AM refresh may have failed.",
+            data.get("date"), today,
+        )
         return {}
     return data.get("symbols", {})
 

@@ -198,10 +198,13 @@ def run_learning_agent():
     text = analysis_response.content[0].text.strip()
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
-        logger.error("Could not parse learning agent analysis.")
+        logger.error("Could not parse learning agent analysis — no JSON object in response.")
         return
-
-    analysis = json.loads(match.group())
+    try:
+        analysis = json.loads(match.group())
+    except json.JSONDecodeError as exc:
+        logger.error("Learning agent analysis JSON parse failed: %s — raw: %.200s", exc, text)
+        return
 
     # ── Step 2: Update indicator weights ────────────────────────────────────
     new_weights = dict(current_weights)

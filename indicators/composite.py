@@ -23,8 +23,29 @@ def _safe_penultimate(series: pd.Series, fallback: float = 0.0) -> float:
     return fallback if pd.isna(val) else float(val)
 
 
+_DEFAULT_WEIGHTS = {
+    "VWAP":                  10.0,
+    "RSI":                   10.0,
+    "Daily Volume Trend":    10.0,
+    "MACD":                  10.0,
+    "EMA 9/21 Crossover":    10.0,
+    "Bollinger Bands":       10.0,
+    "VWAP StdDev Bands":     10.0,
+    "Stochastic Oscillator": 10.0,
+    "OBV":                   10.0,
+    "RSI Slope":             10.0,
+}
+
+
 def load_weights() -> dict:
-    return load_json(config.INDICATOR_WEIGHTS_FILE, {})
+    weights = load_json(config.INDICATOR_WEIGHTS_FILE, {})
+    if not weights or len(weights) < len(_DEFAULT_WEIGHTS):
+        logger.warning(
+            "indicator_weights.json missing or incomplete (%d/%d keys) — using equal defaults",
+            len(weights), len(_DEFAULT_WEIGHTS),
+        )
+        return dict(_DEFAULT_WEIGHTS)
+    return weights
 
 
 def _composite_score(vals: dict, weights: dict) -> tuple[float, str, float]:

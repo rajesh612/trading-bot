@@ -114,7 +114,7 @@ API_BUDGET_ELEVATED_CEILING = 1.50   # elevated cap (CRISIS/CAPITULATION or high
 API_BUDGET_WARNING_PCT      = 0.80   # warn at 80% of ceiling
 
 # Entry gate composite-score thresholds (used by Plan 3 pre-filter)
-CHOPPY_COMPOSITE_GATE  = 30   # higher bar to enter in CHOPPY regime
+CHOPPY_COMPOSITE_GATE  = 35   # higher bar to enter in CHOPPY regime
 HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
 
 # Counter-bot signal thresholds (used by Plans 2 + 3)

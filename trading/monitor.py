@@ -81,51 +81,51 @@ def run_position_monitor():
                 open_positions.pop(symbol, None)
                 save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
-            entry_price = pos.get("entry_price", 0)
-            if entry_price <= 0:
-                logger.warning("Position monitor: %s has zero/missing entry_price — skipping bracket reconciliation", symbol)
-                continue
-            sl_price    = entry_price * (1 - pos.get("stop_loss_pct", config.STOP_LOSS_PCT) / 100)
-            tp_price    = entry_price * (1 + pos.get("take_profit_pct", config.TAKE_PROFIT_PCT) / 100)
-            try:
-                current_price = alpaca.get_latest_price(symbol)
-            except Exception:
-                current_price = entry_price
+                entry_price = pos.get("entry_price", 0)
+                if entry_price <= 0:
+                    logger.warning("Position monitor: %s has zero/missing entry_price — skipping bracket reconciliation", symbol)
+                    continue
+                sl_price    = entry_price * (1 - pos.get("stop_loss_pct", config.STOP_LOSS_PCT) / 100)
+                tp_price    = entry_price * (1 + pos.get("take_profit_pct", config.TAKE_PROFIT_PCT) / 100)
+                try:
+                    current_price = alpaca.get_latest_price(symbol)
+                except Exception:
+                    current_price = entry_price
 
-            tol = config.BRACKET_FILL_TOLERANCE_PCT / 100
-            if current_price <= sl_price * (1 + tol):
-                close_reason = "bracket_stop_loss_filled"
-                exit_price   = sl_price
-            elif current_price >= tp_price * (1 - tol):
-                close_reason = "bracket_take_profit_filled"
-                exit_price   = tp_price
-            else:
-                close_reason = "bracket_filled_unknown_leg"
-                exit_price   = current_price
+                tol = config.BRACKET_FILL_TOLERANCE_PCT / 100
+                if current_price <= sl_price * (1 + tol):
+                    close_reason = "bracket_stop_loss_filled"
+                    exit_price   = sl_price
+                elif current_price >= tp_price * (1 - tol):
+                    close_reason = "bracket_take_profit_filled"
+                    exit_price   = tp_price
+                else:
+                    close_reason = "bracket_filled_unknown_leg"
+                    exit_price   = current_price
 
-            pnl_pct    = (exit_price - entry_price) / entry_price * 100
-            pnl_dollar = (exit_price - entry_price) * pos["qty"]
+                pnl_pct    = (exit_price - entry_price) / entry_price * 100
+                pnl_dollar = (exit_price - entry_price) * pos["qty"]
 
-            append_trade({
-                "type": "CLOSE",
-                "symbol": symbol,
-                "timestamp": now.isoformat(),
-                "exit_price": round(exit_price, 4),
-                "entry_price": round(entry_price, 4),
-                "qty": pos["qty"],
-                "pnl_pct": round(pnl_pct, 2),
-                "pnl_dollar": round(pnl_dollar, 2),
-                "close_reason": close_reason,
-                "entry_composite_score": pos.get("entry_composite_score"),
-                "exit_composite_score": None,
-                "exit_indicators": {},
-                "entry_indicators": pos.get("entry_indicators", {}),
-                "entry_sentiment_score": pos.get("entry_sentiment_score"),
-                "claude_reasoning": pos.get("claude_reasoning", ""),
-                "indicator_signals_at_entry": pos.get("indicator_signals", {}),
-                "atr_pct": pos.get("atr_pct", 0.0),
-            })
-            record_daily_closed(symbol)
+                append_trade({
+                    "type": "CLOSE",
+                    "symbol": symbol,
+                    "timestamp": now.isoformat(),
+                    "exit_price": round(exit_price, 4),
+                    "entry_price": round(entry_price, 4),
+                    "qty": pos["qty"],
+                    "pnl_pct": round(pnl_pct, 2),
+                    "pnl_dollar": round(pnl_dollar, 2),
+                    "close_reason": close_reason,
+                    "entry_composite_score": pos.get("entry_composite_score"),
+                    "exit_composite_score": None,
+                    "exit_indicators": {},
+                    "entry_indicators": pos.get("entry_indicators", {}),
+                    "entry_sentiment_score": pos.get("entry_sentiment_score"),
+                    "claude_reasoning": pos.get("claude_reasoning", ""),
+                    "indicator_signals_at_entry": pos.get("indicator_signals", {}),
+                    "atr_pct": pos.get("atr_pct", 0.0),
+                })
+                record_daily_closed(symbol)
             logger.info(
                 "BRACKET FILL detected: %s closed via %s | P&L=%+.2f%% ($%+.2f) | no re-entry today",
                 symbol, close_reason, pnl_pct, pnl_dollar,

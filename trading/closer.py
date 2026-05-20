@@ -79,8 +79,14 @@ def close_position(
 
     entry_price = pos["entry_price"]
     qty         = pos["qty"]
-    pnl_pct     = (current_price - entry_price) / entry_price * 100
-    pnl_dollar  = (current_price - entry_price) * qty
+    if not entry_price or entry_price <= 0:
+        logger.warning("close_position: %s has invalid entry_price %s — P&L set to 0.0", symbol, entry_price)
+        entry_price = 0.0
+        pnl_pct    = 0.0
+        pnl_dollar = 0.0
+    else:
+        pnl_pct    = (current_price - entry_price) / entry_price * 100
+        pnl_dollar = (current_price - entry_price) * qty
 
     append_trade({
         "type": "CLOSE",
@@ -181,8 +187,12 @@ def _force_close_body() -> None:
             price = pos["entry_price"]
             logger.warning("Could not get price for %s — using entry price for P&L calc.", symbol)
 
-        pnl_pct    = (price - pos["entry_price"]) / pos["entry_price"] * 100
-        pnl_dollar = (price - pos["entry_price"]) * pos["qty"]
+        entry_price = pos["entry_price"]
+        if not entry_price or entry_price <= 0:
+            logger.warning("EOD: %s has invalid entry_price %s — using 0.0 for P&L", symbol, entry_price)
+            entry_price = None
+        pnl_pct    = (price - entry_price) / entry_price * 100 if entry_price else 0.0
+        pnl_dollar = (price - entry_price) * pos["qty"] if entry_price else 0.0
 
         try:
             alpaca.close_position(symbol)
@@ -209,7 +219,7 @@ def _force_close_body() -> None:
             "symbol": symbol,
             "timestamp": now.isoformat(),
             "exit_price": round(price, 4),
-            "entry_price": round(pos["entry_price"], 4),
+            "entry_price": round(entry_price or 0.0, 4),
             "qty": pos["qty"],
             "pnl_pct": round(pnl_pct, 2),
             "pnl_dollar": round(pnl_dollar, 2),

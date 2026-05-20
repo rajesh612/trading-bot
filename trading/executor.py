@@ -139,7 +139,11 @@ def execute_buy(
             open_positions.update(disk_positions)
             return None
 
-    order = alpaca.place_bracket_order(symbol=symbol, qty=qty, entry_price=iv.current_price, stop_loss_pct=sl_pct, take_profit_pct=tp_pct)
+    try:
+        order = alpaca.place_bracket_order(symbol=symbol, qty=qty, entry_price=iv.current_price, stop_loss_pct=sl_pct, take_profit_pct=tp_pct)
+    except Exception as exc:
+        logger.error("ORDER FAILED %s — place_bracket_order raised: %s", symbol, exc)
+        return None
 
     # Correct SL/TP if fill price slippage exceeds threshold
     corrected = risk_manager.correct_bracket_after_fill(

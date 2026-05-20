@@ -563,10 +563,10 @@ class TestEffectiveCompositeGate:
         iv = self._iv(bot_herding_score=60)  # BOT_HERD_ALERT_SCORE = 60
         assert effective_composite_gate(iv, "NORMAL") == 25
 
-    def test_choppy_returns_30(self):
+    def test_choppy_returns_35(self):
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
-        assert effective_composite_gate(iv, "CHOPPY") == 30
+        assert effective_composite_gate(iv, "CHOPPY") == 35
 
     def test_normal_returns_30(self):
         from signals.entry_gates import effective_composite_gate

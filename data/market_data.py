@@ -33,7 +33,12 @@ def _yahoo_bars(symbol: str, interval: str, period: str) -> pd.DataFrame:
         f"?interval={interval}&range={period}"
     )
     data = yahoo_get(url)
-    result = data["chart"]["result"][0]
+    result_list = data.get("chart", {}).get("result") or []
+    if not result_list:
+        return pd.DataFrame()
+    result = result_list[0]
+    if not result.get("timestamp") or not result.get("indicators"):
+        return pd.DataFrame()
     timestamps = result["timestamp"]
     q = result["indicators"]["quote"][0]
     df = pd.DataFrame(

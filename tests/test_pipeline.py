@@ -222,14 +222,14 @@ class TestPreClaudeFilter:
         assert "composite" in result.reason
 
     @pytest.mark.unit
-    def test_choppy_composite_gate_passes_at_30(self):
-        """In CHOPPY regime, composite 30 == gate should pass Layer 1."""
+    def test_choppy_composite_gate_passes_at_35(self):
+        """In CHOPPY regime, composite 35 == gate should pass Layer 1."""
         from trading.pre_claude_filter import pre_claude_filter
         snap = self._snap(
             regime_info={"regime": "CHOPPY", "macro_health_score": 0},
             regime="CHOPPY",
         )
-        result = pre_claude_filter("TEST", self._iv(composite=30.0), snap)
+        result = pre_claude_filter("TEST", self._iv(composite=35.0), snap)
         assert result.decision != "SKIP" or "composite" not in result.reason
 
     @pytest.mark.unit

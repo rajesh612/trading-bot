@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from datetime import datetime
 import anthropic
@@ -24,8 +25,20 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
+_RESEARCH_LOCK = threading.Lock()
+
 
 def run_research_agent(watch_list: list[str]) -> dict:
+    if not _RESEARCH_LOCK.acquire(blocking=False):
+        logger.info("Research agent already running — skipping duplicate invocation.")
+        return {}
+    try:
+        return _run_research_agent_impl(watch_list)
+    finally:
+        _RESEARCH_LOCK.release()
+
+
+def _run_research_agent_impl(watch_list: list[str]) -> dict:
     if not watch_list:
         logger.warning("Watch list empty — skipping research.")
         return {}

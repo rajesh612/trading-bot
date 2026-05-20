@@ -73,6 +73,10 @@ def check_all_gates(
 
     # ── Hard gates ────────────────────────────────────────────────────────────
 
+    # 0. CRISIS regime — no entries under any circumstances
+    if mode == "CASH":
+        return GateResult(False, "CRISIS regime — all entries blocked")
+
     # 1. Time gate — block first 30 min and last 35 min
     if not is_entry_allowed(now):
         return GateResult(False, "outside entry time window")

@@ -212,6 +212,9 @@ def _ask_claude_batch(
 
     text = next((b.text for b in response.content if b.type == "text"), "")
     match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        logger.warning("Claude response contained no JSON object for batch %s — defaulting to HOLD", symbols)
+        return {sym: _default_hold(sym) for sym in symbols}
     try:
         parsed = json.loads(match.group())
         return {sym: _validate_decision(dec, sym) for sym, dec in parsed.items()}
@@ -331,6 +334,9 @@ def _ask_claude_exit_batch(
 
     text = next((b.text for b in response.content if b.type == "text"), "")
     match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        logger.warning("Claude exit response contained no JSON object for %s — defaulting to HOLD", symbols)
+        return {sym: _default_hold(sym) for sym in symbols}
     try:
         parsed = json.loads(match.group())
     except Exception:
