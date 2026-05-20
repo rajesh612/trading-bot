@@ -563,3 +563,15 @@ class TestSLBlacklist:
         )
         assert result.passed is False
         assert "blacklist" in result.reason.lower() or "sl" in result.reason.lower()
+
+
+class TestBacktestSwingMaxDays:
+    @pytest.mark.unit
+    def test_backtest_swing_max_days_exists(self):
+        """BACKTEST_SWING_MAX_DAYS constant must exist and be 3."""
+        assert config.BACKTEST_SWING_MAX_DAYS == 3
+
+    @pytest.mark.unit
+    def test_backtest_swing_max_days_shorter_than_live(self):
+        """Backtest swing cap must be shorter than live SWING_MAX_DAYS."""
+        assert config.BACKTEST_SWING_MAX_DAYS < config.SWING_MAX_DAYS

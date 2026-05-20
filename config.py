@@ -331,3 +331,4 @@ BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in si
 BACKTEST_SWING_COMPOSITE_MIN = 40.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
 BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
 BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY
+BACKTEST_SWING_MAX_DAYS          = 3     # conservative swing duration cap for backtests
