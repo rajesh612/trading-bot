@@ -7,114 +7,224 @@
 
 ## Background & Motivation
 
-30-day backtest (174 trades, 2026-04-09 – 2026-05-19) and live-journal analysis expose three compounding problems:
+30-day backtest (174 trades, 2026-04-09 – 2026-05-19) and live-journal analysis expose a structural mismatch:
 
 | Engine | Trades | Net $ | Avg $/trade | Win rate |
 |---|---|---|---|---|
 | Day trades | 157 | -$2,224 | -$14 | 41% |
 | Swing trades | 17 | +$1,574 | +$93 | 47% |
 
-- **55% of all trades are force-closed at 3:55pm** at avg -0.28% — positions never reach SL or TP.
-- SL fires more often than TP (19% vs 17%) because intraday noise on 5-min bars tags the closer level first.
-- The composite floor (30) is too low: live trades with composite < 50 lose at 0–22% win rate; composite ≥ 50 → 56% win rate.
-- Stocks above $500 lose -$55/trade avg at 28% win rate; one ticker (LITE) alone cost -$709 over 10 trades.
+- **55% of all trades force-closed at 3:55pm** at avg -0.28% — never reaching SL or TP.
+- SL fires more than TP (19% vs 17%): intraday 5-min noise tags the closer level first.
+- Composite floor too low: live trades with composite < 50 → 0–22% win rate; ≥ 50 → 56% win rate.
+- Stocks > $500: -$55/trade avg at 28% win rate. LITE alone: -$709 over 10 trades.
 
-The swing engine is already built (`trading/swing_manager.py`, `trading/eod_holds.py`, `trading/closer.py`). It is under-used because the 7-gate AND qualification (`qualifies_for_eod_hold`) almost always rejects candidates, and `SWING_MAX_POSITIONS = 2` means it fills immediately and blocks everything else.
+The swing engine is already built. It is under-used because the 7-gate AND logic in `qualifies_for_eod_hold` almost always rejects candidates, and `SWING_MAX_POSITIONS = 2` fills immediately.
+
+---
+
+## Core Principle: Asymmetric Entry / Exit
+
+**Entry: AND of all signals — be ruthlessly strict.**  
+The cost of a false-positive entry is a losing trade. Every available signal (technicals, sector performance, news, earnings calendar, economic calendar, regime) should vote before opening a position.
+
+**Exit / swing-hold: OR of thesis-break vetoes — be patient.**  
+The cost of exiting on noise is leaving a winner early (the 55% force-close problem). Only exit when the *specific reason you entered is no longer true*: regime collapsed to CRISIS, earnings binary risk overnight, thesis invalidated by fundamental news, or the position is already deep underwater.
+
+This replaces the current backwards design: loose entry (composite ≥ 30) + strict exit (7-gate AND).
 
 ---
 
 ## Scope
 
-Four independent changes, all Phase 1:
+Five change areas, all Phase 1:
 
-1. **Swing-first hold logic** — relax EOD qualification to 3 hard-veto gates (fail-fast) instead of 7 pass-all gates
-2. **Composite floor raise** — `COMPOSITE_MIN_NORMAL` 30 → 50; `COMPOSITE_MIN_HIGH_VOL` 35 → 55
-3. **Entry price cap** — new `MAX_ENTRY_PRICE = 400`; enforced in `check_all_gates()`
-4. **Ticker prune** — remove persistent losers from `tickers.json`
+1. **Asymmetric entry gates** — add sector, news-quality, and economic-calendar-day gates at entry
+2. **Swing-first hold logic** — replace 7-gate AND with regime-aware thesis-break vetoes
+3. **Composite floor raise** — NORMAL 30 → 50; HIGH_VOL 35 → 55; CHOPPY 35 → 55
+4. **Entry price cap** — new `MAX_ENTRY_PRICE = 400`
+5. **Ticker prune** — remove 8 persistent losers from `tickers.json`
 
 Phase 2 (scaled entry / buy-the-dip) is out of scope.
 
 ---
 
-## Design
+## Regime Matrix
 
-### 1. Swing-first hold logic
+The 9 regimes drive different entry strictness and swing-hold tolerance. This table is the single source of truth for both.
+
+### Regime definitions (existing, no change)
+
+| Regime | Trigger condition | Mode |
+|---|---|---|
+| CRISIS | VIX > 35 or SPY 5d < -10% | CASH |
+| CRASH_RECOVERY | Post-CRISIS + 2+ green days | SHORT_TERM |
+| BULL_TREND | 3+ consecutive green days + health ≥ threshold | HYBRID |
+| OPPORTUNITY | DEFENSIVE conditions + AI/semi sector score > 15 | HYBRID |
+| CHOPPY | 3+ sign alternations in 5d, net move < 0.5% | DAY_TRADE |
+| DEFENSIVE | 3+ red days + health ≤ threshold + bot PnL < -1% | DAY_TRADE |
+| NORMAL | Default (no other condition matches) | DAY_TRADE |
+| CAPITULATION | OBV divergence + drawdown (externally detected) | SHORT_TERM |
+
+### Entry rules by regime (new)
+
+| Regime | Entries | Composite min | Sector gate | News gate | Economic calendar | Swing eligible |
+|---|---|---|---|---|---|---|
+| **CRISIS** | **BLOCKED** | N/A | N/A | N/A | N/A | NO |
+| **CHOPPY** | Day-trade only | **55** (raised from 35) | ≥ -10 (not collapsing) | None | Normal 60-min window | NO |
+| **DEFENSIVE** | Day-trade only | 52.5 (existing mult) | ≥ 0 | ≥ 40 | Normal 60-min window | NO |
+| **NORMAL** | Swing default | **50** (raised from 30) | ≥ 0 | ≥ 50 for swing | Block day-of major event | YES |
+| **BULL_TREND** | Swing default | **45** (slightly relaxed — trend has momentum) | ≥ 0 | ≥ 40 | Normal 60-min window | YES |
+| **OPPORTUNITY** | Swing default | **50** | ≥ **10** (sector must be positive — thesis requires it) | ≥ 55 | Normal 60-min window | YES |
+| **CAPITULATION** | Swing default | **55** + RSI ≤ 35 (oversold confirmation) | Any | None (panic = no news) | Ignore | YES |
+| **CRASH_RECOVERY** | Swing default | **50** | Any | None | Normal 60-min window | YES |
+
+**Composite min in CHOPPY:** `COMPOSITE_MIN_HIGH_VOL` (55) applies — existing `effective_composite_gate()` already routes CHOPPY to HIGH_VOL_GATES, so raising `COMPOSITE_MIN_HIGH_VOL` 35 → 55 handles this automatically.
+
+**BULL_TREND composite at 45:** BULL_TREND uses HYBRID mode (SL 7% / TP 15%). The wider TP justifies slightly lower composite bar — trend entries need less conviction because the holding window is longer. Implemented as a new constant `COMPOSITE_MIN_BULL_TREND = 45` read inside `effective_composite_gate()`.
+
+**Day-of major event block (NORMAL):** Economic calendar already tracks FOMC/CPI/NFP. New gate: if `is_event_risk_window()` returns true for the *current session morning* (not just within 60 min), block new swing-eligible entries for the whole day. Day-trade entries in CHOPPY/DEFENSIVE unaffected — their shorter hold doesn't carry overnight event risk.
+
+### Swing-hold veto rules by regime (new)
+
+At 3:50pm `evaluate_eod_holds()` evaluates each open position. The current entry_sector_sentiment and entry_news_sentiment are stored in the position record at entry time (new field: `entry_sector_sentiment`, `entry_news_sentiment`).
+
+| Regime at 3:50pm | Hard vetoes (force-close) | Rationale |
+|---|---|---|
+| **CRISIS** | Always close — no exceptions | Capital preservation |
+| **CHOPPY** | No new swing promotions. Existing swings: PTJ rule only (PnL < -2%) | Short-term oscillation doesn't break multi-day thesis |
+| **DEFENSIVE** | No new swing promotions. Existing swings: PTJ rule + earnings tomorrow | Regime shift ≠ thesis break for existing positions |
+| **NORMAL** | Earnings tomorrow + CRISIS + PnL < -2% + sector reversed (< -20, was > +10 at entry) | Core regime; sector reversal = thesis break |
+| **BULL_TREND** | CRISIS + earnings tomorrow + PnL < **-3%** (wider — SL is 7%) | Trend intact; only hard structural breaks veto |
+| **OPPORTUNITY** | CRISIS + earnings tomorrow + PnL < -2% + sector score < 0 (was > 10 at entry) | Thesis requires sector health; sector going negative = thesis break |
+| **CAPITULATION** | CRISIS + PnL < **-5%** (SL is 12%) + VIX declining sharply (recovery → CRASH_RECOVERY regime shift means exit the cap-trade) | Capitulation holds are speculative; keep unless VIX collapses |
+| **CRASH_RECOVERY** | CRISIS + PnL < **-3%** + 3+ consecutive red days (recovery stalled) | Recovery thesis fails if market resumes decline |
+
+**Regime shift mid-hold:** If a position was entered in NORMAL and regime shifts to DEFENSIVE or CHOPPY during the hold, existing swing is NOT force-closed on the regime shift alone. Only the veto rules for the *current* regime at 3:50pm apply. Exception: CRISIS always closes everything immediately (handled in `trading/cycle.py` already).
+
+**"Sector reversed" definition:** At entry, `entry_sector_sentiment` is stored. At exit eval: if current sector_sentiment < -20 AND entry value was > +10, veto. If sector was already negative at entry (CAPITULATION, CRASH_RECOVERY), no sector veto applies.
+
+---
+
+## Detailed Changes
+
+### 1. Asymmetric entry gates
+
+**New gates added to `signals/entry_gates.py` → `check_all_gates()`** (pure, no I/O):
+
+**A. Sector performance gate**
+```python
+if iv.sector_sentiment is not None and iv.sector_sentiment < config.SECTOR_ENTRY_MIN_SCORE:
+    # soft flag — not a hard block; Claude sees it as context
+    soft_flags.append(f"sector sentiment {iv.sector_sentiment:.0f} < {config.SECTOR_ENTRY_MIN_SCORE}")
+```
+`SECTOR_ENTRY_MIN_SCORE = 0` — sector must not be net negative. Passed as soft flag (not hard block) so Claude can override with strong stock-specific catalyst.
+
+**B. News quality gate for swing candidates**
+```python
+if snap.swing_eligible and iv.sentiment_score < config.SWING_NEWS_MIN_SCORE:
+    soft_flags.append(f"swing: sentiment {iv.sentiment_score} < {config.SWING_NEWS_MIN_SCORE}")
+```
+`SWING_NEWS_MIN_SCORE = 50` — swing positions need a catalyst. In CAPITULATION/CRASH_RECOVERY, this gate is skipped (panic markets have no readable news).
+
+**C. Economic calendar day-of block (new hard gate for swing-eligible in NORMAL)**
+```python
+if snap.regime == "NORMAL" and snap.swing_eligible and snap.major_event_today:
+    return GateResult(False, "major economic event today — no new swing entries")
+```
+`snap.major_event_today` is a bool derived from economic_calendar at cycle start (added to `CycleSnapshot`). Only blocks *new* swing-eligible entries in NORMAL; doesn't affect CHOPPY/DEFENSIVE day-trades.
+
+**D. Price cap gate** (hard block)
+```python
+if config.MAX_ENTRY_PRICE and iv.current_price > config.MAX_ENTRY_PRICE:
+    return GateResult(False, f"price ${iv.current_price:.0f} > MAX_ENTRY_PRICE ${config.MAX_ENTRY_PRICE}")
+```
+
+### 2. Entry fields stored at position creation
+
+`trading/executor.py` → `execute_buy()`: add two fields to the position record:
+- `entry_sector_sentiment`: sector_sentiment score at entry time (from `CycleSnapshot.research`)
+- `entry_news_sentiment`: overall sentiment score at entry time
+
+These are needed by EOD hold logic to detect thesis reversal (current vs entry sector sentiment).
+
+### 3. Swing-first hold logic
 
 **File:** `trading/eod_holds.py` → `qualifies_for_eod_hold()`
 
-Current: 7 gates, all must pass (AND logic). Any failure → force-close.  
-New: 3 hard-veto gates. Any veto → force-close. Everything else → swing.
+New signature — regime-aware, thesis-driven:
+```python
+def qualifies_for_eod_hold(
+    symbol: str,
+    regime: str,
+    earnings_tomorrow: bool,
+    current_pnl_pct: float,
+    entry_sector_sentiment: float,
+    current_sector_sentiment: float,
+    vix_consecutive_decline: bool,   # for CAPITULATION exit
+    consecutive_red_days: int,       # for CRASH_RECOVERY exit
+) -> tuple[bool, str]:
+```
 
-**Hard vetoes (keep):**
-| Gate | Rationale |
-|---|---|
-| `regime == CRISIS` | No overnight exposure during crisis — capital preservation |
-| `earnings TOMORROW` (1 day, not 2) | Earnings binary risk is unhedgeable overnight |
-| `current_pnl_pct < SWING_MIN_PNL_PCT` (-2.0%) | PTJ rule: don't hold losers overnight |
+Logic per regime as specified in the matrix above. Removes: `is_tier1`, `event_risk_tomorrow`, `existing_swing_count` from the pure function (count check stays in `_promote_to_swing()` under lock).
 
-**Removed gates:**
-| Gate | Why removed |
-|---|---|
-| `is_tier1` | Tier1 was a legacy quality proxy; composite ≥ 50 now does that job |
-| `event_risk_tomorrow` (all events) | Too broad; major events (FOMC) already covered by regime shift to DEFENSIVE/CRISIS |
-| `sector_sentiment_score < 10` | Weak signal; removes too many valid candidates |
-| `existing_swing_count >= SWING_MAX_POSITIONS` | Becomes a soft cap (raise limit; don't use as hard gate in pure function) |
-
-**Signature change:** Remove `is_tier1`, `event_risk_tomorrow`, `sector_sentiment_score` parameters from `qualifies_for_eod_hold()`. The function becomes pure with 4 inputs: `symbol`, `regime`, `earnings_tomorrow`, `current_pnl_pct`.
-
-The `existing_swing_count` / `SWING_MAX_POSITIONS` check moves to `_promote_to_swing()` where it already runs under lock — no logic change there, just raise the cap.
-
-**Backtest parity:** `BACKTEST_SWING_COMPOSITE_MIN` currently 40 → raise to 50 to match new live floor.
-
-### 2. Composite floor
+### 4. Composite floor and BULL_TREND constant
 
 **File:** `config.py`
 
-| Constant | Old | New | Rationale |
+| Constant | Old | New |
+|---|---|---|
+| `COMPOSITE_MIN_NORMAL` | 30 | **50** |
+| `COMPOSITE_MIN_HIGH_VOL` | 35 | **55** |
+| `COMPOSITE_MIN_BULL_TREND` | *(new)* | **45** |
+| `AUTO_EXECUTE_COMPOSITE_MIN` | 65 | **70** |
+| `ENTRY_LATE_COMPOSITE_MIN` | 50 | **55** |
+| `BACKTEST_SWING_COMPOSITE_MIN` | 40 | **50** |
+| `SWING_MAX_POSITIONS` | 2 | **6** |
+| `MAX_ENTRY_PRICE` | *(new)* | **400** |
+| `SECTOR_ENTRY_MIN_SCORE` | *(new)* | **0** |
+| `SWING_NEWS_MIN_SCORE` | *(new)* | **50** |
+
+**File:** `signals/entry_gates.py` → `effective_composite_gate()`: add BULL_TREND branch returning `config.COMPOSITE_MIN_BULL_TREND`.
+
+### 5. CycleSnapshot — add major_event_today
+
+**File:** `trading/cycle_context.py` → `CycleSnapshot`: add field `major_event_today: bool`.  
+**File:** `trading/cycle.py` → `run_trading_cycle()`: populate from economic calendar before building snapshot.
+
+### 6. Ticker prune
+
+**File:** `data/tickers.json` — remove 8 persistent losers:
+
+| Symbol | 30d Net | Win rate | Primary reason |
 |---|---|---|---|
-| `COMPOSITE_MIN_NORMAL` | 30 | 50 | Live data: 56% win rate at ≥50 vs 0–22% below |
-| `COMPOSITE_MIN_HIGH_VOL` | 35 | 55 | Maintain 5-point spread above normal |
-| `AUTO_EXECUTE_COMPOSITE_MIN` | 65 | 70 | Keep auto-execute well above the new floor |
-| `ENTRY_LATE_COMPOSITE_MIN` | 50 | 55 | Late-hour entries warrant tighter filter |
-| `BACKTEST_SWING_COMPOSITE_MIN` | 40 | 50 | Match live floor for backtest accuracy |
-| `SWING_MAX_POSITIONS` | 2 | 6 | Allow more concurrent swings |
-
-`SQUEEZE_COMPOSITE_MIN` (12) and `SENTIMENT_WEAK_COMPOSITE_MIN` (30) stay unchanged — these are secondary thresholds that don't gate entries directly.
-
-### 3. Entry price cap
-
-**File:** `config.py` — add `MAX_ENTRY_PRICE = 400`  
-**File:** `signals/entry_gates.py` — add one gate in `check_all_gates()`
-
-Gate logic:
-```python
-if config.MAX_ENTRY_PRICE and current_price > config.MAX_ENTRY_PRICE:
-    return GateResult(passed=False, reason=f"price ${current_price:.0f} > MAX_ENTRY_PRICE ${config.MAX_ENTRY_PRICE}")
-```
-
-Placed after the existing soft-flag checks, before returning. Pure — no I/O.  
-Backtest: add same check in simulator's entry filter.
-
-**Why $400:** Stocks >$500 lose -$55/trade avg at 28% win rate (30d backtest). $400 cap excludes the worst offenders (LITE $800–1000, COHR $400+) while keeping ORCL ($184), MRVL ($155), PLTR ($140) etc.
-
-### 4. Ticker prune
-
-**File:** `data/tickers.json`
-
-Remove these 8 persistent losers (all had negative net PnL over 30d with low win rates):
-
-| Symbol | 30d Net | Win rate | Reason |
-|---|---|---|---|
-| LITE | -$709 | 30% | High-price, repeated SL hits |
-| MU | -$336 | 0% | Volatile, not in bot's signal window |
-| COHR | -$317 | 27% | High-price ($400+), consistently loses |
-| QCOM | -$311 | 0% | SL hits every trade in window |
+| LITE | -$709 | 30% | $800–1000 price, repeated SL hits |
+| MU | -$336 | 0% | Volatile, not in signal window |
+| COHR | -$317 | 27% | $400+ price, consistent losses |
+| QCOM | -$311 | 0% | SL hit every trade in window |
 | SHOP | -$269 | 0% | 3/3 losses |
-| TTD | -$217 | 33% | Low win rate vs peers |
+| TTD | -$217 | 33% | Low win rate, low composite |
 | INTC | -$210 | 30% | Secular downtrend |
 | ZS | -$209 | 33% | 3/3 losses |
 
-Note: BKNG (-$221) and NOW (-$185) are borderline; leave in for now (small sample sizes).
+BKNG (-$221) and NOW (-$185) stay — small sample sizes, both are HYBRID-regime performers.
+
+---
+
+## SL/TP Table (existing — no change, shown for completeness)
+
+| Mode | Regime | SL% | TP% |
+|---|---|---|---|
+| DAY_TRADE | NORMAL | 3.0 | 5.0 |
+| DAY_TRADE | CHOPPY | 5.0 | 6.0 |
+| DAY_TRADE | DEFENSIVE | 4.0 | 5.0 |
+| HYBRID | BULL_TREND | 7.0 | 15.0 |
+| HYBRID | OPPORTUNITY | 7.0 | 15.0 |
+| SHORT_TERM | CAPITULATION | 12.0 | 20.0 |
+| SHORT_TERM | CRASH_RECOVERY | 10.0 | 18.0 |
+| PEAD | any | 8.0 | 8.0 |
+
+Swing overnight SL: `SWING_OVERNIGHT_SL_PCT = 3.0%` (existing, no change). TP tiers: `SWING_TP1_PCT = 5.0%`, `SWING_TP2_PCT = 10.0%` (no change).
 
 ---
 
@@ -122,29 +232,53 @@ Note: BKNG (-$221) and NOW (-$185) are borderline; leave in for now (small sampl
 
 | File | Change |
 |---|---|
-| `config.py` | 6 constant changes + 1 new (`MAX_ENTRY_PRICE`) |
-| `trading/eod_holds.py` | `qualifies_for_eod_hold()`: remove 4 params, remove 4 gates |
-| `trading/eod_holds.py` | `evaluate_eod_holds()`: remove 3 call-site args |
-| `signals/entry_gates.py` | Add price-cap gate in `check_all_gates()` |
-| `backtest/simulator.py` | Add price-cap filter at entry |
+| `config.py` | 7 constant changes + 3 new constants |
+| `signals/entry_gates.py` | 4 new gates (sector, news-quality, event-day, price-cap); BULL_TREND branch in `effective_composite_gate()` |
+| `trading/cycle_context.py` | Add `major_event_today: bool` to `CycleSnapshot` |
+| `trading/cycle.py` | Populate `major_event_today` from economic calendar |
+| `trading/executor.py` | Store `entry_sector_sentiment` + `entry_news_sentiment` in position record |
+| `trading/eod_holds.py` | `qualifies_for_eod_hold()`: new signature + regime-aware veto matrix |
+| `trading/eod_holds.py` | `evaluate_eod_holds()`: pass new args; remove old args |
 | `data/tickers.json` | Remove 8 tickers |
-| `tests/test_entry_gates.py` | Tests for price-cap gate |
-| `tests/test_signals.py` | Update any composite-threshold tests |
-| `tests/test_foundation.py` | Update `qualifies_for_eod_hold` tests (fewer params) |
+| `tests/test_entry_gates.py` | Tests for all 4 new gates |
+| `tests/test_signals.py` | Update composite-threshold tests for new floors |
+| `tests/test_foundation.py` | New tests for regime-aware veto matrix (8 regimes × key veto paths) |
+| `tests/test_pipeline.py` | Test `major_event_today` propagation in `CycleSnapshot` |
 
 ---
 
 ## Testing Requirements
 
-- `test_entry_gates.py`: price above cap → gate blocks; price at cap → passes; `MAX_ENTRY_PRICE = 0` disables check
-- `test_foundation.py`: swing qualify with 3-veto logic; all 3 vetoes individually block; non-tier1 still qualifies; low sector-sentiment still qualifies
-- Backtest re-run 30d after implementation; swing % should rise from 10% → 25%+ of trades
+**Entry gates:**
+- Price > $400 → blocked; price ≤ $400 → passes; `MAX_ENTRY_PRICE = 0` → gate disabled
+- Sector < 0 → soft flag present in result; sector ≥ 0 → no soft flag
+- `swing_eligible=True` + sentiment < 50 → soft flag; CAPITULATION regime → gate skipped
+- `major_event_today=True` + NORMAL + swing_eligible → hard block; CHOPPY → no block
+
+**Composite floor:**
+- BULL_TREND + composite 46 → passes (≥ 45); composite 44 → blocked
+- CHOPPY + composite 54 → blocked (< 55); composite 56 → passes
+
+**Swing-hold veto matrix:**
+- CRISIS regime → always veto regardless of PnL
+- CHOPPY + PnL -1.5% → passes (PTJ threshold -2%); PnL -2.5% → veto
+- NORMAL + sector reversed (entry +15, current -25) → veto; sector soft drop (entry +15, current +5) → no veto
+- BULL_TREND + PnL -2.9% → passes (threshold -3%); PnL -3.1% → veto
+- OPPORTUNITY + sector current < 0 (was > 10) → veto
+- CAPITULATION + PnL -4.9% → passes; PnL -5.1% → veto
+- CRASH_RECOVERY + 3 consecutive red days → veto; 2 red days → no veto
+- Non-tier1 symbol → no veto (tier1 gate removed)
+- Event risk tomorrow (not earnings) → no veto (removed)
+
+**Backtest regression:** 30d re-run after implementation; swing % expected to rise from 10% → 25%+ of trades.
 
 ---
 
 ## Risk & Rollback
 
-- Raising composite floor reduces trade count — expected. Days with 0 trades are possible.
-- Swing-first increases overnight exposure — mitigated by: CRISIS hard-veto, PTJ rule (no losers), SWING_OVERNIGHT_SL_PCT = 3.0% already in place.
-- If overnight exposure causes drawdown: set `SWING_MAX_POSITIONS = 2` in config to revert immediately without code change.
-- Ticker prune is reversible: add back to `tickers.json`.
+| Risk | Mitigation | Emergency rollback |
+|---|---|---|
+| Higher composite floor → zero-trade days | Expected; quality over quantity | Lower `COMPOSITE_MIN_NORMAL` to 40 in config |
+| Swing-first increases overnight exposure | PTJ rule (-2%), `SWING_OVERNIGHT_SL_PCT = 3%`, CRISIS hard-veto | Set `SWING_MAX_POSITIONS = 0` in config |
+| Sector/news gates reduce entries too much | Both are soft flags — Claude still decides | Set `SECTOR_ENTRY_MIN_SCORE = -999`, `SWING_NEWS_MIN_SCORE = 0` |
+| Ticker prune misses good future entries | Small list; tickers can be added back | Edit `tickers.json` |
