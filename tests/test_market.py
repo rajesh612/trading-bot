@@ -926,19 +926,45 @@ class TestBacktestSimulatorConstants:
 
 @pytest.mark.unit
 class TestDrawdownAlertThreadSafety:
-    def test_drawdown_alerted_lock_exists(self):
+    def test_drawdown_lock_is_threading_lock(self):
+        """_DRAWDOWN_LOCK is properly initialized as a threading.Lock instance."""
         from trading import monitor
-        assert hasattr(monitor, "_DRAWDOWN_LOCK")
         import threading
-        assert isinstance(monitor._DRAWDOWN_LOCK, type(threading.Lock()))
-
-    def test_drawdown_alert_cooldown_respected(self, monkeypatch, tmp_path):
-        from trading import monitor
-        import importlib
-        monkeypatch.setattr(monitor, "_drawdown_alerted", {})
-        # Pre-populate with a recent alert (within cooldown)
-        monitor._drawdown_alerted["TEST"] = 9999999999.0  # far future timestamp
-        # Should not alert again (cooldown not expired)
-        # Just verify the dict is accessible and the lock exists
-        assert "TEST" in monitor._drawdown_alerted
         assert hasattr(monitor, "_DRAWDOWN_LOCK")
+        assert isinstance(monitor._DRAWDOWN_LOCK, threading.Lock)
+
+    def test_drawdown_alert_cooldown_respected(self, monkeypatch):
+        """_check_drawdown_alerts respects per-position cooldown and doesn't spam alerts."""
+        from trading import monitor
+        import time
+        import config
+
+        # Patch Telegram to prevent notifications
+        monkeypatch.setattr("trading.monitor.telegram_notify.notify_position_drawdown", lambda *a, **kw: None)
+
+        # Reset the cooldown tracking dict
+        monkeypatch.setattr(monitor, "_drawdown_alerted", {})
+
+        # Build a minimal position in drawdown but above hard SL
+        # entry_price=100, current=96 → -4% PNL (below DRAWDOWN_WARN_PCT threshold)
+        positions = {
+            "AAPL": {
+                "entry_price": 100.0,
+                "stop_loss_pct": 5.0,
+                "qty": 10,
+            }
+        }
+        current_prices = {"AAPL": 96.0}
+
+        # First call: alert should fire and record timestamp
+        monitor._check_drawdown_alerts(positions, current_prices)
+        assert "AAPL" in monitor._drawdown_alerted
+        first_alert_ts = monitor._drawdown_alerted["AAPL"]
+
+        # Simulate cooldown: pre-populate with future timestamp
+        monitor._drawdown_alerted["AAPL"] = time.time() + 9999
+        second_alert_ts = monitor._drawdown_alerted["AAPL"]
+
+        # Second call within cooldown: timestamp should NOT change
+        monitor._check_drawdown_alerts(positions, current_prices)
+        assert monitor._drawdown_alerted["AAPL"] == second_alert_ts
