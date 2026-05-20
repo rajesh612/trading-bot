@@ -719,3 +719,117 @@ def test_price_cap_zero_disables_gate(monkeypatch):
         "BRK", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
     )
     assert "MAX_ENTRY_PRICE" not in result.reason
+
+
+def _market_open() -> datetime:
+    from zoneinfo import ZoneInfo
+    return datetime(2026, 5, 20, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+
+
+# ── Task 4: sector sentiment soft flag ───────────────────────────────────────
+
+@pytest.mark.unit
+def test_sector_soft_flag_when_negative(monkeypatch):
+    """Sector sentiment below SECTOR_ENTRY_MIN_SCORE adds a soft flag, not a hard block."""
+    monkeypatch.setattr(config, "SECTOR_ENTRY_MIN_SCORE", 0)
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        sector_sentiment_score=-15.0,
+    )
+    assert result.passed
+    assert any("sector_sentiment" in f for f in result.flags)
+
+
+@pytest.mark.unit
+def test_sector_soft_flag_absent_when_positive(monkeypatch):
+    """No sector flag when sector sentiment is non-negative."""
+    monkeypatch.setattr(config, "SECTOR_ENTRY_MIN_SCORE", 0)
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        sector_sentiment_score=20.0,
+    )
+    assert not any("sector_sentiment" in f for f in result.flags)
+
+
+@pytest.mark.unit
+def test_news_quality_soft_flag_for_swing_candidate(monkeypatch):
+    """News sentiment below SWING_NEWS_MIN_SCORE adds soft flag when swing_eligible=True."""
+    monkeypatch.setattr(config, "SWING_NEWS_MIN_SCORE", 50)
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        swing_eligible=True, sentiment_score=30.0,
+    )
+    assert result.passed
+    assert any("swing_news" in f for f in result.flags)
+
+
+@pytest.mark.unit
+def test_news_quality_flag_skipped_for_day_trade(monkeypatch):
+    """No news flag when swing_eligible=False even if sentiment is low."""
+    monkeypatch.setattr(config, "SWING_NEWS_MIN_SCORE", 50)
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        swing_eligible=False, sentiment_score=10.0,
+    )
+    assert not any("swing_news" in f for f in result.flags)
+
+
+# ── Task 5: major_event_today hard gate ───────────────────────────────────────
+
+@pytest.mark.unit
+def test_event_day_blocks_swing_entry_in_normal(monkeypatch):
+    """Major event today blocks new swing-eligible entries."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        swing_eligible=True, major_event_today=True, mode="DAY_TRADE",
+    )
+    assert not result.passed
+    assert "major economic event" in result.reason.lower()
+
+
+@pytest.mark.unit
+def test_event_day_allows_day_trade_when_not_swing_eligible(monkeypatch):
+    """Major event today does NOT block when swing_eligible=False."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        swing_eligible=False, major_event_today=True, mode="DAY_TRADE",
+    )
+    assert "major economic event" not in result.reason
+
+
+@pytest.mark.unit
+def test_event_day_no_block_when_no_event(monkeypatch):
+    """No block when major_event_today=False."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        swing_eligible=True, major_event_today=False,
+    )
+    assert "major economic event" not in result.reason

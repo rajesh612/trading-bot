@@ -68,6 +68,10 @@ def check_all_gates(
     symbol_sector_etf: str | None = None,
     advance_decline_ratio: float = 1.0,
     sl_blacklisted: bool = False,
+    sector_sentiment_score: float = 0.0,   # NLP sector sentiment from research __meta__
+    sentiment_score: float = 0.0,          # symbol-level news sentiment score
+    swing_eligible: bool = False,          # True when regime is in SWING_ELIGIBLE
+    major_event_today: bool = False,       # True if FOMC/CPI/NFP scheduled today
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -86,6 +90,10 @@ def check_all_gates(
     # 0b. Price cap — hard block expensive stocks (>$400 avg -$55/trade at 28% win rate)
     if config.MAX_ENTRY_PRICE and iv.current_price > config.MAX_ENTRY_PRICE:
         return GateResult(False, f"price ${iv.current_price:.0f} > MAX_ENTRY_PRICE ${config.MAX_ENTRY_PRICE:.0f}")
+
+    # 0c. Major economic event today — no new swing entries (overnight thesis invalidation risk)
+    if major_event_today and swing_eligible:
+        return GateResult(False, "major economic event today — no new swing-eligible entries")
 
     # 1. Time gate — block first 30 min and last 35 min
     if not is_entry_allowed(now):
@@ -195,5 +203,13 @@ def check_all_gates(
     # 19. Market breadth — narrow IWM/SPY breadth signals possible bull trap
     if advance_decline_ratio < config.BREADTH_WEAK_THRESHOLD:
         flags.append(f"breadth_weak(ad={advance_decline_ratio:.2f})")
+
+    # 20. Sector sentiment soft flag — sector going negative signals headwind
+    if sector_sentiment_score < config.SECTOR_ENTRY_MIN_SCORE:
+        flags.append(f"sector_sentiment({sector_sentiment_score:.0f}<{config.SECTOR_ENTRY_MIN_SCORE})")
+
+    # 21. News quality soft flag — swing candidates need a catalyst
+    if swing_eligible and sentiment_score < config.SWING_NEWS_MIN_SCORE:
+        flags.append(f"swing_news_weak({sentiment_score:.0f}<{config.SWING_NEWS_MIN_SCORE})")
 
     return GateResult(True, "", tuple(flags))
