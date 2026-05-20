@@ -2,9 +2,11 @@
 EOD hold qualification and promotion logic for swing positions.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import config
 from calendars.earnings import is_earnings_imminent
+from utils import regimes
 from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
 
@@ -53,8 +55,8 @@ def qualifies_for_eod_hold(
     if earnings_tomorrow:
         return False, "earnings tomorrow — overnight binary risk"
 
-    # CHOPPY / DEFENSIVE — block new swing promotions
-    if regime in ("CHOPPY", "DEFENSIVE"):
+    # Any non-swing-eligible regime — block new swing promotions
+    if regime not in regimes.SWING_ELIGIBLE:
         return False, f"{regime} regime — no new swing promotions"
 
     # PTJ rule: don't hold losers overnight — threshold varies by regime
@@ -94,7 +96,7 @@ def _ptj_threshold(regime: str) -> float:
         return config.SWING_MIN_PNL_PCT_CAPITULATION
     if regime == "CRASH_RECOVERY":
         return config.SWING_MIN_PNL_PCT_CRASH
-    return config.SWING_MIN_PNL_PCT   # NORMAL, OPPORTUNITY, HYBRID: -2.0%
+    return config.SWING_MIN_PNL_PCT   # NORMAL, OPPORTUNITY (and any unrecognized regime): -2.0%
 
 
 def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK) -> list[str]:
@@ -127,10 +129,26 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
     from broker.alpaca_client import AlpacaClient
     alpaca = AlpacaClient()
 
+    # Batch-fetch prices for all open positions before the loop to avoid
+    # serial REST calls at the time-critical 3:50 PM window.
+    symbols = list(open_positions.keys())
+    prices: dict[str, float] = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        future_to_sym = {pool.submit(alpaca.get_latest_price, sym): sym for sym in symbols}
+        for fut in as_completed(future_to_sym):
+            sym = future_to_sym[fut]
+            try:
+                prices[sym] = fut.result()
+            except Exception as exc:
+                logger.warning("eod_holds: price fetch failed for %s: %s", sym, exc)
+
     for symbol, pos in open_positions.items():
         try:
             entry = pos["entry_price"]
-            current_price = alpaca.get_latest_price(symbol)
+            current_price = prices.get(symbol)
+            if current_price is None:
+                logger.info("SWING SKIP %s — price unavailable", symbol)
+                continue
             pnl_pct = (current_price - entry) / entry * 100
 
             earnings_tomorrow = is_earnings_imminent(symbol, days=1)
