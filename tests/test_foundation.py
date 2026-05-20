@@ -625,3 +625,46 @@ def test_backtest_load_params_returns_dict(monkeypatch, tmp_path):
     params = _load_backtest_params()
     assert isinstance(params, dict)
     assert "rsi_buy_max" in params
+
+
+# ── utils.regimes ─────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestRegimesModule:
+    def test_constants_are_strings(self):
+        from utils import regimes
+        assert regimes.CRISIS == "CRISIS"
+        assert regimes.DEFENSIVE == "DEFENSIVE"
+        assert regimes.HIGH_VOL == "HIGH_VOL"
+
+    def test_valid_excludes_high_vol(self):
+        from utils import regimes
+        assert regimes.HIGH_VOL not in regimes.VALID
+
+    def test_allow_entry_excludes_crisis(self):
+        from utils import regimes
+        assert regimes.CRISIS not in regimes.ALLOW_ENTRY
+
+    def test_allow_entry_is_valid_minus_crisis(self):
+        from utils import regimes
+        assert regimes.ALLOW_ENTRY == regimes.VALID - {regimes.CRISIS}
+
+    def test_high_vol_gates_contains_defensive_and_high_vol(self):
+        from utils import regimes
+        assert regimes.DEFENSIVE in regimes.HIGH_VOL_GATES
+        assert regimes.HIGH_VOL in regimes.HIGH_VOL_GATES
+
+    def test_size_reduce_members(self):
+        from utils import regimes
+        assert regimes.HIGH_VOL in regimes.SIZE_REDUCE
+        assert regimes.DEFENSIVE in regimes.SIZE_REDUCE
+        assert regimes.CHOPPY in regimes.SIZE_REDUCE
+        assert regimes.NORMAL not in regimes.SIZE_REDUCE
+
+    def test_swing_eligible_members(self):
+        from utils import regimes
+        assert regimes.BULL_TREND in regimes.SWING_ELIGIBLE
+        assert regimes.OPPORTUNITY in regimes.SWING_ELIGIBLE
+        assert regimes.CAPITULATION in regimes.SWING_ELIGIBLE
+        assert regimes.CRASH_RECOVERY in regimes.SWING_ELIGIBLE
+        assert regimes.NORMAL not in regimes.SWING_ELIGIBLE
