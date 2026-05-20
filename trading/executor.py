@@ -22,10 +22,21 @@ from trading.position_sizer import (
     apply_sentiment_multiplier,
 )
 from trading import risk_manager
+from utils import regimes
 from utils.sl_blacklist import is_sl_blacklisted
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
+
+
+def _get_sector_sentiment(research_meta: dict, symbol: str) -> float:
+    """Return sector-level NLP sentiment score for symbol's sector from research __meta__."""
+    try:
+        import sectors as _sectors
+        sector = _sectors.get_sector(symbol)
+        return float(research_meta.get("sector_sentiment", {}).get(sector, 0))
+    except Exception:
+        return 0.0
 
 
 
@@ -108,6 +119,10 @@ def execute_buy(
         symbol_sector_etf=symbol_sector_etf,
         advance_decline_ratio=advance_decline_ratio,
         sl_blacklisted=sl_blacklisted,
+        sector_sentiment_score=_get_sector_sentiment(research.get("__meta__", {}), symbol),
+        sentiment_score=float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,
+        swing_eligible=(regime in regimes.SWING_ELIGIBLE),
+        major_event_today=False,  # TODO: wire from CycleSnapshot when snap is passed to executor
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)
@@ -171,6 +186,8 @@ def execute_buy(
         "fill_price": corrected["fill_price"] if corrected else iv.current_price,
         "entry_time": now.isoformat(), "entry_composite_score": iv.composite_score,
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
+        "entry_sector_sentiment": _get_sector_sentiment(research.get("__meta__", {}), symbol),
+        "entry_news_sentiment": float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
         "order_id": order.get("id"), "mode_at_entry": mode, "regime_at_entry": regime,
         "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.atr > 0 and iv.current_price > 0 else None,

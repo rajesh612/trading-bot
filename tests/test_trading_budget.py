@@ -848,3 +848,64 @@ def test_auto_execute_uses_atr_tp(monkeypatch, tmp_path):
 
     # atr=3.0, price=100.0, mult=2.0 → atr_pct=3.0% → raw=6.0% → clamped to 6.0
     assert abs(captured_decision.get("take_profit_pct", -1) - 6.0) < 0.01
+
+
+@pytest.mark.unit
+def test_execute_buy_stores_entry_sector_sentiment(monkeypatch, tmp_path):
+    """execute_buy persists entry_sector_sentiment and entry_news_sentiment in position record."""
+    import config
+    from unittest.mock import MagicMock, patch
+    from signals.entry_gates import GateResult
+    from trading.executor import execute_buy
+    from utils.io_utils import load_json
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 20)
+    monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
+    monkeypatch.setattr("notifications.telegram.notify_daily_loss_warning", lambda *a: None)
+    monkeypatch.setattr("trading.risk_manager.correct_bracket_after_fill", lambda *a, **kw: None)
+    monkeypatch.setattr("trading.executor.append_trade", lambda d: None)
+
+    alpaca_mock = MagicMock()
+    alpaca_mock.place_bracket_order.return_value = {
+        "id": "ord-nvda-1", "stop_loss_price": 450.0, "take_profit_price": 500.0,
+    }
+
+    iv = _make_iv_budget(symbol="NVDA", composite_score=30.0, current_price=470.0)
+    research = {
+        "NVDA": {"sentiment_score": 42},
+        "__meta__": {"sector_sentiment": {"XLK": 15.0}},
+    }
+
+    passing_gate = GateResult(passed=True, reason="", flags=())
+
+    with patch("trading.executor.check_all_gates", return_value=passing_gate), \
+         patch("trading.executor.get_intraday_bars", return_value=None), \
+         patch("trading.executor.load_json", return_value={}), \
+         patch("trading.executor._POSITIONS_LOCK"), \
+         patch("trading.executor.save_json") as mock_save:
+
+        result = execute_buy(
+            symbol="NVDA", iv=iv,
+            decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0, "take_profit_pct": 5.0},
+            regime="NORMAL", regime_info={}, research=research,
+            open_positions={}, alpaca=alpaca_mock,
+            portfolio_value=100_000, pos_mult=1.0,
+            spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
+            params={}, now=datetime.now(ET).replace(hour=11),
+            entries_this_cycle=0, daily_pnl_pct=0.0,
+            sector_today={}, symbol_sector_etf=None,
+        )
+
+    assert result is not None, "execute_buy should succeed"
+    assert "entry_sector_sentiment" in result
+    assert "entry_news_sentiment" in result
+    assert result["entry_news_sentiment"] == pytest.approx(42.0)
+
+    # Verify save_json was called with a position containing the new fields
+    assert mock_save.called
+    saved_positions = mock_save.call_args[0][1]
+    assert "entry_sector_sentiment" in saved_positions.get("NVDA", {})
+    assert "entry_news_sentiment" in saved_positions.get("NVDA", {})
+    assert saved_positions["NVDA"]["entry_news_sentiment"] == pytest.approx(42.0)
