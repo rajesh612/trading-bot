@@ -14,6 +14,10 @@ OPPORTUNITY    = "OPPORTUNITY"
 CAPITULATION   = "CAPITULATION"
 # HIGH_VOL: returned by backtest/data.py simplified classifier but never by live classify_regime()
 HIGH_VOL       = "HIGH_VOL"
+# BULL_TREND_PARABOLIC: legacy constant — never emitted by live classify_regime(),
+# present only in _VALID_REGIMES validation and _SL_TP_TABLE for historical coverage.
+# Not included in VALID.
+BULL_TREND_PARABOLIC = "BULL_TREND_PARABOLIC"
 
 VALID = frozenset({
     CRISIS, CRASH_RECOVERY, BULL_TREND, CHOPPY,
