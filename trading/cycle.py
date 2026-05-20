@@ -20,6 +20,7 @@ from trading.cycle_context import build_cycle_snapshot
 from trading.pipeline import TradingPipeline
 from trading.watch_loader import load_watch_list
 from utils.constants import ET
+from utils import regimes
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def run_trading_cycle() -> None:
         )
         can_open = False
 
-    if regime in ("HIGH_VOL", "DEFENSIVE", "CHOPPY"):
+    if regime in regimes.SIZE_REDUCE:
         logger.info(
             "Regime=%s: position size ×%.1f, RSI max=%s",
             regime, params["high_vol_position_mult"],

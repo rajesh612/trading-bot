@@ -123,25 +123,9 @@ def close_position(
     )
 
 
-def force_close_all(scheduler=None) -> None:
-    """
-    End-of-day: cancel orders, close all non-swing day-trade positions.
-    Pauses position_monitor job while running to prevent concurrent close races.
-    """
-    if scheduler:
-        try:
-            scheduler.pause_job("position_monitor")
-        except Exception as exc:
-            logger.warning("force_close_all: could not pause position_monitor: %s", exc)
-
-    try:
-        _force_close_body()
-    finally:
-        if scheduler:
-            try:
-                scheduler.resume_job("position_monitor")
-            except Exception as exc:
-                logger.warning("force_close_all: could not resume position_monitor: %s", exc)
+def force_close_all() -> None:
+    """End-of-day: cancel orders, close all non-swing day-trade positions."""
+    _force_close_body()
 
 
 def _force_close_body() -> None:

@@ -513,3 +513,13 @@ def test_monitor_fires_drawdown_alert(monkeypatch, tmp_path):
                 "entry_composite_score": 30.0}
     _check_drawdown_alerts({"AAPL": position}, current_prices={"AAPL": 97.5})
     assert "AAPL" in alerts
+
+
+@pytest.mark.unit
+class TestForceCloseAllSignature:
+    def test_force_close_all_takes_no_args(self):
+        """Signature check — scheduler param was dead code and has been removed."""
+        import inspect
+        from trading.closer import force_close_all
+        sig = inspect.signature(force_close_all)
+        assert len(sig.parameters) == 0, f"Expected 0 params, got: {list(sig.parameters)}"

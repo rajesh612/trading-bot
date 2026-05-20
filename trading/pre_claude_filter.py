@@ -15,6 +15,7 @@ import config
 from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
 from signals.entry_gates import effective_composite_gate
+from utils import regimes
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ def pre_claude_filter(
     # Layer 2 — RSI maximum (quality filter: don't call Claude if RSI is clearly too high)
     rsi_max = (
         snap.params.get("rsi_buy_max_high_vol", config.RSI_BUY_MAX_HIGH_VOL)
-        if snap.regime in ("HIGH_VOL", "CRISIS", "DEFENSIVE")
+        if snap.regime in regimes.HIGH_VOL_GATES | {regimes.CRISIS}
         else snap.params.get("rsi_buy_max", config.RSI_BUY_MAX)
     )
     if iv.rsi > rsi_max:

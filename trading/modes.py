@@ -5,9 +5,10 @@ Pure — no I/O, no Alpaca calls.
 from __future__ import annotations
 
 import config
+from utils import regimes as _r
 
-_HYBRID_REGIMES     = frozenset({"BULL_TREND", "OPPORTUNITY"})
-_SHORT_TERM_REGIMES = frozenset({"CAPITULATION", "CRASH_RECOVERY"})
+_HYBRID_REGIMES     = frozenset({_r.BULL_TREND, _r.OPPORTUNITY})
+_SHORT_TERM_REGIMES = frozenset({_r.CAPITULATION, _r.CRASH_RECOVERY})
 
 _SL_TP_TABLE: dict[tuple[str, str], tuple[float, float]] = {
     ("DAY_TRADE",  "NORMAL"):               (3.0,  5.0),

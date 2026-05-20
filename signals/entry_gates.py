@@ -21,6 +21,7 @@ from signals.correlation_guard import passes_correlation_guard
 from signals.mtf_confirm import passes_mtf_filter
 from signals.vwap_guard import passes_vwap_guard
 from calendars.earnings import is_earnings_imminent
+from utils import regimes
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ def effective_composite_gate(iv: IndicatorValues, regime: str, params: dict | No
     When params is provided, NORMAL regime reads composite_min_normal from params
     (written by learning agent on zero-trade days).
     """
-    if regime in ("HIGH_VOL", "DEFENSIVE"):
+    if regime in regimes.HIGH_VOL_GATES:
         return config.COMPOSITE_MIN_HIGH_VOL   # 35
     if iv.squeeze_setup:
         return config.SQUEEZE_COMPOSITE_MIN    # strong squeeze signal lowers bar

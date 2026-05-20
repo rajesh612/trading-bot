@@ -8,12 +8,11 @@ from calendars.earnings import is_earnings_imminent
 from macro.economic_calendar import is_event_risk_window
 from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
+from utils import regimes
 
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
-
-_SWING_ELIGIBLE_REGIMES = {"BULL_TREND", "OPPORTUNITY", "CAPITULATION", "CRASH_RECOVERY"}
 
 
 def _promote_to_swing(symbol: str, position: dict, pnl_pct: float) -> bool:
@@ -49,7 +48,7 @@ def qualifies_for_eod_hold(
     """
     if not is_tier1:
         return False, f"{symbol} not in tier-1 list"
-    if regime not in _SWING_ELIGIBLE_REGIMES:
+    if regime not in regimes.SWING_ELIGIBLE:
         return False, f"regime {regime} not eligible for swing"
     if event_risk_tomorrow:
         return False, "high-impact event tomorrow morning"

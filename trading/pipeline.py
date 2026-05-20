@@ -21,6 +21,7 @@ import anthropic
 import config
 import sectors
 from broker.alpaca_client import AlpacaClient
+from utils import regimes
 from indicators.values import IndicatorValues
 from indicators.engine import compute_indicators
 import notifications.telegram as telegram_notify
@@ -152,12 +153,12 @@ class TradingPipeline:
         spy_ret5d = snap.regime_info.get("spy_5day_return", 0.0)
         rsi_max   = (
             snap.params.get("rsi_buy_max_high_vol", config.RSI_BUY_MAX_HIGH_VOL)
-            if regime in ("HIGH_VOL", "CRISIS", "DEFENSIVE")
+            if regime in regimes.HIGH_VOL_GATES | {regimes.CRISIS}
             else snap.params.get("rsi_buy_max", config.RSI_BUY_MAX)
         )
         pos_mult  = (
             snap.params.get("high_vol_position_mult", config.HIGH_VOL_POSITION_MULT)
-            if regime in ("HIGH_VOL", "DEFENSIVE", "CHOPPY")
+            if regime in regimes.SIZE_REDUCE
             else 1.0
         )
         open_positions = load_open_positions()
