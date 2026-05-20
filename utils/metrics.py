@@ -1,7 +1,6 @@
 """
 Lightweight per-cycle metrics JSONL export.
 Records one line per cycle to METRICS_FILE for post-hoc trend analysis.
-Pure appends — single scheduler thread writes; reads are rare.
 """
 from __future__ import annotations
 
@@ -15,6 +14,8 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
+_last_trim_date: str = ""
+
 
 def record_cycle_metric(
     regime: str,
@@ -24,11 +25,13 @@ def record_cycle_metric(
     api_budget_pct: float,
     cycle_ms: float,
 ) -> None:
-    """Append one metric record to METRICS_FILE. Never raises."""
+    """Append one metric record to METRICS_FILE. Trims to METRICS_KEEP_LINES once per day."""
+    global _last_trim_date
     try:
+        now = datetime.now(ET)
         record = json.dumps({
-            "ts": datetime.now(ET).isoformat(),
-            "date": datetime.now(ET).strftime("%Y-%m-%d"),
+            "ts": now.isoformat(),
+            "date": now.strftime("%Y-%m-%d"),
             "regime": regime,
             "candidates": candidates,
             "entries": entries,
@@ -38,8 +41,25 @@ def record_cycle_metric(
         })
         with open(config.METRICS_FILE, "a") as f:
             f.write(record + "\n")
+        today = now.strftime("%Y-%m-%d")
+        if today != _last_trim_date:
+            _trim_metrics()
+            _last_trim_date = today
     except Exception as exc:
         logger.debug("metrics write failed: %s", exc)
+
+
+def _trim_metrics() -> None:
+    """Keep only the last METRICS_KEEP_LINES lines of METRICS_FILE."""
+    path = Path(str(config.METRICS_FILE))
+    if not path.exists():
+        return
+    try:
+        lines = path.read_text().splitlines()
+        if len(lines) > config.METRICS_KEEP_LINES:
+            path.write_text("\n".join(lines[-config.METRICS_KEEP_LINES:]) + "\n")
+    except Exception as exc:
+        logger.debug("metrics trim failed: %s", exc)
 
 
 def get_daily_summary(date_str: str | None = None) -> dict:
