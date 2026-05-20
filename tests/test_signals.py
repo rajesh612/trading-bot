@@ -433,3 +433,73 @@ class TestSLTPRatio:
         monkeypatch.setattr(config, "ATR_TP_CEILING_PCT", 12.0)
         result = compute_atr_tp_pct(atr=0.01, price=100.0, multiplier=2.5)
         assert result == 3.0
+
+
+class TestLateEntryCompositeGate:
+    """Late-day composite gate — require higher composite after ENTRY_LATE_HOUR."""
+
+    def _iv_late(self, composite: float = 60.0):
+        return types.SimpleNamespace(
+            current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
+            stop_hunt_zone=False, parabolic=False, momentum_exhaustion=False,
+            bot_herding_score=0, squeeze_setup=False, rsi=50.0, stoch_d=50.0,
+            prev_close=100.0, relative_volume=1.0, or_position="outside",
+            composite_score=composite,
+        )
+
+    def _late_now(self):
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 14, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    def _early_now(self):
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    def _patch(self, monkeypatch):
+        import calendars.earnings as ec
+        import macro.economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    @pytest.mark.unit
+    def test_late_entry_low_composite_blocked(self, monkeypatch):
+        """After ENTRY_LATE_HOUR, composite below ENTRY_LATE_COMPOSITE_MIN → blocked."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
+        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv_late(composite=35.0),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._late_now(), entries_this_cycle=0,
+        )
+        assert result.passed is False
+        assert "late" in result.reason.lower() or "composite" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_late_entry_high_composite_passes(self, monkeypatch):
+        """After ENTRY_LATE_HOUR, composite at or above threshold → passes gate."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
+        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv_late(composite=60.0),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._late_now(), entries_this_cycle=0,
+        )
+        assert result.passed is True
+
+    @pytest.mark.unit
+    def test_early_entry_low_composite_not_blocked_by_late_gate(self, monkeypatch):
+        """Before ENTRY_LATE_HOUR, late-gate does not apply."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
+        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv_late(composite=35.0),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._early_now(), entries_this_cycle=0,
+        )
+        assert "late" not in result.reason.lower()
