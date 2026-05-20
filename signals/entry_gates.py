@@ -83,6 +83,10 @@ def check_all_gates(
     if mode == "CASH":
         return GateResult(False, "CRISIS regime — all entries blocked")
 
+    # 0b. Price cap — hard block expensive stocks (>$400 avg -$55/trade at 28% win rate)
+    if config.MAX_ENTRY_PRICE and iv.current_price > config.MAX_ENTRY_PRICE:
+        return GateResult(False, f"price ${iv.current_price:.0f} > MAX_ENTRY_PRICE ${config.MAX_ENTRY_PRICE:.0f}")
+
     # 1. Time gate — block first 30 min and last 35 min
     if not is_entry_allowed(now):
         return GateResult(False, "outside entry time window")

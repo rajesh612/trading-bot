@@ -679,3 +679,43 @@ def test_sector_etf_soft_gate_flags_weak_sector(monkeypatch):
     )
     assert result.passed
     assert any("sector_weak" in f for f in result.flags)
+
+
+@pytest.mark.unit
+def test_price_cap_blocks_expensive_stock(monkeypatch):
+    """Stock price above MAX_ENTRY_PRICE is hard-blocked."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 400)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=450.0, vwap_std2_upper=500.0, prev_close=450.0)
+    result = check_all_gates(
+        "LITE", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+    )
+    assert result.passed is False
+    assert "MAX_ENTRY_PRICE" in result.reason
+
+
+@pytest.mark.unit
+def test_price_cap_allows_stock_at_limit(monkeypatch):
+    """Stock price exactly at MAX_ENTRY_PRICE passes the gate."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 400)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=400.0, vwap_std2_upper=450.0, prev_close=400.0)
+    result = check_all_gates(
+        "MRVL", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+    )
+    assert "MAX_ENTRY_PRICE" not in result.reason
+
+
+@pytest.mark.unit
+def test_price_cap_zero_disables_gate(monkeypatch):
+    """MAX_ENTRY_PRICE = 0 disables the price cap entirely."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=2000.0, vwap_std2_upper=2500.0, prev_close=2000.0)
+    result = check_all_gates(
+        "BRK", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+    )
+    assert "MAX_ENTRY_PRICE" not in result.reason
