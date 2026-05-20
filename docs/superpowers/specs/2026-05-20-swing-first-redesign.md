@@ -184,6 +184,7 @@ Logic per regime as specified in the matrix above. Removes: `is_tier1`, `event_r
 | `MAX_ENTRY_PRICE` | *(new)* | **400** |
 | `SECTOR_ENTRY_MIN_SCORE` | *(new)* | **0** |
 | `SWING_NEWS_MIN_SCORE` | *(new)* | **50** |
+| `MIN_MARKET_CAP_B` | *(new)* | **25** |
 
 **File:** `signals/entry_gates.py` → `effective_composite_gate()`: add BULL_TREND branch returning `config.COMPOSITE_MIN_BULL_TREND`.
 
@@ -192,22 +193,19 @@ Logic per regime as specified in the matrix above. Removes: `is_tier1`, `event_r
 **File:** `trading/cycle_context.py` → `CycleSnapshot`: add field `major_event_today: bool`.  
 **File:** `trading/cycle.py` → `run_trading_cycle()`: populate from economic calendar before building snapshot.
 
-### 6. Ticker prune
+### 6. Dynamic screener — market cap filter (replaces static ticker prune)
 
-**File:** `data/tickers.json` — remove 8 persistent losers:
+Static ticker pruning is the wrong tool: a stock that lost in one regime (MU in DEFENSIVE, ZS during rotation) is a valid swing candidate in another (MU post-earnings recovery, ZS in BULL_TREND). Permanently banning tickers punishes companies for a bad month. The `MAX_ENTRY_PRICE = $400` cap already eliminates the structural price-level losers (LITE, COHR).
 
-| Symbol | 30d Net | Win rate | Primary reason |
-|---|---|---|---|
-| LITE | -$709 | 30% | $800–1000 price, repeated SL hits |
-| MU | -$336 | 0% | Volatile, not in signal window |
-| COHR | -$317 | 27% | $400+ price, consistent losses |
-| QCOM | -$311 | 0% | SL hit every trade in window |
-| SHOP | -$269 | 0% | 3/3 losses |
-| TTD | -$217 | 33% | Low win rate, low composite |
-| INTC | -$210 | 30% | Secular downtrend |
-| ZS | -$209 | 33% | 3/3 losses |
+Instead, add a **market cap pre-filter** to `agents/volatility_screener.py` so low-quality names never reach the watch list in the first place.
 
-BKNG (-$221) and NOW (-$185) stay — small sample sizes, both are HYBRID-regime performers.
+**New constant:** `MIN_MARKET_CAP_B = 25` ($ billions)
+
+**Why $25B:** Large-cap threshold. Includes all established institutional-grade names (NVDA, AAPL, MSFT, PLTR, MRVL, NET, APP, MU, QCOM, SHOP, ARM, RBLX all qualify at current market caps). Excludes micro/small-caps that are too thin and manipulable for the bot's SL/TP structure. Large-caps also have stronger fundamentals coverage, analyst consensus, and liquidity — all of which the Claude watch-list agent already reasons about.
+
+**Implementation:** In `agents/volatility_screener.py`, after fetching ticker metadata, filter out any symbol whose market cap is below `config.MIN_MARKET_CAP_B * 1e9`. Market cap is available from Yahoo Finance via `yfinance` (`ticker.info["marketCap"]`). Fetch in batch with a single call per ticker (already done for other screener fields). Symbols that fail the cap check are dropped before the top-50 ranking step.
+
+**Follow-on (Phase 2, out of scope now):** Add sector relative-strength filter — only include tickers whose sector ETF is outperforming SPY over 5 days. This wires the existing `sector_scores` from `macro_regime.json` into the screener.
 
 ---
 
@@ -232,18 +230,19 @@ Swing overnight SL: `SWING_OVERNIGHT_SL_PCT = 3.0%` (existing, no change). TP ti
 
 | File | Change |
 |---|---|
-| `config.py` | 7 constant changes + 3 new constants |
+| `config.py` | 7 constant changes + 4 new constants |
 | `signals/entry_gates.py` | 4 new gates (sector, news-quality, event-day, price-cap); BULL_TREND branch in `effective_composite_gate()` |
 | `trading/cycle_context.py` | Add `major_event_today: bool` to `CycleSnapshot` |
 | `trading/cycle.py` | Populate `major_event_today` from economic calendar |
 | `trading/executor.py` | Store `entry_sector_sentiment` + `entry_news_sentiment` in position record |
 | `trading/eod_holds.py` | `qualifies_for_eod_hold()`: new signature + regime-aware veto matrix |
 | `trading/eod_holds.py` | `evaluate_eod_holds()`: pass new args; remove old args |
-| `data/tickers.json` | Remove 8 tickers |
+| `agents/volatility_screener.py` | Add market-cap pre-filter (drop symbols < $25B) |
 | `tests/test_entry_gates.py` | Tests for all 4 new gates |
 | `tests/test_signals.py` | Update composite-threshold tests for new floors |
 | `tests/test_foundation.py` | New tests for regime-aware veto matrix (8 regimes × key veto paths) |
 | `tests/test_pipeline.py` | Test `major_event_today` propagation in `CycleSnapshot` |
+| `tests/test_core.py` | Test market-cap filter in screener |
 
 ---
 
@@ -270,6 +269,10 @@ Swing overnight SL: `SWING_OVERNIGHT_SL_PCT = 3.0%` (existing, no change). TP ti
 - Non-tier1 symbol → no veto (tier1 gate removed)
 - Event risk tomorrow (not earnings) → no veto (removed)
 
+**Screener market-cap filter:**
+- Symbol with marketCap $30B → included; $20B → excluded; `MIN_MARKET_CAP_B = 0` → filter disabled
+- Missing marketCap data → symbol excluded (fail-safe, not fail-open)
+
 **Backtest regression:** 30d re-run after implementation; swing % expected to rise from 10% → 25%+ of trades.
 
 ---
@@ -281,4 +284,4 @@ Swing overnight SL: `SWING_OVERNIGHT_SL_PCT = 3.0%` (existing, no change). TP ti
 | Higher composite floor → zero-trade days | Expected; quality over quantity | Lower `COMPOSITE_MIN_NORMAL` to 40 in config |
 | Swing-first increases overnight exposure | PTJ rule (-2%), `SWING_OVERNIGHT_SL_PCT = 3%`, CRISIS hard-veto | Set `SWING_MAX_POSITIONS = 0` in config |
 | Sector/news gates reduce entries too much | Both are soft flags — Claude still decides | Set `SECTOR_ENTRY_MIN_SCORE = -999`, `SWING_NEWS_MIN_SCORE = 0` |
-| Ticker prune misses good future entries | Small list; tickers can be added back | Edit `tickers.json` |
+| Market cap filter too aggressive → few candidates | $25B covers ~500 US stocks; watch list has enough | Lower `MIN_MARKET_CAP_B` to 10 in config |
