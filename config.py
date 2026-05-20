@@ -315,9 +315,15 @@ ATR_TP_CEILING_PCT  = 12.0  # TP never above 12%
 CLAUDE_CB_402_TTL              = 1800.0 # circuit breaker cooldown (s) on 402 Payment Required
 CLAUDE_CB_429_TTL              = 300.0  # circuit breaker cooldown (s) on 429 Rate Limited
 WATCHDOG_HEARTBEAT_TIMEOUT_S   = 35 * 60  # scheduler frozen alert if no heartbeat for this many seconds
-TELEMETRY_KEEP_LINES           = 500  # max lines kept in metrics.jsonl before trimming
+TELEMETRY_KEEP_LINES           = 500  # max lines kept in cycle_telemetry.jsonl before trimming
 BRACKET_FILL_TOLERANCE_PCT     = 0.5  # % tolerance when matching price to SL/TP leg in bracket reconciliation
 SWING_GAP_TIGHTEN_THRESHOLD = -2.0  # gap% below this (but above -SL) → tighten swing stop
 SWING_GAP_TP1_THRESHOLD     = 3.0   # gap% at or above this → take first swing TP tranche
 ENTRY_BUDGET_WARNING_PCT    = 0.75  # alert when entry budget spend reaches this fraction of ceiling
 ATR_FALLBACK_PROXY_PCT      = 0.02  # price × this = fallback ATR when ATR is unavailable (2% of price)
+
+# ── Bug-fix constants ─────────────────────────────────────────────────────────
+SQUEEZE_COMPOSITE_MIN      = 12    # composite threshold when squeeze_setup is True
+DEFENSIVE_COMPOSITE_MULT   = 1.5   # multiplier applied to COMPOSITE_MIN_HIGH_VOL in DEFENSIVE pre-filter
+METRICS_KEEP_LINES         = 2000  # max lines kept in metrics.jsonl (≈ 55 trading days at ~36 cycles/day)
+DRAWDOWN_ALERT_COOLDOWN_MIN = 30   # minimum minutes between drawdown Telegram alerts for the same position
