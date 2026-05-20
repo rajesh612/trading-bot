@@ -410,3 +410,26 @@ class TestVixClassifier:
         vix = self._make_vix([30] * 90 + [18, 17])
         spy = self._make_spy([500, 501])
         assert _classify_vix_day(vix, spy) == "NORMAL"
+
+
+# ── Task 2: SL/TP ratio ───────────────────────────────────────────────────────
+
+class TestSLTPRatio:
+    @pytest.mark.unit
+    def test_stop_loss_pct_is_3(self):
+        """STOP_LOSS_PCT must be 3.0 to match ATR_TP_FLOOR."""
+        assert config.STOP_LOSS_PCT == 3.0
+
+    @pytest.mark.unit
+    def test_atr_tp_floor_is_3(self):
+        """ATR_TP_FLOOR_PCT must be >= STOP_LOSS_PCT to ensure positive R:R."""
+        assert config.ATR_TP_FLOOR_PCT >= config.STOP_LOSS_PCT
+
+    @pytest.mark.unit
+    def test_compute_atr_tp_pct_respects_new_floor(self, monkeypatch):
+        """compute_atr_tp_pct never returns less than 3.0% with updated floor."""
+        from signals.atr_tp import compute_atr_tp_pct
+        monkeypatch.setattr(config, "ATR_TP_FLOOR_PCT", 3.0)
+        monkeypatch.setattr(config, "ATR_TP_CEILING_PCT", 12.0)
+        result = compute_atr_tp_pct(atr=0.01, price=100.0, multiplier=2.5)
+        assert result == 3.0

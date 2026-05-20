@@ -41,16 +41,18 @@ def test_compute_atr_tp_pct_zero_price():
 def test_compute_atr_tp_pct_higher_multiplier_ordering():
     """Higher multiplier produces strictly wider TP than lower multiplier."""
     from signals.atr_tp import compute_atr_tp_pct
-    result_2x = compute_atr_tp_pct(atr=1.0, price=100.0, multiplier=2.0)
-    result_3x = compute_atr_tp_pct(atr=1.0, price=100.0, multiplier=3.0)
+    # Use ATR=2.0 (atr_pct=2%) so 2x=4% and 3x=6% are both above floor=3%
+    result_2x = compute_atr_tp_pct(atr=2.0, price=100.0, multiplier=2.0)
+    result_3x = compute_atr_tp_pct(atr=2.0, price=100.0, multiplier=3.0)
     assert result_3x > result_2x
 
 
 @pytest.mark.unit
 def test_compute_atr_tp_pct_multiplier_scaling_2x():
-    """TP% scales linearly with multiplier: 2x multiplier (atr=1%, price=100 → tp=2%)."""
+    """TP% scales linearly with multiplier: 2x multiplier (atr=2%, price=100 → tp=4%)."""
     from signals.atr_tp import compute_atr_tp_pct
-    assert abs(compute_atr_tp_pct(atr=1.0, price=100.0, multiplier=2.0) - 2.0) < 0.001
+    # Use atr=2.0 so atr_pct=2%, then 2.0 × 2.0 = 4.0% (above floor)
+    assert abs(compute_atr_tp_pct(atr=2.0, price=100.0, multiplier=2.0) - 4.0) < 0.001
 
 
 @pytest.mark.unit

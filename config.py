@@ -62,7 +62,7 @@ MARKET_DATA_PROVIDER = os.getenv("MARKET_DATA_PROVIDER", "yahoo")
 
 MAX_POSITION_PCT   = 0.05        # Max 5% of portfolio per position
 RISK_PER_TRADE_PCT = 0.005       # Risk 0.5% of portfolio per trade (ATR-sized)
-STOP_LOSS_PCT      = 4.0         # Default 4% stop loss
+STOP_LOSS_PCT      = 3.0         # Lowered from 4.0 — was 2× realized TP avg (~1.95%), creating inverted R:R
 TAKE_PROFIT_PCT    = 5.0         # Default 5% take profit
 MAX_DAILY_LOSS_PCT = 0.03        # Halt new entries if down 3% on the day
 DAILY_LOSS_WARN_PCT = 0.02       # Telegram warning at -2% daily loss (halt is at MAX_DAILY_LOSS_PCT = 3%)
@@ -242,7 +242,7 @@ CORRUPT_BACKUP_MAX_DAYS      = 3   # .corrupt.json backups useless after 3 days
 ATR_TP_MULT_DEFAULT = 2.5  # TP = ATR% × this multiplier; raised from 2.0 (avg win was ~1.7% vs 4% SL)
 ATR_TP_MULT_MIN     = 1.0  # learning agent lower bound
 ATR_TP_MULT_MAX     = 4.0  # learning agent upper bound
-ATR_TP_FLOOR_PCT    = 2.0  # TP never below 2.0% (raised from 1.5% to ensure positive R:R vs 4% SL)
+ATR_TP_FLOOR_PCT    = 3.0  # TP never below 3.0% — matches new SL=3.0% for minimum 1:1 R:R
 ATR_TP_CEILING_PCT  = 12.0 # TP never above 12%
 
 METRICS_KEEP_LINES = 2000  # max lines kept in metrics.jsonl (≈ 55 trading days at ~36 cycles/day)
