@@ -590,7 +590,15 @@ class TestRegimesModule:
         assert regimes.OPPORTUNITY in regimes.SWING_ELIGIBLE
         assert regimes.CAPITULATION in regimes.SWING_ELIGIBLE
         assert regimes.CRASH_RECOVERY in regimes.SWING_ELIGIBLE
-        assert regimes.NORMAL not in regimes.SWING_ELIGIBLE
+        assert regimes.NORMAL in regimes.SWING_ELIGIBLE
+        assert regimes.CRISIS not in regimes.SWING_ELIGIBLE
+        assert regimes.CHOPPY not in regimes.SWING_ELIGIBLE
+        assert regimes.DEFENSIVE not in regimes.SWING_ELIGIBLE
+
+    @pytest.mark.unit
+    def test_normal_in_swing_eligible(self):
+        from utils import regimes
+        assert regimes.NORMAL in regimes.SWING_ELIGIBLE
 
 
 # ── sectors ───────────────────────────────────────────────────────────────────

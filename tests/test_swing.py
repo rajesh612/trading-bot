@@ -191,7 +191,7 @@ class TestSwingManager:
     def test_qualifies_for_eod_hold_wrong_regime(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="NORMAL",
+            symbol="NVDA", is_tier1=True, regime="CHOPPY",
             event_risk_tomorrow=False, earnings_in_2_days=False,
             current_pnl_pct=2.0, existing_swing_count=0,
             sector_sentiment_score=25.0,
@@ -255,6 +255,17 @@ class TestSwingManager:
         )
         assert ok is False
         assert "sector sentiment" in reason
+
+    @pytest.mark.unit
+    def test_qualifies_for_eod_hold_normal_regime_allowed(self):
+        from trading.eod_holds import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="NORMAL",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=1.5, existing_swing_count=0,
+            sector_sentiment_score=20.0,
+        )
+        assert ok is True, f"NORMAL regime should be swing-eligible, got: {reason}"
 
 
 # ── swing_manager: _evaluate_gap_action ──────────────────────────────────────
