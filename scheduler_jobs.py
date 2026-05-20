@@ -206,7 +206,7 @@ def job_midday_check():
         from trading.journal import load_journal
         today = now.date().isoformat()
         journal = load_journal()
-        buys_today = [e for e in journal if e.get("action") == "BUY" and e.get("timestamp", "").startswith(today)]
+        buys_today = [e for e in journal if e.get("type") == "BUY" and e.get("timestamp", "").startswith(today)]
         if buys_today:
             return  # trades already executed — no alert needed
 

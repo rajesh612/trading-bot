@@ -107,7 +107,7 @@ def count_todays_losses() -> int:
     journal = load_journal()
     return sum(
         1 for e in journal
-        if e.get("action") == "CLOSE"
+        if e.get("type") == "CLOSE"
         and str(e.get("timestamp", "")).startswith(today_str)
         and float(e.get("pnl_pct", 0)) < 0
     )

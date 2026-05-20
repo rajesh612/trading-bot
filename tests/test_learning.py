@@ -280,7 +280,7 @@ class TestProgressiveLoss:
         from datetime import datetime
         from utils.constants import ET
         ts = datetime.now(ET).date().isoformat() if today else "2020-01-01"
-        return {"action": action, "pnl_pct": pnl_pct, "timestamp": f"{ts}T10:00:00"}
+        return {"type": action, "pnl_pct": pnl_pct, "timestamp": f"{ts}T10:00:00"}
 
     def test_zero_losses_returns_full_multiplier(self):
         """With zero losses, multiplier should be 1.0."""
@@ -354,7 +354,7 @@ class TestRegimeWinRate:
     def _trade(self, regime: str, pnl_pct: float, action: str = "CLOSE") -> dict:
         """Helper to construct a trade dict with minimal fields."""
         return {
-            "action": action,
+            "type": action,
             "regime_at_entry": regime,
             "pnl_pct": pnl_pct,
         }
@@ -507,8 +507,8 @@ class TestLearningAgentOrchestration:
     def test_winrate_ignores_trades_without_regime(self):
         from learning.trade_analysis import _compute_regime_winrate
         trades = [
-            {"action": "CLOSE", "pnl_pct": 2.0},           # no regime_at_entry
-            {"action": "CLOSE", "regime_at_entry": "NORMAL", "pnl_pct": 3.0},  # counted
+            {"type": "CLOSE", "pnl_pct": 2.0},           # no regime_at_entry
+            {"type": "CLOSE", "regime_at_entry": "NORMAL", "pnl_pct": 3.0},  # counted
         ]
         result = _compute_regime_winrate(trades)
         assert "NORMAL" in result
@@ -518,10 +518,10 @@ class TestLearningAgentOrchestration:
     def test_winrate_multiple_regimes_independent(self):
         from learning.trade_analysis import _compute_regime_winrate
         trades = [
-            {"action": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": 2.0},
-            {"action": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": -1.0},
-            {"action": "CLOSE", "regime_at_entry": "CHOPPY",     "pnl_pct": 1.0},
-            {"action": "CLOSE", "regime_at_entry": "CHOPPY",     "pnl_pct": 1.0},
+            {"type": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": 2.0},
+            {"type": "CLOSE", "regime_at_entry": "BULL_TREND", "pnl_pct": -1.0},
+            {"type": "CLOSE", "regime_at_entry": "CHOPPY",     "pnl_pct": 1.0},
+            {"type": "CLOSE", "regime_at_entry": "CHOPPY",     "pnl_pct": 1.0},
         ]
         result = _compute_regime_winrate(trades)
         assert result["BULL_TREND"] == pytest.approx(0.5)

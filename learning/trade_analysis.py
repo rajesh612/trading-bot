@@ -56,7 +56,7 @@ def _compute_regime_winrate(closed_trades: list) -> dict[str, float]:
     regime_wins: dict[str, int] = {}
 
     for trade in closed_trades:
-        if trade.get("action") != "CLOSE":
+        if trade.get("type") != "CLOSE":
             continue
         regime = trade.get("regime_at_entry")
         if not regime:
