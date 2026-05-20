@@ -103,7 +103,7 @@ def compute_indicators(
             avg_daily_vol = float(daily_df["volume"].iloc[-21:-1].mean())
             todays_vol = float(df["volume"].sum())
             if avg_daily_vol > 0:
-                session_fraction = min(1.0, len(df) * 5 / 390)
+                session_fraction = min(1.0, len(df) * config.BAR_TIMEFRAME_MINUTES / config.TRADING_MINUTES_PER_DAY)
                 projected = todays_vol / session_fraction if session_fraction > 0 else todays_vol
                 relative_volume = round(projected / avg_daily_vol, 2)
     except Exception:

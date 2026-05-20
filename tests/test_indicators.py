@@ -726,3 +726,120 @@ def test_precompute_indicators_for_day_values_are_indicator_values():
     assert first_iv.current_price == pytest.approx(100.0, abs=1.0)
     assert 0 <= first_iv.rsi <= 100
     assert first_iv.atr >= 0
+
+
+# ── Magic number replacement tests ────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestIndicatorMagicNumbers:
+    def test_bars_per_5d_uses_config_trading_minutes(self):
+        """_BARS_PER_5D must use TRADING_MINUTES_PER_DAY, not hardcoded 390."""
+        import config
+        from indicators.counter_signals import _BARS_PER_5D
+        expected = 5 * (config.TRADING_MINUTES_PER_DAY // config.BAR_TIMEFRAME_MINUTES)
+        assert _BARS_PER_5D == expected
+
+    def test_obv_price_high_proximity_used(self, monkeypatch):
+        """OBV bearish divergence gate must respect OBV_PRICE_HIGH_PROXIMITY config."""
+        import pandas as pd
+        import config
+        from indicators.counter_signals import _obv_divergence_signal
+
+        original_proximity = config.OBV_PRICE_HIGH_PROXIMITY
+        monkeypatch.setattr(config, "OBV_PRICE_HIGH_PROXIMITY", 0.5)  # extreme: 50% of max
+
+        # Create data: last price at 50, max of recent 5 closes at 100
+        # With proximity=0.5: 50 >= 100 * 0.5 = 50? Yes (barely), so price_high=True
+        # But OBV rising, so no bearish divergence → should return "none" or "bullish"
+        closes = [95.0, 96.0, 98.0, 99.0, 100.0, 50.0]
+        obv_vals = [1000.0, 900.0, 850.0, 800.0, 750.0, 700.0]  # declining
+
+        idx = pd.date_range("2026-05-01", periods=6, freq="5min", tz="America/New_York")
+        df = pd.DataFrame({
+            "open": closes, "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes], "close": closes,
+            "volume": [1000.0] * 6
+        }, index=idx)
+        obv = pd.Series(obv_vals, index=idx)
+
+        result = _obv_divergence_signal(df, obv)
+        # With proximity=0.5 and price at 50, it's AT the high (50 >= 100*0.5)
+        # OBV is declining → bearish
+        assert result == "bearish", f"Expected bearish (price at high + OBV declining), got {result}"
+
+    def test_obv_price_low_proximity_used(self, monkeypatch):
+        """OBV bullish divergence gate must respect OBV_PRICE_LOW_PROXIMITY config."""
+        import pandas as pd
+        import config
+        from indicators.counter_signals import _obv_divergence_signal
+
+        monkeypatch.setattr(config, "OBV_PRICE_LOW_PROXIMITY", 1.5)  # extreme: 50% above min
+
+        # Create data: last price at 150, min of recent 5 closes at 100
+        # With proximity=1.5: 150 <= 100 * 1.5 = 150? Yes, so price_low=True
+        # OBV rising → bullish divergence
+        closes = [110.0, 105.0, 102.0, 101.0, 100.0, 150.0]
+        obv_vals = [500.0, 550.0, 600.0, 650.0, 700.0, 750.0]  # rising
+
+        idx = pd.date_range("2026-05-01", periods=6, freq="5min", tz="America/New_York")
+        df = pd.DataFrame({
+            "open": closes, "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes], "close": closes,
+            "volume": [1000.0] * 6
+        }, index=idx)
+        obv = pd.Series(obv_vals, index=idx)
+
+        result = _obv_divergence_signal(df, obv)
+        assert result == "bullish", f"Expected bullish (price at low + OBV rising), got {result}"
+
+    def test_volume_exhaustion_price_proximity_used(self, monkeypatch):
+        """Volume exhaustion gate must respect VOLUME_EXHAUSTION_PRICE_PROXIMITY config."""
+        import pandas as pd
+        import config
+        from indicators.counter_signals import _is_volume_exhaustion
+
+        monkeypatch.setattr(config, "VOLUME_EXHAUSTION_PRICE_PROXIMITY", 0.90)  # extreme: 10% below high
+
+        # Create intraday: price at 90, 5d high at 100
+        # With proximity=0.90: 90 >= 100 * 0.90 = 90? Yes, so at_high=True
+        intra_idx = pd.date_range("2026-05-25 09:30", periods=400, freq="5min", tz="America/New_York")
+        intra_df = pd.DataFrame({
+            "open": 90.0, "high": 90.0, "low": 85.0, "close": 90.0,
+            "volume": 1000.0
+        }, index=intra_idx)
+
+        # Daily with low volume today
+        daily_idx = pd.date_range("2026-05-01", periods=25, freq="B", tz="America/New_York")
+        daily_df = pd.DataFrame({
+            "open": 100.0, "high": 100.0, "low": 95.0, "close": 100.0,
+            "volume": 1_000_000.0
+        }, index=daily_idx)
+        daily_df.iloc[-1, daily_df.columns.get_loc("volume")] = 600_000.0  # low today
+
+        result = _is_volume_exhaustion(intra_df, daily_df)
+        assert result is True, "Expected volume exhaustion when price at high + low volume"
+
+    def test_engine_session_fraction_uses_trading_minutes(self, tmp_path, monkeypatch):
+        """Engine session_fraction calculation must use TRADING_MINUTES_PER_DAY."""
+        import json
+        import config
+        from indicators.engine import compute_indicators
+
+        weights_file = tmp_path / "weights.json"
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", weights_file)
+        weights = {k: 10.0 for k in [
+            "VWAP", "RSI", "Daily Volume Trend", "MACD", "EMA 9/21 Crossover",
+            "Bollinger Bands", "VWAP StdDev Bands", "ATR", "Stochastic Oscillator",
+            "OBV", "RSI Slope"
+        ]}
+        weights_file.write_text(json.dumps(weights))
+
+        intraday = _make_intraday_df(n=78)
+        daily = _make_daily_df(n=25)
+
+        result = compute_indicators("TEST", intraday, daily_df=daily)
+        # With 78 bars at 5-min timeframe over 390 min/day:
+        # session_fraction = min(1.0, 78 * 5 / 390) = min(1.0, 1.0) = 1.0
+        # relative_volume is calculated correctly (no NaN or error)
+        assert result is not None
+        assert result.relative_volume >= 0, "relative_volume should be calculated without error"

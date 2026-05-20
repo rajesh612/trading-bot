@@ -4,7 +4,7 @@ import pandas as pd
 import config
 
 # Number of intraday bars in 5 trading days; recalculates if BAR_TIMEFRAME_MINUTES changes
-_BARS_PER_5D = 5 * (390 // config.BAR_TIMEFRAME_MINUTES)
+_BARS_PER_5D = 5 * (config.TRADING_MINUTES_PER_DAY // config.BAR_TIMEFRAME_MINUTES)
 
 
 def _approx_corr(a: list[float], b: list[float]) -> float:
@@ -35,9 +35,9 @@ def _is_volume_exhaustion(df: pd.DataFrame, daily_df: "pd.DataFrame | None") -> 
     """True if price is at/near 5-day high AND volume < VOLUME_EXHAUSTION_RATIO × 20-day average."""
     if df is None or len(df) < 5:
         return False
-    high_5d = df["high"].tail(_BARS_PER_5D).max()  # bars_per_day = 390 // BAR_TIMEFRAME_MINUTES
+    high_5d = df["high"].tail(_BARS_PER_5D).max()  # bars_per_day = TRADING_MINUTES_PER_DAY // BAR_TIMEFRAME_MINUTES
     current_price = float(df["close"].iloc[-1])
-    at_high = current_price >= high_5d * 0.995  # within 0.5%
+    at_high = current_price >= high_5d * config.VOLUME_EXHAUSTION_PRICE_PROXIMITY
     if not at_high:
         return False
     if daily_df is None or len(daily_df) < 20:
@@ -56,11 +56,11 @@ def _obv_divergence_signal(df: pd.DataFrame, obv: pd.Series) -> str:
         return "none"
     recent_prices = df["close"].tail(5)
     recent_obv    = obv.tail(5)
-    price_high = recent_prices.iloc[-1] >= recent_prices.max() * 0.999
+    price_high = recent_prices.iloc[-1] >= recent_prices.max() * config.OBV_PRICE_HIGH_PROXIMITY
     obv_declining = recent_obv.iloc[-1] < recent_obv.iloc[0]
     if price_high and obv_declining:
         return "bearish"
-    price_low = recent_prices.iloc[-1] <= recent_prices.min() * 1.001
+    price_low = recent_prices.iloc[-1] <= recent_prices.min() * config.OBV_PRICE_LOW_PROXIMITY
     obv_rising = recent_obv.iloc[-1] > recent_obv.iloc[0]
     if price_low and obv_rising:
         return "bullish"
