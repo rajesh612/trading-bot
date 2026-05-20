@@ -70,6 +70,7 @@ class CycleSnapshot:
     intraday_news: dict = field(default_factory=dict)  # populated in Task 9
     sector_today: dict = field(default_factory=dict)
     advance_decline_ratio: float = 1.0   # IWM/SPY breadth ratio; < 0.85 → narrow breadth
+    major_event_today: bool = False       # True if FOMC/CPI/NFP/PCE/JOLTS scheduled today
 
 
 def build_cycle_snapshot(
@@ -116,6 +117,17 @@ def build_cycle_snapshot(
     except Exception:
         pass
 
+    major_event_today = False
+    try:
+        from macro.economic_calendar import get_todays_events
+        _high_impact = {"FOMC", "NFP", "CPI", "PCE", "JOLTS"}
+        for _evt in get_todays_events():
+            if any(tag in _evt.get("name", "").upper() for tag in _high_impact):
+                major_event_today = True
+                break
+    except Exception:
+        pass
+
     return CycleSnapshot(
         regime_info=regime_info,
         regime=regime_info.get("regime", "NORMAL"),
@@ -129,4 +141,5 @@ def build_cycle_snapshot(
         intraday_news=load_intraday_news(),
         sector_today=sector_today,
         advance_decline_ratio=advance_decline_ratio,
+        major_event_today=major_event_today,
     )

@@ -471,6 +471,62 @@ class TestCycleSnapshotIntradayNews:
         assert snap.intraday_news.get("NVDA", {}).get("sentiment_score") == 15
 
 
+# ─── CycleSnapshot major_event_today (Task 6) ────────────────────────────────
+
+class TestCycleSnapshotMajorEvent:
+
+    @pytest.mark.unit
+    def test_cycle_snapshot_has_major_event_today_true(self, monkeypatch, tmp_path):
+        """CycleSnapshot.major_event_today is True when a high-impact event is scheduled today."""
+        import config
+        monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", tmp_path / "iw.json")
+        monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", tmp_path / "sm.md")
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", tmp_path / "fred.json")
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
+
+        from utils.io_utils import save_json
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        save_json(tmp_path / "ec.json", {
+            "date": today,
+            "events": [{"name": "FOMC Rate Decision", "time": "14:00"}],
+        })
+
+        monkeypatch.setattr("macro.regime.load_macro_regime", lambda: {"regime": "NORMAL", "macro_health_score": 0})
+        monkeypatch.setattr("macro.regime.load_trading_params", lambda: {})
+        monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda dt: None)
+        monkeypatch.setattr("macro.breadth_signals.get_advance_decline_ratio", lambda: 1.0)
+        monkeypatch.setattr("research.intraday.load_intraday_news", lambda: {})
+
+        from trading.cycle_context import build_cycle_snapshot
+        snap = build_cycle_snapshot(portfolio_gain_pct=0.0)
+        assert snap.major_event_today is True
+
+    @pytest.mark.unit
+    def test_cycle_snapshot_major_event_today_false_when_no_event(self, monkeypatch, tmp_path):
+        """CycleSnapshot.major_event_today is False when no high-impact events scheduled."""
+        import config
+        monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", tmp_path / "iw.json")
+        monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", tmp_path / "sm.md")
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", tmp_path / "fred.json")
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
+
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        from utils.io_utils import save_json
+        save_json(tmp_path / "ec.json", {"date": today, "events": []})
+
+        monkeypatch.setattr("macro.regime.load_macro_regime", lambda: {"regime": "NORMAL", "macro_health_score": 0})
+        monkeypatch.setattr("macro.regime.load_trading_params", lambda: {})
+        monkeypatch.setattr("macro.intraday_context.get_intraday_context", lambda dt: None)
+        monkeypatch.setattr("macro.breadth_signals.get_advance_decline_ratio", lambda: 1.0)
+        monkeypatch.setattr("research.intraday.load_intraday_news", lambda: {})
+
+        from trading.cycle_context import build_cycle_snapshot
+        snap = build_cycle_snapshot(portfolio_gain_pct=0.0)
+        assert snap.major_event_today is False
+
+
 # ─── Pipeline phase-2 tiers (Task 10) ────────────────────────────────────────
 
 class TestPipelinePhase2Tiers:
