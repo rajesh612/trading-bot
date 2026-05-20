@@ -36,18 +36,11 @@ def _get_trading_days(start: datetime, end: datetime) -> list[datetime]:
 
 
 def _load_tickers() -> list[str]:
-    """Read tickers from TICKERS_FILE; return list of symbols."""
-    try:
-        with open(config.TICKERS_FILE) as f:
-            tickers = [
-                line.strip().upper() for line in f
-                if line.strip() and not line.strip().startswith("#")
-            ]
-    except FileNotFoundError:
-        logger.warning("TICKERS_FILE not found: %s", config.TICKERS_FILE)
-        return []
+    """Return screener-eligible symbols from tickers.json via sectors module."""
+    import sectors
+    tickers = sectors.load_universe()
     if not tickers:
-        logger.warning("TICKERS_FILE is empty: %s", config.TICKERS_FILE)
+        logger.warning("sectors.load_universe() returned empty list — check tickers.json")
     return tickers
 
 
