@@ -149,6 +149,7 @@ SQUEEZE_TP_PCT          = 5.0  # take-profit % applied when squeeze setup fires
 
 BOT_HERD_ALERT_SCORE = 60  # herding score that triggers position-size reduction
 BOT_HERD_HIGH_SCORE  = 80  # herding score that blocks new entries
+BOT_HERD_CORR_THRESHOLD = 0.85  # correlation with SPY above this → herding signal
 
 VWAP_SLOPE_MIN       = -0.3   # % VWAP drift over 10 bars; below this = downtrend, skip BUY
 VWAP_OVEREXTENSION_GATE = True # block price > VWAP+2σ

@@ -138,7 +138,7 @@ def compute_bot_herding_score(
         n_correlated = sum(
             1 for closes in series_dict.values()
             if len(closes) >= 5 and len(spy_closes) >= 5
-            and _approx_corr(closes[-5:], spy_closes[-5:]) > 0.85
+            and _approx_corr(closes[-5:], spy_closes[-5:]) > config.BOT_HERD_CORR_THRESHOLD
         )
         corr_score = min(30, int(n_correlated / max(len(series_dict), 1) * 60))
 

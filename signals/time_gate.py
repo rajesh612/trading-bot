@@ -1,17 +1,16 @@
 from __future__ import annotations
 import config
 from datetime import datetime
-import pytz
 
-_ET = pytz.timezone("America/New_York")
+from utils.constants import ET
 
 
 def is_entry_allowed(now: datetime) -> bool:
     """Returns False during first ENTRY_GATE_OPEN_MINUTES after open and last ENTRY_GATE_CLOSE_MINUTES before close."""
     if now.tzinfo is None:
-        now = _ET.localize(now)
+        now = now.replace(tzinfo=ET)
     else:
-        now = now.astimezone(_ET)
+        now = now.astimezone(ET)
 
     minutes = now.hour * 60 + now.minute  # minutes since midnight ET
     gate_open_end = 9 * 60 + 30 + config.ENTRY_GATE_OPEN_MINUTES    # default: 10:00

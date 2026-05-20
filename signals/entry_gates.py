@@ -20,6 +20,7 @@ from signals.relative_strength import rs_rank, passes_rs_filter
 from signals.correlation_guard import passes_correlation_guard
 from signals.mtf_confirm import passes_mtf_filter
 from signals.vwap_guard import passes_vwap_guard
+from signals.volume_guard import is_volume_weak
 from calendars.earnings import is_earnings_imminent
 from utils import regimes
 
@@ -192,7 +193,6 @@ def check_all_gates(
             flags.append(f"sector_weak({symbol_sector_etf}={chg:+.1f}%)")
 
     # 17. Relative volume — thin tape increases false-positive rate
-    from signals.volume_guard import is_volume_weak
     if is_volume_weak(iv.relative_volume):
         flags.append(f"rel_vol_low({iv.relative_volume:.2f}x)")
 
