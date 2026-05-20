@@ -1,43 +1,15 @@
 """
-Correlation guard: prevents opening multiple positions in the same sector.
-Sectors are mapped from tier1_config or an extended fallback dictionary.
+Correlation guard: prevents opening multiple positions in the same sector ETF group.
+Sector assignment is O(1) via sectors.py pre-built dict.
 """
 from __future__ import annotations
 import config
-from tier1_config import TIER1_NAMES
-
-# Extended sector map for non-tier-1 tickers
-_EXTENDED_SECTOR: dict[str, str] = {
-    # Semis
-    "AMD": "SEMICONDUCTOR", "INTC": "SEMICONDUCTOR", "QCOM": "SEMICONDUCTOR",
-    "MRVL": "SEMICONDUCTOR", "ON": "SEMICONDUCTOR", "SWKS": "SEMICONDUCTOR",
-    # Cloud/Hyperscaler
-    "SNOW": "CLOUD", "DDOG": "CLOUD", "HUBS": "CLOUD", "MDB": "CLOUD",
-    "CFLT": "CLOUD", "NET": "CLOUD", "ZS": "CLOUD",
-    # Consumer Tech
-    "AAPL": "CONSUMER_TECH", "SPOT": "CONSUMER_TECH", "PINS": "CONSUMER_TECH",
-    "RDDT": "CONSUMER_TECH", "TTWO": "CONSUMER_TECH",
-    # Fintech
-    "PYPL": "FINTECH", "SQ": "FINTECH", "AFRM": "FINTECH", "SOFI": "FINTECH",
-    # EV
-    "RIVN": "EV", "LCID": "EV", "NIO": "EV",
-    # Biotech
-    "ISRG": "BIOTECH", "DXCM": "BIOTECH", "IDXX": "BIOTECH",
-    # Industrial/Other
-    "URI": "INDUSTRIAL", "DE": "INDUSTRIAL",
-    "TTD": "ADTECH",
-    "RBLX": "GAMING",
-}
+import sectors
 
 
 def sector_of(symbol: str) -> str:
-    """Returns GICS sector string from tier1_config or extended fallback. Returns 'OTHER' if unknown."""
-    # Check tier1 config first
-    entry = TIER1_NAMES.get(symbol.upper())
-    if entry:
-        sector = entry.get("sector", "")
-        return sector if sector else "OTHER"
-    return _EXTENDED_SECTOR.get(symbol.upper(), "OTHER")
+    """Returns the sector ETF key for a symbol, or 'OTHER' if unknown."""
+    return sectors.get_sector_etf(symbol)
 
 
 def passes_correlation_guard(symbol: str, open_positions: dict) -> bool:

@@ -47,9 +47,9 @@ def job_earnings_calendar():
     logger.info("━━━ EARNINGS CALENDAR ━━━")
     def _run():
         from calendars.earnings import refresh_earnings_calendar
-        from tier1_config import TIER1_NAMES
+        import sectors
         watch_list = _read_watch_list()
-        symbols = list(dict.fromkeys(watch_list + list(TIER1_NAMES.keys())))
+        symbols = list(dict.fromkeys(watch_list + sectors.TIER1_SYMBOLS))
         refresh_earnings_calendar(symbols)
     _job_guard("earnings_calendar", _run)
 

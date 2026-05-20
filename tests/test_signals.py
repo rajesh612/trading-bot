@@ -141,19 +141,19 @@ class TestCorrelationGuard:
     """Tests for correlation guard (sector-based position limit)."""
 
     def test_sector_of_tier1_symbol(self):
-        """NVDA (tier1, AI_SEMI) should return correct sector string."""
+        """NVDA (tier1, XLK) should return correct sector ETF key."""
         result = sector_of("NVDA")
-        assert result == "AI_SEMI"
+        assert result == "XLK"
 
     def test_sector_of_another_tier1_symbol(self):
-        """MSFT (tier1, HYPERSCALER) should return correct sector string."""
+        """MSFT (tier1, XLK) should return correct sector ETF key."""
         result = sector_of("MSFT")
-        assert result == "HYPERSCALER"
+        assert result == "XLK"
 
     def test_sector_of_extended_symbol(self):
-        """SNOW (extended, CLOUD) should return correct sector string."""
+        """SNOW (XLK) should return correct sector ETF key."""
         result = sector_of("SNOW")
-        assert result == "CLOUD"
+        assert result == "XLK"
 
     def test_sector_of_unknown_returns_other(self):
         """Unknown symbol ZZZ_UNKNOWN should return 'OTHER'."""

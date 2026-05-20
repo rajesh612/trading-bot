@@ -60,110 +60,33 @@ class TestEconomicCalendar:
         assert any(e["date"] == "2026-05-07" for e in fomc)
 
 
-# ── tier1_config ──────────────────────────────────────────────────────────────
+# ── tier1_config → sectors.py migration ──────────────────────────────────────
 
 @pytest.mark.unit
-class TestTier1Config:
+class TestSectorsLegacyCompat:
+    """Verify sectors.py provides the same contract as the deleted tier1_config.py."""
+
     def test_known_symbol_is_tier1(self):
-        from tier1_config import is_tier1
-        assert is_tier1("NVDA") is True
+        import sectors
+        assert sectors.is_tier1("NVDA") is True
 
     def test_case_insensitive(self):
-        from tier1_config import is_tier1
-        assert is_tier1("nvda") is True
+        import sectors
+        assert sectors.is_tier1("nvda") is True
 
     def test_unknown_symbol_is_not_tier1(self):
-        from tier1_config import is_tier1
-        assert is_tier1("FAKE") is False
+        import sectors
+        assert sectors.is_tier1("FAKE") is False
 
-    def test_get_sector_known(self):
-        from tier1_config import get_sector
-        assert get_sector("NVDA") == "AI_SEMI"
-        assert get_sector("MSFT") == "HYPERSCALER"
-        assert get_sector("GLD") == "GEO_HEDGE"
+    def test_get_sector_known_returns_etf_key(self):
+        import sectors
+        assert sectors.get_sector("NVDA") == "XLK"
+        assert sectors.get_sector("JPM") == "XLF"
+        assert sectors.get_sector("NEM") == "XLB"
 
     def test_get_sector_unknown_returns_other(self):
-        from tier1_config import get_sector
-        assert get_sector("FAKE") == "OTHER"
-
-    def test_qualifies_for_swing_all_pass(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=30.0, rsi=60.0,
-            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is True
-        assert reason == ""
-
-    def test_qualifies_for_swing_rejects_non_tier1(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="FAKE", composite_score=40.0, rsi=60.0,
-            volume_ratio=2.0, sentiment_score=50, regime="BULL_TREND",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is False
-        assert "not in tier-1" in reason
-
-    def test_qualifies_for_swing_rejects_low_composite(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=20.0, rsi=60.0,
-            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is False
-        assert "composite" in reason
-
-    def test_qualifies_for_swing_rsi_max_bull_trend(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=30.0, rsi=83.0,
-            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is False
-        assert "RSI" in reason
-
-    def test_qualifies_for_swing_rsi_max_normal(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=30.0, rsi=73.0,
-            volume_ratio=1.5, sentiment_score=40, regime="NORMAL",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is False
-
-    def test_qualifies_for_swing_rejects_low_volume(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=30.0, rsi=60.0,
-            volume_ratio=1.2, sentiment_score=40, regime="BULL_TREND",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is False
-        assert "volume" in reason
-
-    def test_qualifies_for_swing_rejects_low_sentiment(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=30.0, rsi=60.0,
-            volume_ratio=1.5, sentiment_score=10, regime="BULL_TREND",
-            parabolic=False, momentum_exhaustion=False,
-        )
-        assert ok is False
-        assert "sentiment" in reason
-
-    def test_qualifies_for_swing_rejects_parabolic_exhaustion(self):
-        from tier1_config import qualifies_for_swing
-        ok, reason = qualifies_for_swing(
-            symbol="NVDA", composite_score=30.0, rsi=60.0,
-            volume_ratio=1.5, sentiment_score=40, regime="BULL_TREND",
-            parabolic=True, momentum_exhaustion=True,
-        )
-        assert ok is False
-        assert "parabolic" in reason
+        import sectors
+        assert sectors.get_sector("FAKE") == "OTHER"
 
 
 # ── economic_calendar: hardcoded events + risk window ────────────────────────

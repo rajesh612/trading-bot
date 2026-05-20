@@ -72,7 +72,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
     """
     from trading.journal import load_open_positions
     from macro.regime import load_macro_regime
-    from tier1_config import is_tier1, get_sector
+    import sectors
 
     regime_info = load_macro_regime()
     regime = regime_info.get("regime", "NORMAL")
@@ -104,12 +104,12 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
                 now.replace(hour=9, minute=30, second=0) + timedelta(days=1)
             )
             earnings_soon = is_earnings_imminent(symbol, days=2)
-            sector = get_sector(symbol)
+            sector = sectors.get_sector(symbol)
             sect_score = sector_sentiment.get(sector, 0)
 
             qualifies, reason = qualifies_for_eod_hold(
                 symbol=symbol,
-                is_tier1=is_tier1(symbol),
+                is_tier1=sectors.is_tier1(symbol),
                 regime=regime,
                 event_risk_tomorrow=event_tomorrow,
                 earnings_in_2_days=earnings_soon,

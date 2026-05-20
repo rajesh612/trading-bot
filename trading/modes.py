@@ -34,9 +34,9 @@ def get_active_mode(regime: str, symbol: str | None = None) -> str:
     """
     if symbol and regime != "CRISIS":
         from calendars.earnings import detect_pead_setup
-        from tier1_config import is_tier1
+        import sectors
         pead_ok, _ = detect_pead_setup(symbol)
-        if pead_ok and is_tier1(symbol):
+        if pead_ok and sectors.is_tier1(symbol):
             return "PEAD"
     if regime in _HYBRID_REGIMES:
         return "HYBRID"

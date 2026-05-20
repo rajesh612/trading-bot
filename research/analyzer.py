@@ -5,8 +5,8 @@ import re
 import anthropic
 
 import config
+import sectors
 from trading import risk_manager
-from tier1_config import get_sector
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def _compute_sector_sentiment(per_stock_report: dict) -> dict:
     for symbol, data in per_stock_report.items():
         if symbol == "__meta__":
             continue
-        sector = get_sector(symbol)
+        sector = sectors.get_sector(symbol)
         score = data.get("combined_sentiment_score", data.get("sentiment_score", 0))
         buckets.setdefault(sector, []).append(float(score))
     return {s: round(sum(v) / len(v), 1) for s, v in buckets.items() if v}

@@ -38,13 +38,13 @@ class TestResearchAgentPlan2:
         report = {
             "NVDA": {"combined_sentiment_score": 60},
             "AMD":  {"combined_sentiment_score": 40},
-            "MSFT": {"combined_sentiment_score": 80},
+            "JPM":  {"combined_sentiment_score": 80},
         }
         result = _compute_sector_sentiment(report)
-        assert "AI_SEMI" in result
-        assert abs(result["AI_SEMI"] - 50.0) < 0.1
-        assert "HYPERSCALER" in result
-        assert result["HYPERSCALER"] == 80.0
+        assert "XLK" in result
+        assert abs(result["XLK"] - 50.0) < 0.1
+        assert "XLF" in result
+        assert result["XLF"] == 80.0
 
     def test_sector_sentiment_skips_meta(self):
         from research.analyzer import _compute_sector_sentiment

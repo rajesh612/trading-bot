@@ -5,7 +5,7 @@ from datetime import datetime
 import anthropic
 
 import config
-from tier1_config import is_tier1
+import sectors
 from utils.io_utils import save_json
 from research.fetchers import (
     _fetch_market_news,
@@ -156,7 +156,7 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
     # _detect_capitulation_candidate with full indicator data during the trading cycle.
     capitulation_candidates = []
     for symbol, data in report.items():
-        if is_tier1(symbol) and data.get("sentiment_score", 0) < -30:
+        if sectors.is_tier1(symbol) and data.get("sentiment_score", 0) < -30:
             capitulation_candidates.append(symbol)
 
     report["__meta__"] = {
