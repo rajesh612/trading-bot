@@ -31,6 +31,7 @@ _THRESHOLD_BOUNDS: dict[str, tuple] = {
     "rsi_buy_max_high_vol":           (25,   70),
     "vwap_slope_min":                 (-2.0, 0.0),
     "high_vol_position_mult":         (0.20, 0.75),
+    "choppy_rsi_max":                 (45,   70),
 }
 
 

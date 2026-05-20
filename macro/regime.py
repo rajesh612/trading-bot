@@ -176,6 +176,8 @@ def load_trading_params() -> dict:
         "vwap_slope_min": config.VWAP_SLOPE_MIN, "high_vol_position_mult": config.HIGH_VOL_POSITION_MULT,
         "stop_loss_pct": config.STOP_LOSS_PCT, "take_profit_pct": config.TAKE_PROFIT_PCT,
         "composite_min_normal": config.COMPOSITE_MIN_NORMAL,
+        "atr_tp_multiplier": config.ATR_TP_MULT_DEFAULT,
+        "choppy_rsi_max": config.CHOPPY_RSI_PULLBACK_MAX,
     }
     try:
         saved = load_json(config.TRADING_PARAMS_FILE, {})
