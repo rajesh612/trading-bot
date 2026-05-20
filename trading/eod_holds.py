@@ -124,7 +124,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
             capitulation = regime == "CAPITULATION"
             tp1_pct  = config.SWING_TP1_PCT_CAPITULATION if capitulation else config.SWING_TP1_PCT
             tp2_pct  = config.SWING_TP2_PCT_CAPITULATION if capitulation else config.SWING_TP2_PCT
-            sl_pct   = config.SWING_SL_PCT_CAPITULATION  if capitulation else pos.get("stop_loss_pct", config.SWING_SL_DEFAULT_PCT)
+            sl_pct   = config.SWING_SL_PCT_CAPITULATION  if capitulation else config.SWING_OVERNIGHT_SL_PCT
 
             total_qty = int(pos["qty"])
             tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)

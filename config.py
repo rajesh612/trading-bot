@@ -95,6 +95,7 @@ SHORT_TERM_MAX_POSITIONS   = 2    # max concurrent short-term positions
 SWING_TP1_PCT              = 5.0  # first TP tier % for normal swing holds
 SWING_TP2_PCT              = 10.0 # second TP tier % for normal swing holds
 SWING_SL_DEFAULT_PCT       = 7.0  # fallback SL % when position has no recorded stop
+SWING_OVERNIGHT_SL_PCT     = 3.0  # tighter SL for overnight gap risk
 SWING_TP1_PCT_CAPITULATION = 10.0 # first TP tier % in CAPITULATION regime
 SWING_TP2_PCT_CAPITULATION = 20.0 # second TP tier % in CAPITULATION regime
 SWING_SL_PCT_CAPITULATION  = 12.0 # stop-loss % in CAPITULATION regime

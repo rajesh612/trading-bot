@@ -28,7 +28,7 @@ SWING_EVAL_H        = config.EOD_HOLDS_EVAL_HOUR
 SWING_EVAL_M        = config.EOD_HOLDS_EVAL_MINUTE
 SWING_ENABLED       = True
 SWING_COMPOSITE_MIN = config.BACKTEST_SWING_COMPOSITE_MIN
-SWING_SL_PCT        = config.SWING_SL_DEFAULT_PCT
+SWING_SL_PCT        = config.SWING_OVERNIGHT_SL_PCT
 SWING_TP_PCT        = config.SWING_TP2_PCT
 # ── Live-bot params — single source of truth is config.py ────────────────────
 STOP_LOSS_PCT = config.STOP_LOSS_PCT

@@ -8,6 +8,7 @@ from datetime import datetime
 
 import pytest
 
+import config
 from utils.constants import ET
 
 
@@ -523,3 +524,13 @@ class TestForceCloseAllSignature:
         from trading.closer import force_close_all
         sig = inspect.signature(force_close_all)
         assert len(sig.parameters) == 0, f"Expected 0 params, got: {list(sig.parameters)}"
+
+
+class TestSwingOvernightSL:
+    @pytest.mark.unit
+    def test_swing_overnight_sl_pct_exists(self):
+        assert config.SWING_OVERNIGHT_SL_PCT == 3.0
+
+    @pytest.mark.unit
+    def test_swing_overnight_sl_tighter_than_default(self):
+        assert config.SWING_OVERNIGHT_SL_PCT < config.SWING_SL_DEFAULT_PCT
