@@ -23,6 +23,7 @@ from trading.journal import (
 )
 from utils.io_utils import load_json, save_json
 from utils.constants import ET
+from utils.sl_blacklist import record_sl_hit
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,7 @@ def run_position_monitor():
                 symbol, pnl_pct, -sl_pct,
             )
             close_position(symbol, alpaca, open_positions, current_price, _try_compute_iv(symbol, alpaca), "monitor_stop_loss")
+            record_sl_hit(symbol)
         elif pnl_pct >= tp_pct:
             logger.info(
                 "MONITOR TAKE-PROFIT: %s P&L=%+.2f%% hit TP=%.1f%% — closing (mid-cycle)",

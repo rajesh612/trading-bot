@@ -503,3 +503,63 @@ class TestLateEntryCompositeGate:
             now=self._early_now(), entries_this_cycle=0,
         )
         assert "late" not in result.reason.lower()
+
+
+class TestSLBlacklist:
+    """Tests for the persistent SL-hit blacklist."""
+
+    @pytest.mark.unit
+    def test_record_sl_hit_writes_today(self, monkeypatch, tmp_path):
+        """record_sl_hit writes today's date for the symbol."""
+        monkeypatch.setattr(config, "SL_BLACKLIST_FILE", str(tmp_path / "sl_blacklist.json"))
+        monkeypatch.setattr(config, "SL_BLACKLIST_ENABLED", True)
+        from utils.sl_blacklist import record_sl_hit
+        from utils.io_utils import load_json
+        record_sl_hit("AAPL")
+        data = load_json(str(tmp_path / "sl_blacklist.json"), {})
+        assert "AAPL" in data
+
+    @pytest.mark.unit
+    def test_is_sl_blacklisted_true_same_day(self, monkeypatch, tmp_path):
+        """Symbol is blacklisted when hit today (days < SL_BLACKLIST_DAYS=1)."""
+        monkeypatch.setattr(config, "SL_BLACKLIST_FILE", str(tmp_path / "sl_blacklist.json"))
+        monkeypatch.setattr(config, "SL_BLACKLIST_ENABLED", True)
+        monkeypatch.setattr(config, "SL_BLACKLIST_DAYS", 1)
+        from utils.sl_blacklist import record_sl_hit, is_sl_blacklisted
+        record_sl_hit("AAPL")
+        assert is_sl_blacklisted("AAPL") is True
+
+    @pytest.mark.unit
+    def test_is_sl_blacklisted_false_when_disabled(self, monkeypatch, tmp_path):
+        """When SL_BLACKLIST_ENABLED=False, is_sl_blacklisted always returns False."""
+        monkeypatch.setattr(config, "SL_BLACKLIST_FILE", str(tmp_path / "sl_blacklist.json"))
+        monkeypatch.setattr(config, "SL_BLACKLIST_ENABLED", False)
+        from utils.sl_blacklist import record_sl_hit, is_sl_blacklisted
+        record_sl_hit("AAPL")
+        assert is_sl_blacklisted("AAPL") is False
+
+    @pytest.mark.unit
+    def test_check_all_gates_blocks_sl_blacklisted(self, monkeypatch):
+        """check_all_gates returns False when sl_blacklisted=True."""
+        import types
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from signals.entry_gates import check_all_gates
+        import calendars.earnings as ec
+        import macro.economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+        iv = types.SimpleNamespace(
+            current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
+            stop_hunt_zone=False, parabolic=False, momentum_exhaustion=False,
+            bot_herding_score=0, squeeze_setup=False, rsi=50.0, stoch_d=50.0,
+            prev_close=100.0, relative_volume=1.0, or_position="outside",
+            composite_score=60.0,
+        )
+        now = datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+        result = check_all_gates(
+            symbol="AAPL", iv=iv, open_positions={}, daily_closed=set(),
+            bars_15min=None, now=now, entries_this_cycle=0, sl_blacklisted=True,
+        )
+        assert result.passed is False
+        assert "blacklist" in result.reason.lower() or "sl" in result.reason.lower()

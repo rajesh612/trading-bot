@@ -33,6 +33,8 @@ BOT_HEALTH_FILE            = STATE_DIR / "bot_health.json"
 INTRADAY_NEWS_CACHE_FILE   = STATE_DIR / "intraday_news_cache.json"
 CYCLE_TELEMETRY_FILE       = STATE_DIR / "cycle_telemetry.jsonl"
 METRICS_FILE               = STATE_DIR / "metrics.jsonl"
+SL_BLACKLIST_FILE          = STATE_DIR / "sl_blacklist.json"
+SL_BLACKLIST_DAYS          = 1   # days to block re-entry after SL hit
 
 # ── API KEYS & MODELS ─────────────────────────────────────────────────────────
 
@@ -101,6 +103,8 @@ SWING_TP2_PCT_CAPITULATION = 20.0 # second TP tier % in CAPITULATION regime
 SWING_SL_PCT_CAPITULATION  = 12.0 # stop-loss % in CAPITULATION regime
 
 # ── ENTRY GATES & TIMING ──────────────────────────────────────────────────────
+
+SL_BLACKLIST_ENABLED   = True   # block SL-hit symbols from re-entry next day
 
 ENTRY_START_HOUR       = 10   # No entries before 10:00 AM (avoid open noise)
 ENTRY_END_HOUR         = 15   # No entries at or after 3:00 PM

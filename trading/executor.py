@@ -22,7 +22,7 @@ from trading.position_sizer import (
     apply_sentiment_multiplier,
 )
 from trading import risk_manager
-
+from utils.sl_blacklist import is_sl_blacklisted
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,8 @@ def execute_buy(
     with _POSITIONS_LOCK:
         fresh_daily_closed = set(load_json(config.DAILY_CLOSED_FILE, []))
 
+    sl_blacklisted = is_sl_blacklisted(symbol)
+
     gate = check_all_gates(
         symbol=symbol, iv=iv, open_positions=open_positions,
         daily_closed=fresh_daily_closed, bars_15min=bars_15min, now=now,
@@ -105,6 +107,7 @@ def execute_buy(
         sector_today=sector_today,
         symbol_sector_etf=symbol_sector_etf,
         advance_decline_ratio=advance_decline_ratio,
+        sl_blacklisted=sl_blacklisted,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)

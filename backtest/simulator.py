@@ -63,6 +63,8 @@ class SimState:
     equity_curve: list = field(default_factory=list)
     trades: list = field(default_factory=list)
     atr_tp_multiplier: float = config.ATR_TP_MULT_DEFAULT
+    sl_blacklist: set = field(default_factory=set)
+    sl_blacklist_pending: set = field(default_factory=set)
 
 
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
@@ -222,6 +224,9 @@ def simulate_day(
     pos_mult = p.get("high_vol_position_mult", HIGH_VOL_MULT) if regime in ("HIGH_VOL", "CRISIS") else 1.0
     logger.info(f"\n=== {date_str} === regime={regime} rsi_max={rsi_max} pos_mult={pos_mult}")
     state.daily_closed.clear()
+    # Promote yesterday's SL hits to active blacklist for today
+    state.sl_blacklist = set(state.sl_blacklist_pending)
+    state.sl_blacklist_pending.clear()
 
     def _ts(h, m=0): return day.replace(hour=h, minute=m, second=0, microsecond=0)
     mkt_open      = _ts(MARKET_OPEN_H, MARKET_OPEN_M)
@@ -278,6 +283,8 @@ def simulate_day(
 
             if reason:
                 _close_trade(state, sym, str(ts), exit_price, reason, date_str)
+                if reason in ("SL", "SWING_SL"):
+                    state.sl_blacklist_pending.add(sym)
 
         if is_force:
             continue
@@ -296,6 +303,7 @@ def simulate_day(
 
         for sym in watch_list:
             if sym in state.positions or sym in state.daily_closed: continue
+            if sym in state.sl_blacklist: continue
             iv = precomp.get(sym, {}).get(ts)
             if iv is None: continue
             if iv.composite_score > MIN_COMPOSITE and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:

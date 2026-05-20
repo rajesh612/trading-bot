@@ -65,6 +65,7 @@ def check_all_gates(
     sector_today: dict | None = None,
     symbol_sector_etf: str | None = None,
     advance_decline_ratio: float = 1.0,
+    sl_blacklisted: bool = False,
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -90,6 +91,10 @@ def check_all_gates(
             False,
             f"late entry ({now.strftime('%H:%M')} ET): composite {iv.composite_score:.0f} < {config.ENTRY_LATE_COMPOSITE_MIN} required after {config.ENTRY_LATE_HOUR}:00",
         )
+
+    # 1c. SL blacklist — block re-entry for symbols that hit SL recently
+    if sl_blacklisted:
+        return GateResult(False, f"{symbol} is SL-blacklisted (hit stop-loss recently)")
 
     # 2. Per-cycle entry cap
     if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE:
