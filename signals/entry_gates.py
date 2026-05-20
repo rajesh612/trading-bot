@@ -30,10 +30,12 @@ class GateResult:
     flags: tuple[str, ...] = ()
 
 
-def effective_composite_gate(iv: IndicatorValues, regime: str) -> int:
+def effective_composite_gate(iv: IndicatorValues, regime: str, params: dict | None = None) -> int:
     """Single source of truth for composite entry threshold by regime and signal context.
 
     Priority: HIGH_VOL safety → squeeze setup → bot herding → CHOPPY → NORMAL.
+    When params is provided, NORMAL regime reads composite_min_normal from params
+    (written by learning agent on zero-trade days).
     """
     if regime in ("HIGH_VOL", "DEFENSIVE"):
         return config.COMPOSITE_MIN_HIGH_VOL   # 35
@@ -43,7 +45,7 @@ def effective_composite_gate(iv: IndicatorValues, regime: str) -> int:
         return config.HERD_ENTRY_GATE          # 25
     if regime == "CHOPPY":
         return config.CHOPPY_COMPOSITE_GATE   # 30
-    return config.COMPOSITE_MIN_NORMAL        # 20
+    return (params or {}).get("composite_min_normal", config.COMPOSITE_MIN_NORMAL)
 
 
 

@@ -43,7 +43,7 @@ def pre_claude_filter(
         return FilterResult("SKIP", "already closed today")
 
     # Layer 1 — Composite minimum (regime-adjusted)
-    composite_min = effective_composite_gate(iv, snap.regime)
+    composite_min = effective_composite_gate(iv, snap.regime, params=snap.params)
     if iv.composite_score < composite_min:
         return FilterResult("SKIP",
             f"composite {iv.composite_score:+.1f} < {composite_min} ({snap.regime})")

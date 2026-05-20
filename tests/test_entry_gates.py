@@ -579,6 +579,20 @@ class TestEffectiveCompositeGate:
         iv = self._iv(squeeze_setup=True)
         assert effective_composite_gate(iv, "HIGH_VOL") == 35
 
+    def test_normal_regime_uses_params_composite_min(self):
+        """params['composite_min_normal'] overrides config.COMPOSITE_MIN_NORMAL in NORMAL."""
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv()
+        params = {"composite_min_normal": 18}
+        assert effective_composite_gate(iv, "NORMAL", params=params) == 18
+
+    def test_normal_regime_falls_back_to_config_when_no_params(self):
+        """Without params, normal regime returns config.COMPOSITE_MIN_NORMAL."""
+        import config
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv()
+        assert effective_composite_gate(iv, "NORMAL") == config.COMPOSITE_MIN_NORMAL
+
 
 # ── Module-level gate config and stoch threshold tests ───────────────────────
 
