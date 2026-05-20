@@ -63,6 +63,7 @@ def execute_buy(
     symbol_sector_etf: str | None = None,
     advance_decline_ratio: float = 1.0,
     suppress_notify: bool = False,
+    major_event_today: bool = False,
 ) -> dict | None:
     """
     Validate and place a single BUY order.
@@ -109,6 +110,8 @@ def execute_buy(
 
     sl_blacklisted = is_sl_blacklisted(symbol)
 
+    sector_sentiment = _get_sector_sentiment(research.get("__meta__", {}), symbol)
+
     gate = check_all_gates(
         symbol=symbol, iv=iv, open_positions=open_positions,
         daily_closed=fresh_daily_closed, bars_15min=bars_15min, now=now,
@@ -119,10 +122,10 @@ def execute_buy(
         symbol_sector_etf=symbol_sector_etf,
         advance_decline_ratio=advance_decline_ratio,
         sl_blacklisted=sl_blacklisted,
-        sector_sentiment_score=_get_sector_sentiment(research.get("__meta__", {}), symbol),
+        sector_sentiment_score=sector_sentiment,
         sentiment_score=float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,
         swing_eligible=(regime in regimes.SWING_ELIGIBLE),
-        major_event_today=False,  # TODO: wire from CycleSnapshot when snap is passed to executor
+        major_event_today=major_event_today,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)
@@ -186,7 +189,7 @@ def execute_buy(
         "fill_price": corrected["fill_price"] if corrected else iv.current_price,
         "entry_time": now.isoformat(), "entry_composite_score": iv.composite_score,
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
-        "entry_sector_sentiment": _get_sector_sentiment(research.get("__meta__", {}), symbol),
+        "entry_sector_sentiment": sector_sentiment,
         "entry_news_sentiment": float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
         "order_id": order.get("id"), "mode_at_entry": mode, "regime_at_entry": regime,
