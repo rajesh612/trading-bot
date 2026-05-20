@@ -105,6 +105,9 @@ ENTRY_START_HOUR       = 10   # No entries before 10:00 AM (avoid open noise)
 ENTRY_END_HOUR         = 15   # No entries at or after 3:00 PM
 ENTRY_GATE_OPEN_MINUTES  = 30 # block entries for first N minutes after open
 ENTRY_GATE_CLOSE_MINUTES = 35 # block entries for last N minutes before close
+MARKET_OPEN_HOUR   = 9    # NYSE market open hour (ET)
+MARKET_OPEN_MINUTE = 30   # NYSE market open minute (ET)
+TRADING_MINUTES_PER_DAY = 390  # 6.5 hours × 60 — used for session-fraction calculations
 MAX_ENTRIES_PER_CYCLE  = 1    # one BUY per trading cycle maximum
 
 RSI_BUY_MAX            = 72   # Max RSI for BUY entry (unified across all gate layers)
@@ -152,6 +155,9 @@ MTF_TIMEFRAME_MINUTES = 15
 STOP_HUNT_ROUND_PROXIMITY_PCT = 0.1  # within 0.1% of round number ($X.00)
 STOP_HUNT_HILOW_PROXIMITY_PCT = 0.5  # within 0.5% of 5-day high or low
 VOLUME_EXHAUSTION_RATIO       = 0.8  # vol < this × 20d avg at 5d high → exhaustion
+VOLUME_EXHAUSTION_PRICE_PROXIMITY = 0.995  # within 0.5% of 5-day high counts as "at high"
+OBV_PRICE_HIGH_PROXIMITY = 0.999  # OBV bearish divergence: price within 0.1% of intraday high
+OBV_PRICE_LOW_PROXIMITY  = 1.001  # OBV bullish divergence: price within 0.1% of intraday low
 
 DEFENSIVE_COMPOSITE_MULT = 1.5  # multiplier applied to COMPOSITE_MIN_HIGH_VOL in DEFENSIVE pre-filter
 MAX_SAME_SECTOR_POSITIONS = 2   # block entry if >= this many open positions share sector
@@ -193,6 +199,12 @@ SWING_GAP_TP1_THRESHOLD     = 3.0  # gap% at or above this → take first swing 
 EOD_VERIFY_FILLS        = True  # skip journal entry if symbol not in alpaca positions
 EOD_PROFITABLE_THRESHOLD = 0.5  # pnl_pct above this → "eod_force_profitable"
 EOD_LOSS_THRESHOLD       = -0.5 # pnl_pct below this → "eod_force_loss"
+EOD_FORCE_CLOSE_HOUR   = 15  # hour at which force_close_all() runs (ET)
+EOD_FORCE_CLOSE_MINUTE = 55  # minute at which force_close_all() runs (ET)
+EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
+EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
+SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
+SWING_MIN_PNL_PCT        = -2.0 # PTJ rule: don't hold overnight if P&L <= this %
 
 # ── BUDGET & API COST ─────────────────────────────────────────────────────────
 
@@ -303,3 +315,10 @@ PEAD_SCORE_THRESHOLD    = 80    # need 4 of 5 conditions (each = 20 pts)
 PEAD_EPS_BEAT_STRONG    = 20.0  # blowout beat threshold (30 pts)
 PEAD_EPS_BEAT_SOLID     = 10.0  # strong beat threshold (25 pts)
 PEAD_FWD_REVISION_MIN   = 3.0   # forward EPS revision % to qualify as 6th condition
+
+# ── BACKTEST SIMULATION ────────────────────────────────────────────────────────
+
+BACKTEST_STARTING_CAPITAL    = 100_000.0  # initial portfolio value for simulation
+BACKTEST_SLIPPAGE_PCT        = 0.0005     # 0.05% slippage on entry and exit fills
+BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in simulation
+BACKTEST_SWING_COMPOSITE_MIN = 40.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
