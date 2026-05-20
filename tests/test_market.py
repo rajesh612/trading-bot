@@ -875,3 +875,48 @@ class TestDailyReportBody:
         _, body = build_report_body([], self._account(), "NORMAL", "", weights)
         assert "rsi: 30.00%" in body
         assert "macd: 25.00%" in body
+
+
+# ── TestBacktestSimulatorConstants ───────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBacktestSimulatorConstants:
+    """Verify backtest/simulator.py constants match config.py."""
+
+    def test_simulator_starting_capital_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.STARTING_CAPITAL == config.BACKTEST_STARTING_CAPITAL
+
+    def test_simulator_slippage_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.SLIPPAGE_PCT == config.BACKTEST_SLIPPAGE_PCT
+
+    def test_simulator_max_positions_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.MAX_POSITIONS == config.BACKTEST_MAX_POSITIONS
+
+    def test_simulator_market_open_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.MARKET_OPEN_H == config.MARKET_OPEN_HOUR
+        assert simulator.MARKET_OPEN_M == config.MARKET_OPEN_MINUTE
+
+    def test_simulator_force_close_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.FORCE_CLOSE_H == config.EOD_FORCE_CLOSE_HOUR
+        assert simulator.FORCE_CLOSE_M == config.EOD_FORCE_CLOSE_MINUTE
+
+    def test_simulator_swing_eval_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.SWING_EVAL_H == config.EOD_HOLDS_EVAL_HOUR
+        assert simulator.SWING_EVAL_M == config.EOD_HOLDS_EVAL_MINUTE
+
+    def test_simulator_swing_composite_min_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.SWING_COMPOSITE_MIN == config.BACKTEST_SWING_COMPOSITE_MIN

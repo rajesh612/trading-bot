@@ -17,12 +17,19 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 # ── Backtest-only simulation constants ───────────────────────────────────────
-STARTING_CAPITAL = 100_000.0; SLIPPAGE_PCT = 0.0005; MAX_POSITIONS = 5
-MARKET_OPEN_H = 9;  MARKET_OPEN_M = 30
-FORCE_CLOSE_H = 15; FORCE_CLOSE_M = 55
-SWING_EVAL_H  = 15; SWING_EVAL_M  = 50
-SWING_ENABLED = True; SWING_COMPOSITE_MIN = 50.0
-SWING_SL_PCT  = 7.0; SWING_TP_PCT = 10.0
+STARTING_CAPITAL    = config.BACKTEST_STARTING_CAPITAL
+SLIPPAGE_PCT        = config.BACKTEST_SLIPPAGE_PCT
+MAX_POSITIONS       = config.BACKTEST_MAX_POSITIONS
+MARKET_OPEN_H       = config.MARKET_OPEN_HOUR
+MARKET_OPEN_M       = config.MARKET_OPEN_MINUTE
+FORCE_CLOSE_H       = config.EOD_FORCE_CLOSE_HOUR
+FORCE_CLOSE_M       = config.EOD_FORCE_CLOSE_MINUTE
+SWING_EVAL_H        = config.EOD_HOLDS_EVAL_HOUR
+SWING_EVAL_M        = config.EOD_HOLDS_EVAL_MINUTE
+SWING_ENABLED       = True
+SWING_COMPOSITE_MIN = config.BACKTEST_SWING_COMPOSITE_MIN
+SWING_SL_PCT        = config.SWING_SL_DEFAULT_PCT
+SWING_TP_PCT        = config.SWING_TP2_PCT
 # ── Live-bot params — single source of truth is config.py ────────────────────
 STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MIN_COMPOSITE = config.COMPOSITE_MIN_NORMAL; MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
@@ -61,7 +68,7 @@ class SimState:
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
     if price <= 0:
         return 0.0
-    sl_dollars = price * STOP_LOSS_PCT / 100 or (atr if atr > 0 else price * 0.02)
+    sl_dollars = price * STOP_LOSS_PCT / 100 or (atr if atr > 0 else price * config.ATR_FALLBACK_PROXY_PCT)
     qty_risk = portfolio_value * RISK_PER_TRADE / sl_dollars
     return max(1.0, round(min(qty_risk, portfolio_value * MAX_POSITION_PCT / price)))
 
