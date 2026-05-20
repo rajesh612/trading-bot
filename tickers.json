@@ -1,0 +1,147 @@
+{
+  "XLK": {
+    "name": "Technology",
+    "symbols": [
+      {"symbol": "NVDA",  "tier1": true,  "theme": "AI_GPU"},
+      {"symbol": "AMD",   "tier1": true,  "theme": "AI_GPU"},
+      {"symbol": "AVGO",  "tier1": true,  "theme": "AI_NETWORKING"},
+      {"symbol": "ARM",   "tier1": true,  "theme": "AI_CHIP_ARCHITECTURE"},
+      {"symbol": "MRVL",  "tier1": true,  "theme": "AI_NETWORKING"},
+      {"symbol": "QCOM",  "tier1": true,  "theme": "AI_EDGE"},
+      {"symbol": "MU",    "tier1": true,  "theme": "MEMORY"},
+      {"symbol": "STX",   "tier1": true,  "theme": "MEMORY"},
+      {"symbol": "TSM",   "tier1": true,  "theme": "SEMICONDUCTOR_FOUNDRY"},
+      {"symbol": "INTC",  "tier1": true,  "theme": "SEMICONDUCTOR_FOUNDRY"},
+      {"symbol": "ASML",  "tier1": true,  "theme": "SEMICONDUCTOR_EQUIPMENT"},
+      {"symbol": "AMAT",  "tier1": true,  "theme": "SEMICONDUCTOR_EQUIPMENT"},
+      {"symbol": "LRCX",  "tier1": true,  "theme": "SEMICONDUCTOR_EQUIPMENT"},
+      {"symbol": "KLAC",  "tier1": true,  "theme": "SEMICONDUCTOR_EQUIPMENT"},
+      {"symbol": "ON",    "tier1": false, "theme": "SEMICONDUCTOR"},
+      {"symbol": "DELL",  "tier1": true,  "theme": "AI_SERVER_INFRASTRUCTURE"},
+      {"symbol": "TXN",   "tier1": true,  "theme": "ANALOG_SEMI"},
+      {"symbol": "ADI",   "tier1": true,  "theme": "ANALOG_SEMI"},
+      {"symbol": "ANET",  "tier1": true,  "theme": "NETWORKING"},
+      {"symbol": "VRT",   "tier1": true,  "theme": "COOLING_POWER"},
+      {"symbol": "EQIX",  "tier1": true,  "theme": "COLOCATION"},
+      {"symbol": "GLW",   "tier1": false, "theme": "OPTICAL_FIBER"},
+      {"symbol": "COHR",  "tier1": true,  "theme": "OPTICAL_INTERCONNECT"},
+      {"symbol": "LITE",  "tier1": true,  "theme": "OPTICAL_INTERCONNECT"},
+      {"symbol": "CIEN",  "tier1": false, "theme": "NETWORKING"},
+      {"symbol": "NET",   "tier1": false, "theme": "CLOUD"},
+      {"symbol": "MSFT",  "tier1": true,  "theme": "CLOUD_AI"},
+      {"symbol": "GOOGL", "tier1": true,  "theme": "CLOUD_AI"},
+      {"symbol": "AMZN",  "tier1": true,  "theme": "CLOUD_ECOMMERCE"},
+      {"symbol": "META",  "tier1": true,  "theme": "SOCIAL_AI"},
+      {"symbol": "ORCL",  "tier1": true,  "theme": "CLOUD_DATABASE"},
+      {"symbol": "IBM",   "tier1": true,  "theme": "ENTERPRISE_AI"},
+      {"symbol": "PLTR",  "tier1": true,  "theme": "AI_SOFTWARE"},
+      {"symbol": "CRM",   "tier1": true,  "theme": "AI_AGENTS_CRM"},
+      {"symbol": "NOW",   "tier1": true,  "theme": "ENTERPRISE_AI_WORKFLOW"},
+      {"symbol": "ADBE",  "tier1": true,  "theme": "AI_CREATIVE_TOOLS"},
+      {"symbol": "INTU",  "tier1": true,  "theme": "AI_FINTECH_SAAS"},
+      {"symbol": "SNPS",  "tier1": true,  "theme": "EDA_TOOLS"},
+      {"symbol": "MDB",   "tier1": false, "theme": "CLOUD"},
+      {"symbol": "CRWD",  "tier1": true,  "theme": "CYBERSECURITY"},
+      {"symbol": "PANW",  "tier1": true,  "theme": "CYBERSECURITY"},
+      {"symbol": "ZS",    "tier1": false, "theme": "CYBERSECURITY"},
+      {"symbol": "APP",   "tier1": true,  "theme": "AI_ADTECH"},
+      {"symbol": "SHOP",  "tier1": true,  "theme": "AI_ECOMMERCE"},
+      {"symbol": "SNOW",  "tier1": false, "theme": "CLOUD"},
+      {"symbol": "HUBS",  "tier1": false, "theme": "CLOUD"},
+      {"symbol": "DDOG",  "tier1": true,  "theme": "AI_OBSERVABILITY"},
+      {"symbol": "TTD",   "tier1": false, "theme": "ADTECH"},
+      {"symbol": "AAPL",  "tier1": true,  "theme": "CONSUMER_ELECTRONICS"},
+      {"symbol": "TSLA",  "tier1": true,  "theme": "EV_ROBOTICS_AI"},
+      {"symbol": "NFLX",  "tier1": true,  "theme": "AI_CONTENT_STREAMING"},
+      {"symbol": "DIS",   "tier1": true,  "theme": "AI_CONTENT_STREAMING"},
+      {"symbol": "UBER",  "tier1": true,  "theme": "AI_MOBILITY"},
+      {"symbol": "SPOT",  "tier1": true,  "theme": "AI_AUDIO_STREAMING"}
+    ]
+  },
+  "XLF": {
+    "name": "Financials",
+    "symbols": [
+      {"symbol": "JPM",   "tier1": true,  "theme": "BANKING"},
+      {"symbol": "GS",    "tier1": true,  "theme": "INVESTMENT_BANKING"},
+      {"symbol": "MS",    "tier1": true,  "theme": "WEALTH_MANAGEMENT"},
+      {"symbol": "BRK.B", "tier1": true,  "theme": "INVESTMENT_HOLDING"},
+      {"symbol": "V",     "tier1": true,  "theme": "DIGITAL_PAYMENTS"},
+      {"symbol": "MA",    "tier1": true,  "theme": "DIGITAL_PAYMENTS"},
+      {"symbol": "AXP",   "tier1": true,  "theme": "PREMIUM_PAYMENTS"},
+      {"symbol": "PYPL",  "tier1": false, "theme": "DIGITAL_PAYMENTS"},
+      {"symbol": "COIN",  "tier1": true,  "theme": "CRYPTO_EXCHANGE"},
+      {"symbol": "SPGI",  "tier1": true,  "theme": "FINANCIAL_DATA"},
+      {"symbol": "BLK",   "tier1": true,  "theme": "ASSET_MANAGEMENT"}
+    ]
+  },
+  "XLY": {
+    "name": "Consumer Discretionary",
+    "symbols": [
+      {"symbol": "BKNG",  "tier1": true,  "theme": "ONLINE_TRAVEL"},
+      {"symbol": "ABNB",  "tier1": true,  "theme": "HOME_SHARING"},
+      {"symbol": "MAR",   "tier1": true,  "theme": "HOSPITALITY"},
+      {"symbol": "HLT",   "tier1": true,  "theme": "HOSPITALITY"}
+    ]
+  },
+  "XLV": {
+    "name": "Healthcare",
+    "symbols": [
+      {"symbol": "LLY",   "tier1": true,  "theme": "PHARMACEUTICALS"},
+      {"symbol": "UNH",   "tier1": true,  "theme": "HEALTH_INSURANCE"},
+      {"symbol": "AMGN",  "tier1": true,  "theme": "BIOTECHNOLOGY"},
+      {"symbol": "ISRG",  "tier1": true,  "theme": "SURGICAL_ROBOTICS"},
+      {"symbol": "DXCM",  "tier1": false, "theme": "MEDTECH"},
+      {"symbol": "CRSP",  "tier1": false, "theme": "GENE_EDITING"},
+      {"symbol": "JNJ",   "tier1": true,  "theme": "DIVERSIFIED_HEALTHCARE"},
+      {"symbol": "ABBV",  "tier1": true,  "theme": "PHARMACEUTICALS"},
+      {"symbol": "MRK",   "tier1": true,  "theme": "PHARMACEUTICALS"},
+      {"symbol": "REGN",  "tier1": true,  "theme": "BIOTECHNOLOGY"}
+    ]
+  },
+  "XLI": {
+    "name": "Industrials",
+    "symbols": [
+      {"symbol": "CAT",   "tier1": true,  "theme": "AUTONOMOUS_EQUIPMENT"},
+      {"symbol": "HON",   "tier1": true,  "theme": "INDUSTRIAL_AI"},
+      {"symbol": "GE",    "tier1": true,  "theme": "AEROSPACE_POWER"},
+      {"symbol": "GEV",   "tier1": true,  "theme": "GRID_ELECTRIFICATION"},
+      {"symbol": "BA",    "tier1": true,  "theme": "COMMERCIAL_AEROSPACE"},
+      {"symbol": "GD",    "tier1": true,  "theme": "DEFENSE_SYSTEMS"},
+      {"symbol": "LHX",   "tier1": true,  "theme": "DEFENSE_ELECTRONICS"},
+      {"symbol": "TDG",   "tier1": true,  "theme": "AEROSPACE_COMPONENTS"},
+      {"symbol": "HWM",   "tier1": true,  "theme": "AEROSPACE_COMPONENTS"},
+      {"symbol": "HEI",   "tier1": true,  "theme": "AEROSPACE_PARTS"},
+      {"symbol": "RTX",   "tier1": true,  "theme": "DEFENSE"},
+      {"symbol": "LMT",   "tier1": true,  "theme": "DEFENSE"},
+      {"symbol": "NOC",   "tier1": true,  "theme": "DEFENSE"}
+    ]
+  },
+  "XLE": {
+    "name": "Energy",
+    "symbols": [
+      {"symbol": "VST",   "tier1": true,  "theme": "POWER_GENERATION"},
+      {"symbol": "CEG",   "tier1": true,  "theme": "NUCLEAR_POWER"},
+      {"symbol": "NEE",   "tier1": true,  "theme": "RENEWABLE_ENERGY"},
+      {"symbol": "XOM",   "tier1": true,  "theme": "INTEGRATED_OIL"},
+      {"symbol": "CVX",   "tier1": true,  "theme": "INTEGRATED_OIL"},
+      {"symbol": "MPC",   "tier1": false, "theme": "REFINING"}
+    ]
+  },
+  "XLP": {
+    "name": "Consumer Staples",
+    "symbols": [
+      {"symbol": "WMT",   "tier1": true,  "theme": "RETAIL"},
+      {"symbol": "COST",  "tier1": true,  "theme": "RETAIL"},
+      {"symbol": "PG",    "tier1": true,  "theme": "CONSUMER_GOODS"},
+      {"symbol": "KO",    "tier1": true,  "theme": "BEVERAGES"}
+    ]
+  },
+  "XLB": {
+    "name": "Materials",
+    "symbols": [
+      {"symbol": "NEM",   "tier1": true,  "theme": "GOLD_MINER"},
+      {"symbol": "GLD",   "tier1": true,  "theme": "GOLD_ETF", "screener_eligible": false}
+    ]
+  },
+  "_regime_signals": ["SPY", "QQQ", "VOOG", "SMH"]
+}

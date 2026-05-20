@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).parent
 STATE_DIR = BASE_DIR / "data" / "state"
 
 # Data files
-TICKERS_FILE = BASE_DIR / "tickers.txt"
+TICKERS_FILE = BASE_DIR / "tickers.json"
 DAILY_TRADEABLE_FILE = BASE_DIR / "daily_tradeable.txt"
 WATCH_LIST_FILE = BASE_DIR / "watch_list.txt"
 TRADE_JOURNAL_FILE = STATE_DIR / "trade_journal.json"

@@ -668,3 +668,78 @@ class TestRegimesModule:
         assert regimes.CAPITULATION in regimes.SWING_ELIGIBLE
         assert regimes.CRASH_RECOVERY in regimes.SWING_ELIGIBLE
         assert regimes.NORMAL not in regimes.SWING_ELIGIBLE
+
+
+# ── sectors ───────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestSectors:
+    """Integration tests against the real tickers.json on disk."""
+
+    def test_nvda_is_tier1(self):
+        import sectors
+        assert sectors.is_tier1("NVDA") is True
+
+    def test_case_insensitive(self):
+        import sectors
+        assert sectors.is_tier1("nvda") is True
+
+    def test_on_is_not_tier1(self):
+        import sectors
+        assert sectors.is_tier1("ON") is False
+
+    def test_unknown_is_not_tier1(self):
+        import sectors
+        assert sectors.is_tier1("ZZZFAKE") is False
+
+    def test_nvda_maps_to_xlk(self):
+        import sectors
+        assert sectors.get_sector_etf("NVDA") == "XLK"
+
+    def test_brk_b_maps_to_xlf(self):
+        import sectors
+        assert sectors.get_sector_etf("BRK.B") == "XLF"
+
+    def test_jpm_maps_to_xlf(self):
+        import sectors
+        assert sectors.get_sector_etf("JPM") == "XLF"
+
+    def test_lly_maps_to_xlv(self):
+        import sectors
+        assert sectors.get_sector_etf("LLY") == "XLV"
+
+    def test_unknown_returns_other(self):
+        import sectors
+        assert sectors.get_sector_etf("ZZZUNKNOWN") == "OTHER"
+
+    def test_get_sector_is_alias_of_get_sector_etf(self):
+        import sectors
+        assert sectors.get_sector("NVDA") == sectors.get_sector_etf("NVDA")
+
+    def test_load_universe_excludes_regime_signals(self):
+        import sectors
+        universe = sectors.load_universe()
+        assert "SPY" not in universe
+        assert "QQQ" not in universe
+        assert "SMH" not in universe
+
+    def test_gld_excluded_from_screener(self):
+        import sectors
+        universe = sectors.load_universe()
+        assert "GLD" not in universe
+
+    def test_brk_b_in_universe(self):
+        """BRK.B must be in the screener universe — was previously dropped by isalpha() bug."""
+        import sectors
+        universe = sectors.load_universe()
+        assert "BRK.B" in universe
+
+    def test_tier1_symbols_are_subset_of_universe(self):
+        import sectors
+        universe_set = set(sectors.load_universe())
+        for sym in sectors.TIER1_SYMBOLS:
+            assert sym in universe_set, f"{sym} in TIER1_SYMBOLS but not in screener universe"
+
+    def test_etf_to_symbols_xlk_contains_nvda(self):
+        import sectors
+        assert "NVDA" in sectors.ETF_TO_SYMBOLS.get("XLK", [])

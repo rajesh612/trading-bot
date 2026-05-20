@@ -14,8 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 def _load_universe() -> list[str]:
-    src = config.DAILY_TRADEABLE_FILE if config.DAILY_TRADEABLE_FILE.exists() else config.TICKERS_FILE
-    return [t.strip().upper() for t in src.read_text().splitlines() if t.strip()]
+    if config.DAILY_TRADEABLE_FILE.exists():
+        return [t.strip().upper() for t in config.DAILY_TRADEABLE_FILE.read_text().splitlines() if t.strip()]
+    import sectors
+    return sectors.load_universe()
 
 
 def _score_stock(symbol: str, client: AlpacaClient) -> dict | None:
