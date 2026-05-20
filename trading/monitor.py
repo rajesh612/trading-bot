@@ -5,6 +5,7 @@ Layer 1: Alpaca bracket fill reconciliation — detects bracket-order fills and 
 Layer 2: Price-level safety net — closes positions that breach SL/TP between cycles.
 """
 import logging
+import time
 from datetime import datetime
 
 import config
@@ -24,6 +25,8 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
+_drawdown_alerted: dict[str, float] = {}  # symbol → epoch of last alert
+
 
 def _try_compute_iv(symbol: str, alpaca: AlpacaClient):
     """Return fresh IndicatorValues for exit context, or None if bars unavailable."""
@@ -35,7 +38,13 @@ def _try_compute_iv(symbol: str, alpaca: AlpacaClient):
 
 
 def _check_drawdown_alerts(positions: dict, current_prices: dict) -> None:
-    """Fire drawdown alerts for positions with P&L <= -DRAWDOWN_WARN_PCT but above stop."""
+    """Fire drawdown alerts with per-position cooldown to avoid Telegram spam."""
+    now_ts = time.time()
+    cooldown_s = config.DRAWDOWN_ALERT_COOLDOWN_MIN * 60
+    # Prune closed positions from cooldown dict
+    for sym in list(_drawdown_alerted):
+        if sym not in positions:
+            del _drawdown_alerted[sym]
     for symbol, pos in positions.items():
         price = current_prices.get(symbol)
         if price is None:
@@ -46,7 +55,10 @@ def _check_drawdown_alerts(positions: dict, current_prices: dict) -> None:
         pnl_pct = (price - entry) / entry * 100
         stop_pct = -pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
         if pnl_pct <= -config.DRAWDOWN_WARN_PCT and pnl_pct > stop_pct:
-            telegram_notify.notify_position_drawdown(symbol, pnl_pct, stop_pct)
+            last = _drawdown_alerted.get(symbol, 0.0)
+            if now_ts - last >= cooldown_s:
+                telegram_notify.notify_position_drawdown(symbol, pnl_pct, stop_pct)
+                _drawdown_alerted[symbol] = now_ts
 
 
 def run_position_monitor():
