@@ -8,6 +8,8 @@ from utils.constants import ET
 import numpy as np
 import pandas as pd
 
+import config
+
 from indicators.values import IndicatorValues
 from indicators.math_utils import (
     _ema,
