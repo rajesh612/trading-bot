@@ -54,8 +54,8 @@ def qualifies_for_eod_hold(
         return False, "high-impact event tomorrow morning"
     if earnings_in_2_days and regime != "CAPITULATION":
         return False, "earnings within 2 sessions (not CAPITULATION mode)"
-    if current_pnl_pct <= -2.0:
-        return False, f"PTJ rule: P&L {current_pnl_pct:.1f}% ≤ -2% (don't hold losers overnight)"
+    if current_pnl_pct <= config.SWING_MIN_PNL_PCT:
+        return False, f"PTJ rule: P&L {current_pnl_pct:.1f}% ≤ {config.SWING_MIN_PNL_PCT}% (don't hold losers overnight)"
     if existing_swing_count >= config.SWING_MAX_POSITIONS:
         return False, f"swing limit reached ({existing_swing_count}/{config.SWING_MAX_POSITIONS})"
     if sector_sentiment_score < 10:

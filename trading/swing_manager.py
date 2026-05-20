@@ -80,12 +80,12 @@ def run_gap_check(alpaca_client) -> None:
                     _save_swing_positions(s)
 
             elif action == "TIGHTEN_STOP":
-                logger.info(f"GAP CHECK {symbol}: gap down 2-5% — tightening trailing stop to 2%")
+                logger.info(f"GAP CHECK {symbol}: gap down — tightening trailing stop to {config.SWING_GAP_TIGHTEN_SL_PCT}%")
                 with _SWING_LOCK:
                     s = load_swing_positions()
                     if symbol in s:
-                        s[symbol]["stop_loss_pct"] = 2.0
-                        s[symbol]["stop_loss_price"] = round(current_price * 0.98, 2)
+                        s[symbol]["stop_loss_pct"] = config.SWING_GAP_TIGHTEN_SL_PCT
+                        s[symbol]["stop_loss_price"] = round(current_price * (1 - config.SWING_GAP_TIGHTEN_SL_PCT / 100), 2)
                         _save_swing_positions(s)
 
             elif action == "TAKE_TP1_GAP_UP":

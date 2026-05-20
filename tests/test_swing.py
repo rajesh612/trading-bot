@@ -443,3 +443,33 @@ class TestSwingManagerOrchestration:
         )
         assert ok is False
         assert "PTJ" in reason
+
+    @pytest.mark.unit
+    def test_eod_hold_ptj_rule_uses_config_threshold(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -1.0)  # stricter than default -2.0
+        from trading.eod_holds import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
+            event_risk_tomorrow=False, earnings_in_2_days=False,
+            current_pnl_pct=-1.5,   # between -2.0 and -1.0
+            existing_swing_count=0,
+            sector_sentiment_score=25.0,
+        )
+        assert ok is False
+        assert "PTJ" in reason
+
+    @pytest.mark.unit
+    def test_gap_tighten_uses_config_sl_pct(self, monkeypatch, tmp_path):
+        import config
+        monkeypatch.setattr(config, "SWING_GAP_TIGHTEN_SL_PCT", 3.0)
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
+        from utils.io_utils import save_json
+        save_json(tmp_path / "swing.json", {
+            "NVDA": {"entry_price": 100.0, "stop_loss_pct": 7.0, "tp1_hit": False}
+        })
+        from trading.swing_manager import _evaluate_gap_action
+        pos = {"entry_price": 100.0, "stop_loss_pct": 7.0, "tp1_hit": False}
+        # Gap down 3% (from 100 to 97) — between -7% stop and -2% threshold → TIGHTEN_STOP
+        action = _evaluate_gap_action(pos, current_price=97.0)
+        assert action == "TIGHTEN_STOP"
