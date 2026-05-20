@@ -674,3 +674,131 @@ class TestSectors:
     def test_etf_to_symbols_xlk_contains_nvda(self):
         import sectors
         assert "NVDA" in sectors.ETF_TO_SYMBOLS.get("XLK", [])
+
+
+class TestQualifiesForEodHoldRegimeMatrix:
+    """Tests for the regime-aware swing-hold veto matrix."""
+
+    def _call(self, regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.0,
+              entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+              consecutive_red_days=0, vix_trend="stable"):
+        from trading.eod_holds import qualifies_for_eod_hold
+        return qualifies_for_eod_hold(
+            symbol="TEST", regime=regime, earnings_tomorrow=earnings_tomorrow,
+            current_pnl_pct=current_pnl_pct,
+            entry_sector_sentiment=entry_sector_sentiment,
+            current_sector_sentiment=current_sector_sentiment,
+            consecutive_red_days=consecutive_red_days,
+            vix_trend=vix_trend,
+        )
+
+    @pytest.mark.unit
+    def test_crisis_always_vetoes(self):
+        ok, reason = self._call(regime="CRISIS", current_pnl_pct=5.0)
+        assert not ok
+        assert "CRISIS" in reason
+
+    @pytest.mark.unit
+    def test_earnings_tomorrow_vetoes_all_regimes(self):
+        for regime in ("NORMAL", "BULL_TREND", "OPPORTUNITY", "CRASH_RECOVERY"):
+            ok, reason = self._call(regime=regime, earnings_tomorrow=True)
+            assert not ok, f"{regime} should veto on earnings tomorrow"
+            assert "earnings" in reason.lower()
+
+    @pytest.mark.unit
+    def test_choppy_blocks_new_promotions(self):
+        ok, reason = self._call(regime="CHOPPY", current_pnl_pct=2.0)
+        assert not ok
+        assert "CHOPPY" in reason
+
+    @pytest.mark.unit
+    def test_defensive_blocks_new_promotions(self):
+        ok, reason = self._call(regime="DEFENSIVE", current_pnl_pct=2.0)
+        assert not ok
+        assert "DEFENSIVE" in reason
+
+    @pytest.mark.unit
+    def test_normal_ptj_veto_at_minus_2(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -2.0)
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=-2.1)
+        assert not ok
+
+    @pytest.mark.unit
+    def test_normal_passes_above_ptj(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -2.0)
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=-1.9)
+        assert ok
+
+    @pytest.mark.unit
+    def test_normal_sector_reversal_vetoes(self):
+        """Sector reversed: current < -20 AND entry was > +10."""
+        ok, reason = self._call(
+            regime="NORMAL", entry_sector_sentiment=25.0, current_sector_sentiment=-25.0
+        )
+        assert not ok
+        assert "sector" in reason.lower()
+
+    @pytest.mark.unit
+    def test_normal_sector_soft_drop_does_not_veto(self):
+        """Sector dropped but not reversed — no veto."""
+        ok, _ = self._call(
+            regime="NORMAL", entry_sector_sentiment=15.0, current_sector_sentiment=5.0
+        )
+        assert ok
+
+    @pytest.mark.unit
+    def test_bull_trend_wider_ptj_threshold(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_BULL", -3.0)
+        ok_at_minus_2_9, _ = self._call(regime="BULL_TREND", current_pnl_pct=-2.9)
+        ok_at_minus_3_1, _ = self._call(regime="BULL_TREND", current_pnl_pct=-3.1)
+        assert ok_at_minus_2_9
+        assert not ok_at_minus_3_1
+
+    @pytest.mark.unit
+    def test_opportunity_vetoes_when_sector_goes_negative(self):
+        ok, reason = self._call(
+            regime="OPPORTUNITY", entry_sector_sentiment=15.0, current_sector_sentiment=-5.0
+        )
+        assert not ok
+        assert "sector" in reason.lower()
+
+    @pytest.mark.unit
+    def test_opportunity_passes_when_sector_still_positive(self):
+        ok, _ = self._call(
+            regime="OPPORTUNITY", entry_sector_sentiment=15.0, current_sector_sentiment=5.0
+        )
+        assert ok
+
+    @pytest.mark.unit
+    def test_capitulation_wider_ptj_threshold(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_CAPITULATION", -5.0)
+        ok_at_minus_4_9, _ = self._call(regime="CAPITULATION", current_pnl_pct=-4.9)
+        ok_at_minus_5_1, _ = self._call(regime="CAPITULATION", current_pnl_pct=-5.1)
+        assert ok_at_minus_4_9
+        assert not ok_at_minus_5_1
+
+    @pytest.mark.unit
+    def test_crash_recovery_vetoes_on_3_red_days(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_CRASH", -3.0)
+        ok_2_red, _ = self._call(regime="CRASH_RECOVERY", consecutive_red_days=2)
+        ok_3_red, reason = self._call(regime="CRASH_RECOVERY", consecutive_red_days=3)
+        assert ok_2_red
+        assert not ok_3_red
+        assert "red" in reason.lower()
+
+    @pytest.mark.unit
+    def test_non_tier1_no_longer_vetoes(self):
+        """is_tier1 gate removed — non-tier1 symbols now qualify in NORMAL."""
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=1.0)
+        assert ok
+
+    @pytest.mark.unit
+    def test_event_risk_tomorrow_no_longer_vetoes(self):
+        """event_risk_tomorrow gate removed — only earnings_tomorrow matters."""
+        ok, _ = self._call(regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.0)
+        assert ok

@@ -166,57 +166,41 @@ class TestSwingManager:
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA",
-            is_tier1=True,
             regime="BULL_TREND",
-            event_risk_tomorrow=False,
-            earnings_in_2_days=False,
+            earnings_tomorrow=False,
             current_pnl_pct=2.0,
-            existing_swing_count=0,
-            sector_sentiment_score=25.0,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is True
         assert reason == ""
 
-    def test_qualifies_for_eod_hold_not_tier1(self):
-        from trading.eod_holds import qualifies_for_eod_hold
-        ok, reason = qualifies_for_eod_hold(
-            symbol="APP", is_tier1=False, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
-        )
-        assert ok is False
-        assert "tier-1" in reason
-
     def test_qualifies_for_eod_hold_wrong_regime(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="CHOPPY",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
+            symbol="NVDA", regime="CHOPPY",
+            earnings_tomorrow=False,
+            current_pnl_pct=2.0,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is False
         assert "regime" in reason
 
-    def test_qualifies_for_eod_hold_event_risk(self):
-        from trading.eod_holds import qualifies_for_eod_hold
-        ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=True, earnings_in_2_days=False,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
-        )
-        assert ok is False
-        assert "event" in reason
-
     def test_qualifies_for_eod_hold_earnings_blocks(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=True,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
+            symbol="NVDA", regime="BULL_TREND",
+            earnings_tomorrow=True,
+            current_pnl_pct=2.0,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is False
         assert "earnings" in reason
@@ -224,46 +208,28 @@ class TestSwingManager:
     def test_qualifies_for_eod_hold_ptj_rule(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=-3.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
+            symbol="NVDA", regime="BULL_TREND",
+            earnings_tomorrow=False,
+            current_pnl_pct=-3.1,  # below BULL_TREND threshold of -3.0
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is False
         assert "PTJ" in reason
-
-    def test_qualifies_for_eod_hold_swing_limit(self):
-        from trading.eod_holds import qualifies_for_eod_hold
-        import config
-        ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=2.0,
-            existing_swing_count=config.SWING_MAX_POSITIONS,
-            sector_sentiment_score=25.0,
-        )
-        assert ok is False
-        assert "swing limit" in reason
-
-    def test_qualifies_for_eod_hold_low_sector_sentiment(self):
-        from trading.eod_holds import qualifies_for_eod_hold
-        ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=5.0,
-        )
-        assert ok is False
-        assert "sector sentiment" in reason
 
     @pytest.mark.unit
     def test_qualifies_for_eod_hold_normal_regime_allowed(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="NORMAL",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=1.5, existing_swing_count=0,
-            sector_sentiment_score=20.0,
+            symbol="NVDA", regime="NORMAL",
+            earnings_tomorrow=False,
+            current_pnl_pct=1.5,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is True, f"NORMAL regime should be swing-eligible, got: {reason}"
 
@@ -420,40 +386,49 @@ class TestSwingManagerOrchestration:
 
     # ── qualifies_for_eod_hold ────────────────────────────────────────────
 
-    def test_earnings_allowed_in_capitulation_regime(self):
-        """Earnings-within-2-days must NOT block holds when regime is CAPITULATION."""
+    def test_earnings_tomorrow_blocks_capitulation_regime(self):
+        """earnings_tomorrow is a binary veto for all regimes including CAPITULATION."""
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="CAPITULATION",
-            event_risk_tomorrow=False, earnings_in_2_days=True,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
+            symbol="NVDA", regime="CAPITULATION",
+            earnings_tomorrow=True,
+            current_pnl_pct=2.0,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
+        )
+        assert ok is False
+        assert "earnings" in reason
+
+    def test_capitulation_no_earnings_passes(self):
+        """CAPITULATION without earnings tomorrow should qualify."""
+        from trading.eod_holds import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="NVDA", regime="CAPITULATION",
+            earnings_tomorrow=False,
+            current_pnl_pct=2.0,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is True
         assert reason == ""
 
-    def test_sector_sentiment_at_boundary_passes(self):
-        """Sentiment exactly at threshold (>=10) must pass."""
+    def test_pnl_exactly_minus_two_passes_in_bull_trend(self):
+        """BULL_TREND PTJ threshold is -3.0 so -2.0 P&L should pass."""
         from trading.eod_holds import qualifies_for_eod_hold
         ok, _ = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=2.0, existing_swing_count=0,
-            sector_sentiment_score=10.0,
+            symbol="NVDA", regime="BULL_TREND",
+            earnings_tomorrow=False,
+            current_pnl_pct=-2.0,
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is True
-
-    def test_pnl_exactly_minus_two_blocks(self):
-        """P&L of exactly -2% must block the hold (PTJ rule uses <=)."""
-        from trading.eod_holds import qualifies_for_eod_hold
-        ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=-2.0, existing_swing_count=0,
-            sector_sentiment_score=25.0,
-        )
-        assert ok is False
-        assert "PTJ" in reason
 
     @pytest.mark.unit
     def test_eod_hold_ptj_rule_uses_config_threshold(self, monkeypatch):
@@ -461,11 +436,13 @@ class TestSwingManagerOrchestration:
         monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -1.0)  # stricter than default -2.0
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
-            symbol="NVDA", is_tier1=True, regime="BULL_TREND",
-            event_risk_tomorrow=False, earnings_in_2_days=False,
-            current_pnl_pct=-1.5,   # between -2.0 and -1.0
-            existing_swing_count=0,
-            sector_sentiment_score=25.0,
+            symbol="NVDA", regime="NORMAL",
+            earnings_tomorrow=False,
+            current_pnl_pct=-1.5,   # below -1.0 threshold
+            entry_sector_sentiment=20.0,
+            current_sector_sentiment=15.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
         )
         assert ok is False
         assert "PTJ" in reason

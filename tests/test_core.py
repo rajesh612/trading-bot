@@ -414,3 +414,48 @@ class TestCatchupMissedAgents:
         now = datetime(2026, 5, 17, 9, 0, tzinfo=ET)  # Sunday
         called = self._run_catchup(monkeypatch, tmp_path, now)
         assert called == []
+
+
+# ── agents/volatility_screener: market cap pre-filter ────────────────────────
+
+@pytest.mark.unit
+class TestMarketCapFilter:
+    def _mock_yahoo_response(self, market_cap):
+        """Build a fake yahoo_get response containing marketCap."""
+        if market_cap is None:
+            return {"quoteSummary": {"result": [{"price": {}}]}}
+        return {"quoteSummary": {"result": [{"price": {"marketCap": {"raw": market_cap}}}]}}
+
+    @pytest.mark.unit
+    def test_fetch_market_cap_returns_value(self, monkeypatch):
+        """_fetch_market_cap returns float market cap from Yahoo Finance API."""
+        import agents.volatility_screener as vs
+        monkeypatch.setattr(vs, "yahoo_get", lambda url, **kw: self._mock_yahoo_response(500_000_000_000))
+        cap = vs._fetch_market_cap("NVDA")
+        assert cap == 500_000_000_000.0
+
+    @pytest.mark.unit
+    def test_fetch_market_cap_small_cap(self, monkeypatch):
+        """_fetch_market_cap returns small cap value below threshold."""
+        import agents.volatility_screener as vs
+        monkeypatch.setattr(vs, "yahoo_get", lambda url, **kw: self._mock_yahoo_response(5_000_000_000))
+        cap = vs._fetch_market_cap("SMALLCO")
+        assert cap == 5_000_000_000.0
+        import config
+        assert cap < config.MIN_MARKET_CAP_B * 1e9
+
+    @pytest.mark.unit
+    def test_fetch_market_cap_returns_none_when_missing(self, monkeypatch):
+        """_fetch_market_cap returns None when marketCap is absent in response."""
+        import agents.volatility_screener as vs
+        monkeypatch.setattr(vs, "yahoo_get", lambda url, **kw: self._mock_yahoo_response(None))
+        cap = vs._fetch_market_cap("MYSTERY")
+        assert cap is None
+
+    @pytest.mark.unit
+    def test_fetch_market_cap_returns_none_on_exception(self, monkeypatch):
+        """_fetch_market_cap returns None when HTTP call raises."""
+        import agents.volatility_screener as vs
+        monkeypatch.setattr(vs, "yahoo_get", lambda url, **kw: (_ for _ in ()).throw(Exception("network error")))
+        cap = vs._fetch_market_cap("BROKEN")
+        assert cap is None

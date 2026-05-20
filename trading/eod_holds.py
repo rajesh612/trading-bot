@@ -2,13 +2,11 @@
 EOD hold qualification and promotion logic for swing positions.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 import config
 from calendars.earnings import is_earnings_imminent
-from macro.economic_calendar import is_event_risk_window
 from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
-from utils import regimes
 
 from utils.constants import ET
 
@@ -34,33 +32,69 @@ def _promote_to_swing(symbol: str, position: dict, pnl_pct: float) -> bool:
 
 def qualifies_for_eod_hold(
     symbol: str,
-    is_tier1: bool,
     regime: str,
-    event_risk_tomorrow: bool,
-    earnings_in_2_days: bool,
+    earnings_tomorrow: bool,
     current_pnl_pct: float,
-    existing_swing_count: int,
-    sector_sentiment_score: float,
+    entry_sector_sentiment: float,
+    current_sector_sentiment: float,
+    consecutive_red_days: int,
+    vix_trend: str,
 ) -> tuple[bool, str]:
-    """Return (True, '') if position qualifies for overnight hold, (False, reason) otherwise.
+    """Return (True, '') if position qualifies for overnight swing hold, (False, reason) otherwise.
 
     Pure — no Alpaca calls, no file I/O.
+    Asymmetric design: fail-fast on thesis-break signals only.
     """
-    if not is_tier1:
-        return False, f"{symbol} not in tier-1 list"
-    if regime not in regimes.SWING_ELIGIBLE:
-        return False, f"regime {regime} not eligible for swing"
-    if event_risk_tomorrow:
-        return False, "high-impact event tomorrow morning"
-    if earnings_in_2_days and regime != "CAPITULATION":
-        return False, "earnings within 2 sessions (not CAPITULATION mode)"
-    if current_pnl_pct <= config.SWING_MIN_PNL_PCT:
-        return False, f"PTJ rule: P&L {current_pnl_pct:.1f}% ≤ {config.SWING_MIN_PNL_PCT}% (don't hold losers overnight)"
-    if existing_swing_count >= config.SWING_MAX_POSITIONS:
-        return False, f"swing limit reached ({existing_swing_count}/{config.SWING_MAX_POSITIONS})"
-    if sector_sentiment_score < 10:
-        return False, f"sector sentiment {sector_sentiment_score:.0f} < +10"
+    # Universal veto 1: CRISIS — no overnight exposure under any circumstances
+    if regime == "CRISIS":
+        return False, "CRISIS regime — no overnight exposure"
+
+    # Universal veto 2: earnings TOMORROW — binary risk
+    if earnings_tomorrow:
+        return False, "earnings tomorrow — overnight binary risk"
+
+    # CHOPPY / DEFENSIVE — block new swing promotions
+    if regime in ("CHOPPY", "DEFENSIVE"):
+        return False, f"{regime} regime — no new swing promotions"
+
+    # PTJ rule: don't hold losers overnight — threshold varies by regime
+    ptj_threshold = _ptj_threshold(regime)
+    if current_pnl_pct < ptj_threshold:
+        return False, f"PTJ rule: P&L {current_pnl_pct:.1f}% < {ptj_threshold}% ({regime})"
+
+    # NORMAL: veto on sector reversal (current < -20 AND entry was > +10)
+    if regime == "NORMAL":
+        if current_sector_sentiment < -20 and entry_sector_sentiment > 10:
+            return False, (
+                f"sector reversed: current {current_sector_sentiment:.0f} < -20, "
+                f"entry was {entry_sector_sentiment:.0f}"
+            )
+
+    # OPPORTUNITY: thesis requires sector health — veto if sector went negative
+    if regime == "OPPORTUNITY":
+        if current_sector_sentiment < 0 and entry_sector_sentiment > 10:
+            return False, (
+                f"OPPORTUNITY thesis broken: sector {current_sector_sentiment:.0f} < 0 "
+                f"(was {entry_sector_sentiment:.0f} at entry)"
+            )
+
+    # CRASH_RECOVERY: veto if recovery stalled (3+ consecutive red days)
+    if regime == "CRASH_RECOVERY":
+        if consecutive_red_days >= 3:
+            return False, f"CRASH_RECOVERY: recovery stalled ({consecutive_red_days} consecutive red days)"
+
     return True, ""
+
+
+def _ptj_threshold(regime: str) -> float:
+    """Return PTJ rule P&L floor for overnight hold by regime."""
+    if regime == "BULL_TREND":
+        return config.SWING_MIN_PNL_PCT_BULL
+    if regime == "CAPITULATION":
+        return config.SWING_MIN_PNL_PCT_CAPITULATION
+    if regime == "CRASH_RECOVERY":
+        return config.SWING_MIN_PNL_PCT_CRASH
+    return config.SWING_MIN_PNL_PCT   # NORMAL, OPPORTUNITY, HYBRID: -2.0%
 
 
 def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK) -> list[str]:
@@ -99,22 +133,20 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
             current_price = alpaca.get_latest_price(symbol)
             pnl_pct = (current_price - entry) / entry * 100
 
-            event_tomorrow, _ = is_event_risk_window(
-                now.replace(hour=9, minute=30, second=0) + timedelta(days=1)
-            )
-            earnings_soon = is_earnings_imminent(symbol, days=2)
+            earnings_tomorrow = is_earnings_imminent(symbol, days=1)
             sector = sectors.get_sector(symbol)
-            sect_score = sector_sentiment.get(sector, 0)
+            current_sector_score = float(sector_sentiment.get(sector, 0))
+            entry_sector_score = float(pos.get("entry_sector_sentiment", 0))
 
             qualifies, reason = qualifies_for_eod_hold(
                 symbol=symbol,
-                is_tier1=sectors.is_tier1(symbol),
                 regime=regime,
-                event_risk_tomorrow=event_tomorrow,
-                earnings_in_2_days=earnings_soon,
+                earnings_tomorrow=earnings_tomorrow,
                 current_pnl_pct=pnl_pct,
-                existing_swing_count=existing_count + len(promoted),
-                sector_sentiment_score=sect_score,
+                entry_sector_sentiment=entry_sector_score,
+                current_sector_sentiment=current_sector_score,
+                consecutive_red_days=regime_info.get("consecutive_red_days", 0),
+                vix_trend=regime_info.get("vix_trend", "stable"),
             )
             if not qualifies:
                 logger.info(f"SWING SKIP {symbol}: {reason}")

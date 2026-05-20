@@ -5,8 +5,27 @@ import pandas as pd
 
 import config
 from broker.alpaca_client import AlpacaClient
+from utils.http import yahoo_get
 
 logger = logging.getLogger(__name__)
+
+_MARKET_CAP_URL = (
+    "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
+    "?modules=price"
+)
+
+
+def _fetch_market_cap(symbol: str) -> float | None:
+    """Return market cap in dollars from Yahoo Finance, or None if unavailable."""
+    try:
+        data = yahoo_get(_MARKET_CAP_URL.format(symbol=symbol))
+        result = data.get("quoteSummary", {}).get("result") or []
+        if not result:
+            return None
+        raw = result[0].get("price", {}).get("marketCap", {}).get("raw")
+        return float(raw) if raw else None
+    except Exception:
+        return None
 
 
 def _score_ticker(symbol: str, client: AlpacaClient) -> float:
@@ -55,8 +74,25 @@ def run_volatility_screener() -> list[str]:
     import sectors
     tickers = sectors.load_universe()
 
+    # Pre-filter: exclude symbols below market cap threshold
+    if config.MIN_MARKET_CAP_B > 0:
+        min_cap = config.MIN_MARKET_CAP_B * 1e9
+        eligible = []
+        for ticker in tickers:
+            cap = _fetch_market_cap(ticker)
+            if cap is not None and cap >= min_cap:
+                eligible.append(ticker)
+            elif cap is not None:
+                logger.debug(f"SCREEN OUT {ticker}: market cap ${cap:,.0f} < ${min_cap:,.0f}")
+            else:
+                logger.debug(f"SCREEN OUT {ticker}: market cap unavailable")
+        logger.info(
+            f"Market cap filter ({config.MIN_MARKET_CAP_B}B): {len(tickers)} → {len(eligible)} tickers"
+        )
+        tickers = eligible
+
     if len(tickers) <= config.MAX_TICKERS_DIRECT:
-        logger.info(f"{len(tickers)} tickers ≤ 50 — no screening needed.")
+        logger.info(f"{len(tickers)} tickers ≤ {config.MAX_TICKERS_DIRECT} — no screening needed.")
         config.DAILY_TRADEABLE_FILE.write_text("\n".join(tickers))
         return tickers
 
