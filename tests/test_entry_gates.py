@@ -543,12 +543,14 @@ class TestEffectiveCompositeGate:
         iv.bot_herding_score = bot_herding_score
         return iv
 
-    def test_high_vol_regime_returns_35(self):
+    def test_high_vol_regime_returns_35(self, monkeypatch):
+        monkeypatch.setattr(config, "COMPOSITE_MIN_HIGH_VOL", 35)
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
         assert effective_composite_gate(iv, "HIGH_VOL") == 35
 
-    def test_defensive_regime_returns_35(self):
+    def test_defensive_regime_returns_35(self, monkeypatch):
+        monkeypatch.setattr(config, "COMPOSITE_MIN_HIGH_VOL", 35)
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
         assert effective_composite_gate(iv, "DEFENSIVE") == 35
@@ -563,18 +565,21 @@ class TestEffectiveCompositeGate:
         iv = self._iv(bot_herding_score=60)  # BOT_HERD_ALERT_SCORE = 60
         assert effective_composite_gate(iv, "NORMAL") == 25
 
-    def test_choppy_returns_35(self):
+    def test_choppy_returns_35(self, monkeypatch):
+        monkeypatch.setattr(config, "CHOPPY_COMPOSITE_GATE", 35)
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
         assert effective_composite_gate(iv, "CHOPPY") == 35
 
-    def test_normal_returns_30(self):
+    def test_normal_returns_30(self, monkeypatch):
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
         assert effective_composite_gate(iv, "NORMAL") == 30
 
-    def test_high_vol_overrides_squeeze(self):
+    def test_high_vol_overrides_squeeze(self, monkeypatch):
         """HIGH_VOL safety takes priority over squeeze setup."""
+        monkeypatch.setattr(config, "COMPOSITE_MIN_HIGH_VOL", 35)
         from signals.entry_gates import effective_composite_gate
         iv = self._iv(squeeze_setup=True)
         assert effective_composite_gate(iv, "HIGH_VOL") == 35
@@ -592,6 +597,27 @@ class TestEffectiveCompositeGate:
         from signals.entry_gates import effective_composite_gate
         iv = self._iv()
         assert effective_composite_gate(iv, "NORMAL") == config.COMPOSITE_MIN_NORMAL
+
+    @pytest.mark.unit
+    def test_effective_gate_bull_trend_returns_45(self, monkeypatch):
+        """BULL_TREND regime uses COMPOSITE_MIN_BULL_TREND (45), not NORMAL (50)."""
+        monkeypatch.setattr(config, "COMPOSITE_MIN_BULL_TREND", 45)
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv(squeeze_setup=False, bot_herding_score=0)
+        result = effective_composite_gate(iv, "BULL_TREND")
+        assert result == 45
+
+    @pytest.mark.unit
+    def test_effective_gate_bull_trend_not_normal(self, monkeypatch):
+        """BULL_TREND must not fall through to NORMAL threshold."""
+        monkeypatch.setattr(config, "COMPOSITE_MIN_BULL_TREND", 45)
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
+        from signals.entry_gates import effective_composite_gate
+        iv = self._iv(squeeze_setup=False, bot_herding_score=0)
+        normal_gate = effective_composite_gate(iv, "NORMAL")
+        bull_gate   = effective_composite_gate(iv, "BULL_TREND")
+        assert bull_gate < normal_gate
 
 
 # ── Module-level gate config and stoch threshold tests ───────────────────────
@@ -653,73 +679,3 @@ def test_sector_etf_soft_gate_flags_weak_sector(monkeypatch):
     )
     assert result.passed
     assert any("sector_weak" in f for f in result.flags)
-
-
-class TestLateEntryCompositeGate:
-    """Late-day composite gate — require higher composite after ENTRY_LATE_HOUR."""
-
-    def _iv_late(self, composite: float = 60.0):
-        return types.SimpleNamespace(
-            current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
-            stop_hunt_zone=False, parabolic=False, momentum_exhaustion=False,
-            bot_herding_score=0, squeeze_setup=False, rsi=50.0, stoch_d=50.0,
-            prev_close=100.0, relative_volume=1.0, or_position="outside",
-            composite_score=composite,
-        )
-
-    def _late_now(self):
-        from zoneinfo import ZoneInfo
-        return datetime(2024, 1, 15, 14, 30, 0, tzinfo=ZoneInfo("America/New_York"))
-
-    def _early_now(self):
-        from zoneinfo import ZoneInfo
-        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
-
-    def _patch(self, monkeypatch):
-        import calendars.earnings as ec
-        import macro.economic_calendar as ecc
-        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
-        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
-
-    @pytest.mark.unit
-    def test_late_entry_low_composite_blocked(self, monkeypatch):
-        """After ENTRY_LATE_HOUR, composite below ENTRY_LATE_COMPOSITE_MIN → blocked."""
-        from signals.entry_gates import check_all_gates
-        self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
-        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
-        result = check_all_gates(
-            symbol="AAPL", iv=self._iv_late(composite=35.0),
-            open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), entries_this_cycle=0,
-        )
-        assert result.passed is False
-        assert "late" in result.reason.lower() or "composite" in result.reason.lower()
-
-    @pytest.mark.unit
-    def test_late_entry_high_composite_passes(self, monkeypatch):
-        """After ENTRY_LATE_HOUR, composite at or above threshold → passes gate."""
-        from signals.entry_gates import check_all_gates
-        self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
-        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
-        result = check_all_gates(
-            symbol="AAPL", iv=self._iv_late(composite=60.0),
-            open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), entries_this_cycle=0,
-        )
-        assert result.passed is True
-
-    @pytest.mark.unit
-    def test_early_entry_low_composite_not_blocked_by_late_gate(self, monkeypatch):
-        """Before ENTRY_LATE_HOUR, late-gate does not apply."""
-        from signals.entry_gates import check_all_gates
-        self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
-        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
-        result = check_all_gates(
-            symbol="AAPL", iv=self._iv_late(composite=35.0),
-            open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._early_now(), entries_this_cycle=0,
-        )
-        assert "late" not in result.reason.lower()

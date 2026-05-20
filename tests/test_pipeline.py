@@ -156,7 +156,9 @@ class TestPreClaudeFilter:
         assert "shock" in result.reason
 
     @pytest.mark.unit
-    def test_auto_execute_strong_signal(self):
+    def test_auto_execute_strong_signal(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 65)
         from trading.pre_claude_filter import pre_claude_filter
         # composite=66 (> raised threshold 65), sentiment=25 (> raised threshold 20)
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
@@ -180,7 +182,9 @@ class TestPreClaudeFilter:
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
-    def test_claude_path_moderate_signal(self):
+    def test_claude_path_moderate_signal(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
         from trading.pre_claude_filter import pre_claude_filter
         # composite 42, sentiment 5 — passes all gates but not high enough for auto-execute
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 5}})
@@ -188,8 +192,10 @@ class TestPreClaudeFilter:
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
-    def test_claude_path_no_intraday_cache(self):
+    def test_claude_path_no_intraday_cache(self, monkeypatch):
         """Falls back to research sentiment when intraday cache is empty."""
+        import config
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
         from trading.pre_claude_filter import pre_claude_filter
         snap = self._snap(
             research={"TEST": {"sentiment_score": 25}},
@@ -222,8 +228,10 @@ class TestPreClaudeFilter:
         assert "composite" in result.reason
 
     @pytest.mark.unit
-    def test_choppy_composite_gate_passes_at_35(self):
+    def test_choppy_composite_gate_passes_at_35(self, monkeypatch):
         """In CHOPPY regime, composite 35 == gate should pass Layer 1."""
+        import config
+        monkeypatch.setattr(config, "CHOPPY_COMPOSITE_GATE", 35)
         from trading.pre_claude_filter import pre_claude_filter
         snap = self._snap(
             regime_info={"regime": "CHOPPY", "macro_health_score": 0},
@@ -233,8 +241,10 @@ class TestPreClaudeFilter:
         assert result.decision != "SKIP" or "composite" not in result.reason
 
     @pytest.mark.unit
-    def test_layer_2_5_blocks_vwap_slope_downtrend(self):
+    def test_layer_2_5_blocks_vwap_slope_downtrend(self, monkeypatch):
         """VWAP slope below minimum blocks before Claude."""
+        import config
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
         from trading.pre_claude_filter import pre_claude_filter
         from tests.test_signals import make_full_iv
         snap = self._snap()
@@ -249,6 +259,7 @@ class TestPreClaudeFilter:
         """Option A: price > VWAP+2σ is a safety gate, not a quality signal — must pass filter."""
         import config
         monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
         from trading.pre_claude_filter import pre_claude_filter
         snap = self._snap()
         iv = self._iv(composite=40.0)

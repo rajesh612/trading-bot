@@ -707,6 +707,7 @@ def test_executor_logs_warning_on_slippage_timeout(monkeypatch, tmp_path, caplog
     import config
     monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "positions.json")
     monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 20)
     monkeypatch.setattr("notifications.telegram.notify_buy", lambda **kw: None)
     monkeypatch.setattr("notifications.telegram.notify_daily_loss_warning", lambda *a: None)
     monkeypatch.setattr("trading.risk_manager.correct_bracket_after_fill", lambda *a, **kw: None)

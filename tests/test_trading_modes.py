@@ -310,6 +310,8 @@ def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
 
     # Ensure config.RSI_BUY_MAX is 72 (default) so the test is meaningful
     monkeypatch.setattr(config, "RSI_BUY_MAX", 72)
+    # composite=40 must pass the composite gate so the RSI gate is reached
+    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
 
     # Build a minimal snap with learned threshold = 60
     snap = MagicMock()

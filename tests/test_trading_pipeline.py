@@ -601,6 +601,7 @@ def test_pre_claude_filter_passes_stoch_95(monkeypatch):
     """Option A: Stoch 95 must NOT cause SKIP in pre_claude_filter (only in check_all_gates)."""
     import config
     monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
+    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
     from trading.pre_claude_filter import pre_claude_filter
     iv = _make_iv_pipeline(composite_score=35.0, stoch_d=95.0)
     snap = _make_snap_pipeline()
@@ -613,6 +614,7 @@ def test_pre_claude_filter_passes_vwap_overextended(monkeypatch):
     """Option A: price > VWAP+2σ must NOT cause SKIP in pre_claude_filter."""
     import config
     monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
+    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
     from trading.pre_claude_filter import pre_claude_filter
     iv = _make_iv_pipeline(composite_score=35.0, current_price=104.0, vwap_std2_upper=101.5)
     snap = _make_snap_pipeline()

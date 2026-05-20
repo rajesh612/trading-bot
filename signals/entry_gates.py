@@ -34,18 +34,20 @@ class GateResult:
 def effective_composite_gate(iv: IndicatorValues, regime: str, params: dict | None = None) -> int:
     """Single source of truth for composite entry threshold by regime and signal context.
 
-    Priority: HIGH_VOL safety → squeeze setup → bot herding → CHOPPY → NORMAL.
+    Priority: HIGH_VOL safety → squeeze setup → bot herding → CHOPPY → BULL_TREND → NORMAL.
     When params is provided, NORMAL regime reads composite_min_normal from params
     (written by learning agent on zero-trade days).
     """
     if regime in regimes.HIGH_VOL_GATES:
-        return config.COMPOSITE_MIN_HIGH_VOL   # 35
+        return config.COMPOSITE_MIN_HIGH_VOL   # 55
     if iv.squeeze_setup:
         return config.SQUEEZE_COMPOSITE_MIN    # strong squeeze signal lowers bar
     if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
         return config.HERD_ENTRY_GATE          # 25
     if regime == "CHOPPY":
-        return config.CHOPPY_COMPOSITE_GATE   # 35
+        return config.CHOPPY_COMPOSITE_GATE   # 55
+    if regime == "BULL_TREND":
+        return config.COMPOSITE_MIN_BULL_TREND  # 45
     return (params or {}).get("composite_min_normal", config.COMPOSITE_MIN_NORMAL)
 
 
