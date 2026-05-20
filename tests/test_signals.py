@@ -361,3 +361,52 @@ class TestOpeningRangeGate:
     def test_unknown_when_or_not_formed(self):
         from signals.opening_range_gate import get_or_position
         assert get_or_position(current_price=100.0, or_high=0.0, or_low=0.0) == "unknown"
+
+
+# ── Task 1: VIX regime classifier ─────────────────────────────────────────────
+
+class TestVixClassifier:
+    """Tests for backtest/data.py _classify_vix_day"""
+
+    def _make_vix(self, values: list[float]) -> list[tuple[int, float]]:
+        """Build (timestamp, close) pairs from a list of VIX values."""
+        return [(i * 86400, v) for i, v in enumerate(values)]
+
+    def _make_spy(self, values: list[float]) -> list[tuple[int, float]]:
+        return [(i * 86400, v) for i, v in enumerate(values)]
+
+    @pytest.mark.unit
+    def test_crisis_when_vix_rising_and_spy_falling(self):
+        """VIX above 90d avg, rising, SPY falling → CRISIS."""
+        from backtest.data import _classify_vix_day
+        vix = self._make_vix([20] * 90 + [38, 40])
+        spy = self._make_spy([500, 490])
+        assert _classify_vix_day(vix, spy) == "CRISIS"
+
+    @pytest.mark.unit
+    def test_crash_recovery_when_vix_elevated_but_falling_from_peak(self):
+        """VIX above CRISIS threshold but dropping >=10% from 5d peak → CRASH_RECOVERY."""
+        from backtest.data import _classify_vix_day
+        # VIX was 50 (peak), now 43 — that's a 14% drop from peak; still above avg 20
+        vix = self._make_vix([20] * 90 + [50, 50, 50, 50, 50, 43])
+        spy = self._make_spy([500, 505])
+        result = _classify_vix_day(vix, spy)
+        assert result == "CRASH_RECOVERY"
+
+    @pytest.mark.unit
+    def test_high_vol_when_vix_elevated_small_drop(self):
+        """VIX above avg, not rising, but drop from peak < threshold → HIGH_VOL."""
+        from backtest.data import _classify_vix_day
+        # VIX was 30, now 29 — only 3.3% drop from peak (below 10% threshold)
+        vix = self._make_vix([20] * 90 + [30, 30, 30, 30, 30, 29])
+        spy = self._make_spy([500, 501])
+        result = _classify_vix_day(vix, spy)
+        assert result == "HIGH_VOL"
+
+    @pytest.mark.unit
+    def test_normal_when_vix_below_avg(self):
+        """VIX below 90d avg → NORMAL."""
+        from backtest.data import _classify_vix_day
+        vix = self._make_vix([30] * 90 + [18, 17])
+        spy = self._make_spy([500, 501])
+        assert _classify_vix_day(vix, spy) == "NORMAL"

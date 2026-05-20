@@ -119,8 +119,20 @@ def _classify_vix_day(
     spy_change = 0.0
     if len(past_spy) >= 2:
         spy_change = (past_spy[-1][1] - past_spy[-2][1]) / past_spy[-2][1] * 100
+
+    # Detect CRASH_RECOVERY: VIX in crisis territory but falling significantly from recent peak
+    vix_peak_5d = max(c for _, c in past_vix[-6:-1]) if len(past_vix) >= 6 else vix_current
+    vix_drop_pct = (vix_peak_5d - vix_current) / vix_peak_5d * 100 if vix_peak_5d > 0 else 0.0
+    is_crash_recovery = (
+        vix_current >= config.BACKTEST_CRISIS_VIX_THRESHOLD
+        and not vix_rising
+        and vix_drop_pct >= config.BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT
+    )
+
     if vix_current > vix_avg_90d and vix_rising and spy_change < -1.0:
         return "CRISIS"
+    if is_crash_recovery:
+        return "CRASH_RECOVERY"
     if vix_current > vix_avg_90d:
         return "HIGH_VOL"
     return "NORMAL"

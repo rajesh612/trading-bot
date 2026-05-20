@@ -322,3 +322,5 @@ BACKTEST_STARTING_CAPITAL    = 100_000.0  # initial portfolio value for simulati
 BACKTEST_SLIPPAGE_PCT        = 0.0005     # 0.05% slippage on entry and exit fills
 BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in simulation
 BACKTEST_SWING_COMPOSITE_MIN = 40.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
+BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
+BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY

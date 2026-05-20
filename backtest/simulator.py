@@ -145,7 +145,7 @@ def _evaluate_swing_promotion(
         avail2 = df2[df2.index <= ts]
         eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
         pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
-        if regime == "NORMAL" and pnl_pct > 0 and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN and n_swings < SWING_MAX_POSITIONS:
+        if regime in ("NORMAL", "CRASH_RECOVERY") and pnl_pct > 0 and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN and n_swings < SWING_MAX_POSITIONS:
             pos2["is_swing"] = True
             pos2["swing_days_remaining"] = SWING_MAX_DAYS
             pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
