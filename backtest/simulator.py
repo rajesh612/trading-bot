@@ -35,7 +35,7 @@ STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MIN_COMPOSITE = config.COMPOSITE_MIN_NORMAL; MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
 RSI_BUY_MAX   = config.RSI_BUY_MAX;    RSI_BUY_MAX_HV   = config.RSI_BUY_MAX_HIGH_VOL
 VWAP_SLOPE_MIN = config.VWAP_SLOPE_MIN; ENTRY_START_H   = config.ENTRY_START_HOUR
-ENTRY_END_H   = config.ENTRY_END_HOUR;  HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
+HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
 MAX_POSITION_PCT = config.MAX_POSITION_PCT; RISK_PER_TRADE = config.RISK_PER_TRADE_PCT
 LOOKBACK_BARS = config.BARS_LOOKBACK;   SWING_MAX_POSITIONS = config.SWING_MAX_POSITIONS
 SWING_MAX_DAYS = config.BACKTEST_SWING_MAX_DAYS
@@ -287,7 +287,9 @@ def simulate_day(
     mkt_open      = _ts(MARKET_OPEN_H, MARKET_OPEN_M)
     force_ts      = _ts(FORCE_CLOSE_H, FORCE_CLOSE_M)
     swing_eval_ts = _ts(SWING_EVAL_H,  SWING_EVAL_M)
-    entry_start   = _ts(ENTRY_START_H); entry_end = _ts(ENTRY_END_H)
+    from utils.regime_params import get_entry_params as _get_entry_params
+    entry_start = _ts(ENTRY_START_H)
+    entry_end   = _ts(_get_entry_params(regime).hard_close_hour)
     day_start_equity = state.cash
     halted = False
     swing_evaluated = False

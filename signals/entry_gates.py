@@ -73,6 +73,7 @@ def check_all_gates(
     sentiment_score: float = 0.0,          # symbol-level news sentiment score
     swing_eligible: bool = False,          # True when regime is in SWING_ELIGIBLE
     major_event_today: bool = False,       # True if FOMC/CPI/NFP scheduled today
+    regime: str = "NORMAL",               # Current macro regime for hard cutoff lookup
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -96,8 +97,8 @@ def check_all_gates(
     if major_event_today and swing_eligible:
         return GateResult(False, "major economic event today — no new swing-eligible entries")
 
-    # 1. Time gate — block first 30 min and last 35 min
-    if not is_entry_allowed(now):
+    # 1. Time gate — block first 30 min, last 35 min, and after per-regime hard cutoff
+    if not is_entry_allowed(now, regime):
         return GateResult(False, "outside entry time window")
 
     # 1b. Late-day composite gate — after 2 PM require higher conviction

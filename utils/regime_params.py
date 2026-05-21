@@ -18,6 +18,7 @@ class EntryParams:
     rsi_max: int
     entry_allowed: bool
     position_mult: float
+    hard_close_hour: int = 13
 
 
 @dataclass(frozen=True)
@@ -47,15 +48,15 @@ class T2Params:
 def _entry_table() -> dict[str, EntryParams]:
     defensive_composite = int(config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT)
     return {
-        "CRISIS":         EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,         False, 0.0),
-        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,         True,  1.0),
-        "BULL_TREND":     EntryParams(config.COMPOSITE_MIN_BULL_TREND, config.RSI_BUY_MAX,        True,  1.0),
-        "CHOPPY":         EntryParams(config.CHOPPY_COMPOSITE_GATE,   config.CHOPPY_RSI_PULLBACK_MAX, True, 0.5),
-        "DEFENSIVE":      EntryParams(defensive_composite,            config.RSI_BUY_MAX_HIGH_VOL, True, 0.5),
-        "HIGH_VOL":       EntryParams(config.COMPOSITE_MIN_HIGH_VOL,  config.RSI_BUY_MAX_HIGH_VOL, True, 0.5),
-        "OPPORTUNITY":    EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,         True,  1.0),
-        "CRASH_RECOVERY": EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,         True,  1.0),
-        "CAPITULATION":   EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,         True,  1.0),
+        "CRISIS":         EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,             False, 0.0,  0),
+        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,             True,  1.0, 13),
+        "BULL_TREND":     EntryParams(config.COMPOSITE_MIN_BULL_TREND, config.RSI_BUY_MAX,            True,  1.0, 14),
+        "CHOPPY":         EntryParams(config.CHOPPY_COMPOSITE_GATE,   config.CHOPPY_RSI_PULLBACK_MAX, True,  0.5, 12),
+        "DEFENSIVE":      EntryParams(defensive_composite,            config.RSI_BUY_MAX_HIGH_VOL,    True,  0.5, 12),
+        "HIGH_VOL":       EntryParams(config.COMPOSITE_MIN_HIGH_VOL,  config.RSI_BUY_MAX_HIGH_VOL,    True,  0.5, 13),
+        "OPPORTUNITY":    EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,             True,  1.0, 14),
+        "CRASH_RECOVERY": EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,             True,  1.0, 13),
+        "CAPITULATION":   EntryParams(config.COMPOSITE_MIN_NORMAL,    config.RSI_BUY_MAX,             True,  1.0, 13),
     }
 
 

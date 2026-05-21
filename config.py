@@ -108,6 +108,7 @@ SL_BLACKLIST_ENABLED   = True   # block SL-hit symbols from re-entry next day
 
 ENTRY_START_HOUR       = 10   # No entries before 10:00 AM (avoid open noise)
 ENTRY_END_HOUR         = 15   # No entries at or after 3:00 PM
+ENTRY_HARD_CLOSE_HOUR  = 13   # Default regime hard cutoff (NORMAL); per-regime values in EntryParams
 ENTRY_GATE_OPEN_MINUTES  = 30 # block entries for first N minutes after open
 ENTRY_GATE_CLOSE_MINUTES = 35 # block entries for last N minutes before close
 ENTRY_LATE_HOUR          = 14   # 2:00 PM ET — after this, require higher composite for entry
