@@ -219,10 +219,7 @@ EOD_FORCE_CLOSE_MINUTE = 55  # minute at which force_close_all() runs (ET)
 EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
 EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
-SWING_MIN_PNL_PCT        = -2.0 # PTJ rule: don't hold overnight if P&L <= this %
-SWING_MIN_PNL_PCT_BULL         = -3.0   # BULL_TREND: wider PTJ rule (SL is 7%)
 SWING_MIN_PNL_PCT_CAPITULATION = -5.0   # CAPITULATION: widest PTJ rule (SL is 12%)
-SWING_MIN_PNL_PCT_CRASH        = -3.0   # CRASH_RECOVERY: wider PTJ rule (SL is 10%)
 
 # ── Swing per-regime promotion thresholds ──────────────────────────────────
 SWING_MIN_PNL_NORMAL        = 0.5    # minimum EOD P&L to promote to swing in NORMAL/standard regimes

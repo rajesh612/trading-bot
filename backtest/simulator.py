@@ -13,7 +13,7 @@ import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_entry_params
+from utils.regime_params import get_swing_params, get_entry_params, get_t2_params
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ def _sim_tranche2_gates_pass(
         return False
     if now.hour >= config.TRANCHE2_CUTOFF_HOUR:
         return False
-    if regime in ("CRISIS", "CHOPPY"):
+    if get_t2_params(regime).cutoff_hour == 0:
         return False
     if drop_pct < config.TRANCHE2_DROP_MIN_PCT or drop_pct > config.TRANCHE2_DROP_MAX_PCT:
         return False

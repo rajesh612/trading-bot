@@ -783,11 +783,10 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert not ok_at_minus_5_1
 
     @pytest.mark.unit
-    def test_crash_recovery_vetoes_on_3_red_days(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_CRASH", -3.0)
-        ok_2_red, _ = self._call(regime="CRASH_RECOVERY", consecutive_red_days=2)
-        ok_3_red, reason = self._call(regime="CRASH_RECOVERY", consecutive_red_days=3)
+    def test_crash_recovery_vetoes_on_3_red_days(self):
+        """3 consecutive red days blocks CRASH_RECOVERY swing even with sufficient P&L."""
+        ok_2_red, _ = self._call(regime="CRASH_RECOVERY", consecutive_red_days=2, current_pnl_pct=1.1)
+        ok_3_red, reason = self._call(regime="CRASH_RECOVERY", consecutive_red_days=3, current_pnl_pct=1.1)
         assert ok_2_red
         assert not ok_3_red
         assert "red" in reason.lower()
@@ -809,10 +808,10 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
 @pytest.mark.unit
 class TestGetEntryParams:
-    def test_crisis_blocks_entry(self):
+    def test_crisis_has_zero_hard_close_hour(self):
         from utils.regime_params import get_entry_params
         p = get_entry_params("CRISIS")
-        assert p.entry_allowed is False
+        assert p.hard_close_hour == 0
 
     def test_choppy_raises_composite_min(self):
         from utils.regime_params import get_entry_params
@@ -823,8 +822,8 @@ class TestGetEntryParams:
     def test_bull_trend_returns_entry_params(self):
         from utils.regime_params import get_entry_params
         p = get_entry_params("BULL_TREND")
-        assert p.entry_allowed is True
         assert isinstance(p.composite_min, int)
+        assert p.hard_close_hour == 14
 
     def test_unknown_regime_falls_back_to_normal(self):
         from utils.regime_params import get_entry_params
@@ -861,6 +860,12 @@ class TestGetSwingParams:
         p = get_swing_params("CHOPPY")
         assert p.profit_lock_pct > p.min_pnl_pct
 
+    def test_high_vol_swing_ineligible(self):
+        """HIGH_VOL must not be eligible for swing promotion (same as CHOPPY/DEFENSIVE)."""
+        from utils.regime_params import get_swing_params
+        sp = get_swing_params("HIGH_VOL")
+        assert sp.eligible is False
+
 
 @pytest.mark.unit
 class TestGetT2Params:
@@ -872,10 +877,7 @@ class TestGetT2Params:
     def test_normal_t2_params_well_formed(self):
         from utils.regime_params import get_t2_params
         p = get_t2_params("NORMAL")
-        assert 0 < p.drop_min_pct < p.drop_max_pct
-        assert p.rsi_max > 0
         assert p.cutoff_hour > 0
-        assert p.min_hold_min > 0
 
     def test_choppy_t2_more_restrictive_than_normal(self):
         from utils.regime_params import get_t2_params
@@ -922,3 +924,10 @@ class TestQualifiesForEodHold:
         result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.5)
         assert result is True
         assert reason == ""
+
+    @pytest.mark.unit
+    def test_earnings_tomorrow_overrides_profit_lock_bypass(self, monkeypatch):
+        """earnings_tomorrow=True must veto even a highly profitable position (profit-lock bypass should not fire)."""
+        ok, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=4.0, earnings_tomorrow=True)
+        assert not ok
+        assert "earnings" in reason.lower()

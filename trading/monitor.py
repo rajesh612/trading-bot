@@ -110,7 +110,7 @@ def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> Non
     sector_etf_chg: dict[str, float] = {}
     for etf in unique_etfs:
         try:
-            bars = get_intraday_bars(etf, lookback=2)
+            bars = get_intraday_bars(etf, lookback=config.BARS_LOOKBACK)
             if bars is not None and not bars.empty:
                 session_open = float(bars.iloc[0]["open"])
                 latest = alpaca.get_latest_price(etf)

@@ -82,7 +82,7 @@ class TestTimeGate:
         assert is_entry_allowed(self._et(15, 50)) is False
 
     def test_allowed_before_close_window(self):
-        """12:59 ET in NORMAL regime should be allowed (just before hard cutoff at 13:00)."""
+        """12:59 ET in NORMAL (default) regime should be allowed (hard cutoff at 13:00)."""
         assert is_entry_allowed(self._et(12, 59)) is True
 
     def test_naive_datetime_handled(self):

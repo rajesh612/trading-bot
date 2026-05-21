@@ -23,6 +23,7 @@ from signals.vwap_guard import passes_vwap_guard
 from signals.volume_guard import is_volume_weak
 from calendars.earnings import is_earnings_imminent
 from utils import regimes
+from utils.regime_params import get_entry_params
 
 
 @dataclass(frozen=True)
@@ -45,11 +46,11 @@ def effective_composite_gate(iv: IndicatorValues, regime: str, params: dict | No
         return config.SQUEEZE_COMPOSITE_MIN    # strong squeeze signal lowers bar
     if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
         return config.HERD_ENTRY_GATE          # 25
-    if regime == "CHOPPY":
-        return config.CHOPPY_COMPOSITE_GATE   # 55
-    if regime == "BULL_TREND":
-        return config.COMPOSITE_MIN_BULL_TREND  # 45
-    return (params or {}).get("composite_min_normal", config.COMPOSITE_MIN_NORMAL)
+    ep = get_entry_params(regime)
+    # NORMAL regime: honor learning-agent-adjusted floor if present
+    if regime == "NORMAL":
+        return (params or {}).get("composite_min_normal", ep.composite_min)
+    return ep.composite_min
 
 
 
