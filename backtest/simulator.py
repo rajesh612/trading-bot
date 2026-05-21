@@ -13,7 +13,7 @@ import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
 from utils.constants import ET
-from utils.regime_params import get_swing_params
+from utils.regime_params import get_swing_params, get_entry_params
 
 logger = logging.getLogger(__name__)
 
@@ -287,9 +287,8 @@ def simulate_day(
     mkt_open      = _ts(MARKET_OPEN_H, MARKET_OPEN_M)
     force_ts      = _ts(FORCE_CLOSE_H, FORCE_CLOSE_M)
     swing_eval_ts = _ts(SWING_EVAL_H,  SWING_EVAL_M)
-    from utils.regime_params import get_entry_params as _get_entry_params
     entry_start = _ts(ENTRY_START_H)
-    entry_end   = _ts(_get_entry_params(regime).hard_close_hour)
+    entry_end   = _ts(get_entry_params(regime).hard_close_hour)
     day_start_equity = state.cash
     halted = False
     swing_evaluated = False

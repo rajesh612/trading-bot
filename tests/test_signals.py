@@ -587,14 +587,12 @@ class TestEntryHardCutoff:
         from zoneinfo import ZoneInfo
         return datetime(2026, 5, 21, hour, minute, tzinfo=ZoneInfo("America/New_York"))
 
-    def test_entry_allowed_before_hard_cutoff_normal(self, monkeypatch):
+    def test_entry_allowed_before_hard_cutoff_normal(self):
         from signals.time_gate import is_entry_allowed
-        # 12:59 PM in NORMAL (cutoff=13) should be allowed
         assert is_entry_allowed(self._now(12, 59), regime="NORMAL") is True
 
-    def test_entry_blocked_at_hard_cutoff_normal(self, monkeypatch):
+    def test_entry_blocked_at_hard_cutoff_normal(self):
         from signals.time_gate import is_entry_allowed
-        # 1:00 PM in NORMAL (cutoff=13) should be blocked
         assert is_entry_allowed(self._now(13, 0), regime="NORMAL") is False
 
     def test_entry_blocked_earlier_in_choppy(self, monkeypatch):
