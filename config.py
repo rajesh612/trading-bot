@@ -371,3 +371,30 @@ BACKTEST_SWING_COMPOSITE_MIN = 50.0      # composite threshold for EOD swing pro
 BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
 BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY
 BACKTEST_SWING_MAX_DAYS          = 3     # conservative swing duration cap for backtests
+
+# ── Data Resilience ──────────────────────────────────────────────────────────
+DATA_RETRY_MAX                       = 3
+DATA_RETRY_BACKOFF_PREMARKET         = [1, 3, 8]   # minutes; before 9:30 ET
+DATA_RETRY_BACKOFF_INTRADAY          = [1, 2, 5]   # minutes; during market hours
+
+DATA_STALE_THRESHOLD_MINUTES: dict[str, int] = {
+    "regime":              60,
+    "research":           360,
+    "screener":            90,
+    "earnings":           480,
+    "economic_calendar":  480,
+    "watch_list":          90,
+}
+DATA_COMPOSITE_PENALTY: dict[str, int] = {
+    "regime":    10,
+    "research":   5,
+    "screener":   0,
+    "earnings":   0,
+    "watch_list": 0,
+}
+DATA_DISABLE_AUTO_EXECUTE            = frozenset({"regime"})
+DATA_DISABLE_T2                      = frozenset({"regime"})
+DATA_REGIME_CANOPEN_MAX_MINUTES      = 240   # force can_open=False if regime > 4h stale
+DATA_SWING_STALE_FALLBACK_REGIME     = "NORMAL"
+DATA_SCREENER_FAILURE_RATE_THRESHOLD = 0.80
+DATA_WATCH_LIST_HEALTH_FILE          = STATE_DIR / "watch_list_health.json"
