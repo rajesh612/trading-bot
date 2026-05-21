@@ -333,6 +333,18 @@ PEAD_EPS_BEAT_STRONG    = 20.0  # blowout beat threshold (30 pts)
 PEAD_EPS_BEAT_SOLID     = 10.0  # strong beat threshold (25 pts)
 PEAD_FWD_REVISION_MIN   = 3.0   # forward EPS revision % to qualify as 6th condition
 
+# ── Tranche-2 scaled entry ────────────────────────────────────────────────────
+TRANCHE1_SIZE_PCT        = 0.60   # T1 = 60% of computed position size
+TRANCHE2_SIZE_PCT        = 0.40   # T2 = 40% of fresh size computed at T2 price/ATR
+TRANCHE2_DROP_MIN_PCT    = 4.0    # T2 triggers when price ≥ 4% below T1 entry
+TRANCHE2_DROP_MAX_PCT    = 7.0    # T2 blocked if drop > 7% (breakdown, not dip)
+TRANCHE2_RSI_MAX         = 45     # RSI must show oversold at trigger time
+TRANCHE2_COMPOSITE_MIN   = 40     # Composite score must still be healthy
+TRANCHE2_SL_PCT          = 5.5    # Blended SL: 5.5% below T2 fill price
+TRANCHE2_CUTOFF_HOUR     = 14     # No T2 triggers after 2:00 PM ET
+TRANCHE2_MIN_HOLD_MIN    = 60     # T1 must be held ≥ 60 min before T2 eligible
+TRANCHE2_MIN_SENTIMENT   = 20     # Symbol sentiment score floor for T2
+
 # ── BACKTEST SIMULATION ────────────────────────────────────────────────────────
 
 BACKTEST_STARTING_CAPITAL    = 100_000.0  # initial portfolio value for simulation
