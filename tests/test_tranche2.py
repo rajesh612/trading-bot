@@ -350,4 +350,152 @@ class TestT1Sizing:
         assert result["tranche_2_triggered"] is False
         assert result["tranche_1_qty"] == 60
         assert result["tranche_1_entry"] == 100.0
+
+
+# ── Task 5: execute_tranche2_addon ───────────────────────────────────────────
+
+@pytest.mark.unit
+class TestExecuteTranche2Addon:
+    """Verify blended math, position update, journal entry, stop order placement."""
+
+    def _setup_common(self, monkeypatch, tmp_path):
+        import trading.executor as exe
+        import trading.journal as jrn
+        import notifications.telegram as tg
+
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "op.json")
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "dc.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "tj.json")
+        monkeypatch.setattr(config, "TRANCHE2_SIZE_PCT", 0.40)
+        monkeypatch.setattr(config, "TRANCHE2_SL_PCT", 5.5)
+        monkeypatch.setattr(tg, "notify_buy", lambda **kw: None)
+        return exe, jrn, tg
+
+    def _make_alpaca(self, t2_fill=95.0, stop_order_id="stop-789"):
+        import types as _t
+        calls = {}
+
+        def _cancel(order_id):
+            calls["cancelled"] = order_id
+
+        def _market_order(symbol, qty, side):
+            calls["market"] = {"symbol": symbol, "qty": qty, "side": side}
+            return {"id": "mkt-456", "fill_price": t2_fill}
+
+        def _stop_order(symbol, qty, stop_price):
+            calls["stop"] = {"symbol": symbol, "qty": qty, "stop_price": stop_price}
+            return {"stop_order_id": stop_order_id}
+
+        def _latest_price(symbol):
+            return t2_fill
+
+        fake = _t.SimpleNamespace(
+            cancel_order=_cancel,
+            place_market_order=_market_order,
+            place_stop_order=_stop_order,
+            get_latest_price=_latest_price,
+        )
+        return fake, calls
+
+    def test_blended_entry_math(self, monkeypatch, tmp_path):
+        """Blended entry = weighted average of T1 and T2 fill prices."""
+        exe, jrn, _ = self._setup_common(monkeypatch, tmp_path)
+        monkeypatch.setattr(jrn, "append_trade", lambda e: None)
+
+        pos = _t2_pos(tranche_1_qty=60, tranche_1_entry=100.0, qty=60, entry_price=100.0)
+        alpaca, _ = self._make_alpaca(t2_fill=95.0)
+
+        result = exe.execute_tranche2_addon(
+            symbol="AAPL", pos=pos, regime="NORMAL",
+            research={"AAPL": {"sentiment_score": 30}},
+            alpaca=alpaca, portfolio_value=100_000.0,
+            now=_t2_now(), suppress_notify=True,
+        )
+
+        assert result is not None
+        t2_qty = result["tranche_2_qty"]
+        # blended = (60*100 + t2_qty*95) / (60 + t2_qty)
+        expected_entry = (60 * 100.0 + t2_qty * 95.0) / (60 + t2_qty)
+        assert abs(result["entry_price"] - expected_entry) < 0.01
+        assert result["qty"] == 60 + t2_qty
+        assert result["tranche_2_triggered"] is True
+
+    def test_blended_sl_set_below_t2_fill(self, monkeypatch, tmp_path):
+        """Stop loss price is 5.5% below T2 fill price."""
+        exe, jrn, _ = self._setup_common(monkeypatch, tmp_path)
+        monkeypatch.setattr(jrn, "append_trade", lambda e: None)
+
+        pos = _t2_pos(tranche_1_qty=60, tranche_1_entry=100.0, qty=60, entry_price=100.0)
+        alpaca, _ = self._make_alpaca(t2_fill=95.0)
+
+        result = exe.execute_tranche2_addon(
+            symbol="AAPL", pos=pos, regime="NORMAL",
+            research={"AAPL": {"sentiment_score": 30}},
+            alpaca=alpaca, portfolio_value=100_000.0,
+            now=_t2_now(), suppress_notify=True,
+        )
+
+        expected_sl = 95.0 * (1 - 5.5 / 100)
+        assert abs(result["stop_loss_price"] - expected_sl) < 0.01
+
+    def test_cancel_called_before_market_order(self, monkeypatch, tmp_path):
+        """Original bracket is cancelled before T2 market order is placed."""
+        exe, jrn, _ = self._setup_common(monkeypatch, tmp_path)
+        monkeypatch.setattr(jrn, "append_trade", lambda e: None)
+
+        pos = _t2_pos(tranche_1_qty=60, tranche_1_entry=100.0, qty=60,
+                      entry_price=100.0, order_id="bracket-xyz")
+        alpaca, calls = self._make_alpaca(t2_fill=95.0)
+
+        exe.execute_tranche2_addon(
+            symbol="AAPL", pos=pos, regime="NORMAL", research={},
+            alpaca=alpaca, portfolio_value=100_000.0,
+            now=_t2_now(), suppress_notify=True,
+        )
+
+        assert calls.get("cancelled") == "bracket-xyz"
+        assert "market" in calls
+
+    def test_journal_entry_written_with_type_tranche2_add(self, monkeypatch, tmp_path):
+        """execute_tranche2_addon writes a TRANCHE2_ADD journal entry."""
+        exe, jrn, _ = self._setup_common(monkeypatch, tmp_path)
+
+        journal_entries = []
+        monkeypatch.setattr(jrn, "append_trade", lambda e: journal_entries.append(e))
+
+        pos = _t2_pos(tranche_1_qty=60, tranche_1_entry=100.0, qty=60, entry_price=100.0)
+        alpaca, _ = self._make_alpaca(t2_fill=95.0)
+
+        exe.execute_tranche2_addon(
+            symbol="AAPL", pos=pos, regime="NORMAL", research={},
+            alpaca=alpaca, portfolio_value=100_000.0,
+            now=_t2_now(), suppress_notify=True,
+        )
+
+        assert len(journal_entries) == 1
+        assert journal_entries[0]["type"] == "TRANCHE2_ADD"
+        assert journal_entries[0]["symbol"] == "AAPL"
+
+    def test_stop_order_failure_does_not_abort(self, monkeypatch, tmp_path):
+        """If place_stop_order raises, T2 continues and stop_order_id is None."""
+        import types as _t
+        exe, jrn, _ = self._setup_common(monkeypatch, tmp_path)
+        monkeypatch.setattr(jrn, "append_trade", lambda e: None)
+
+        fake_alpaca = _t.SimpleNamespace(
+            cancel_order=lambda oid: None,
+            place_market_order=lambda symbol, qty, side: {"id": "mkt-1", "fill_price": 95.0},
+            place_stop_order=lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("stop order failed")),
+            get_latest_price=lambda s: 95.0,
+        )
+
+        pos = _t2_pos(tranche_1_qty=60, tranche_1_entry=100.0, qty=60, entry_price=100.0)
+        result = exe.execute_tranche2_addon(
+            symbol="AAPL", pos=pos, regime="NORMAL", research={},
+            alpaca=fake_alpaca, portfolio_value=100_000.0,
+            now=_t2_now(), suppress_notify=True,
+        )
+
+        assert result is not None
+        assert result["stop_order_id"] is None
         assert result["stop_order_id"] is None

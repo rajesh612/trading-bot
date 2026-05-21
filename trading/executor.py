@@ -235,3 +235,129 @@ def execute_buy(
             mode=mode, score=iv.composite_score, confidence=decision.get("confidence", 0),
         )
     return position_data
+
+
+def execute_tranche2_addon(
+    *,
+    symbol: str,
+    pos: dict,
+    regime: str,
+    research: dict,
+    alpaca,
+    portfolio_value: float,
+    now: datetime,
+    suppress_notify: bool = False,
+) -> dict | None:
+    """Place T2 add-on order, cancel original bracket, update position with blended values."""
+    from trading.position_sizer import compute_position_size_for_mode, apply_regime_multiplier
+
+    # Step 1: idempotency sentinel — write tranche_2_triggered=True before any Alpaca call
+    with _POSITIONS_LOCK:
+        disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
+        if symbol not in disk_positions:
+            # Position exists in memory but not yet flushed; seed from caller's pos dict
+            disk_positions[symbol] = dict(pos)
+        if disk_positions[symbol].get("tranche_2_triggered"):
+            logger.info("T2 abort %s — already triggered (concurrent guard)", symbol)
+            return None
+        disk_positions[symbol]["tranche_2_triggered"] = True
+        save_json(config.OPEN_POSITIONS_FILE, disk_positions)
+
+    # Step 2: cancel original bracket (best-effort)
+    order_id = pos.get("order_id")
+    if order_id:
+        try:
+            alpaca.cancel_order(order_id)
+        except Exception as exc:
+            logger.warning("T2 %s: cancel_order(%s) failed — %s; continuing", symbol, order_id, exc)
+
+    # Step 3: compute T2 qty (fresh sizing based on current price)
+    try:
+        current_price = alpaca.get_latest_price(symbol)
+    except Exception:
+        current_price = pos.get("entry_price") or pos.get("tranche_1_entry", 0)
+
+    atr_pct = pos.get("atr_pct") or 0
+    current_atr = current_price * atr_pct / 100 if atr_pct > 0 else current_price * config.ATR_FALLBACK_PROXY_PCT
+    full_qty = compute_position_size_for_mode(
+        portfolio_value, current_price, current_atr,
+        pos.get("mode_at_entry", "DAY_TRADE"), 0, False,
+    )
+    full_qty = apply_regime_multiplier(full_qty, 1.0)
+    t2_qty = max(1, int(full_qty * config.TRANCHE2_SIZE_PCT))
+
+    # Step 4: place T2 market order
+    try:
+        order = alpaca.place_market_order(symbol, t2_qty, "buy")
+    except Exception as exc:
+        logger.error("T2 %s: place_market_order failed — %s", symbol, exc)
+        return None
+    t2_fill = order.get("fill_price") or current_price
+
+    # Step 5: blended values
+    t1_qty   = pos.get("tranche_1_qty") or pos.get("qty", 0)
+    t1_entry = pos.get("tranche_1_entry") or pos.get("entry_price", 0)
+    combined_qty   = t1_qty + t2_qty
+    blended_entry  = (t1_qty * t1_entry + t2_qty * t2_fill) / combined_qty
+    blended_sl_price = t2_fill * (1 - config.TRANCHE2_SL_PCT / 100)
+    blended_sl_pct   = (blended_entry - blended_sl_price) / blended_entry * 100
+
+    # Step 6: server-side stop order (best-effort)
+    stop_order_id = None
+    try:
+        stop_result = alpaca.place_stop_order(symbol, combined_qty, blended_sl_price)
+        stop_order_id = stop_result.get("stop_order_id")
+    except Exception as exc:
+        logger.warning("T2 %s: place_stop_order failed — %s; software SL remains primary", symbol, exc)
+
+    # Step 7: update position record atomically
+    with _POSITIONS_LOCK:
+        disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
+        if symbol not in disk_positions:
+            logger.warning("T2 %s: position disappeared before update", symbol)
+            return None
+        disk_positions[symbol].update({
+            "tranche_2_triggered": True,
+            "tranche_2_qty":       t2_qty,
+            "tranche_2_entry":     t2_fill,
+            "qty":                 combined_qty,
+            "entry_price":         round(blended_entry, 4),
+            "stop_loss_price":     round(blended_sl_price, 4),
+            "stop_loss_pct":       round(blended_sl_pct, 4),
+            "order_id":            None,
+            "stop_order_id":       stop_order_id,
+        })
+        updated_pos = disk_positions[symbol]
+        save_json(config.OPEN_POSITIONS_FILE, disk_positions)
+
+    # Step 8: journal — call via module so tests can monkeypatch trading.journal.append_trade
+    import trading.journal as _jrn
+    _jrn.append_trade({
+        "type":             "TRANCHE2_ADD",
+        "symbol":           symbol,
+        "timestamp":        now.isoformat(),
+        "t1_qty":           t1_qty,
+        "t1_entry":         t1_entry,
+        "t2_qty":           t2_qty,
+        "t2_fill":          round(t2_fill, 4),
+        "blended_entry":    round(blended_entry, 4),
+        "blended_sl_pct":   round(blended_sl_pct, 2),
+        "blended_sl_price": round(blended_sl_price, 4),
+        "combined_qty":     combined_qty,
+        "stop_order_id":    stop_order_id,
+        "regime":           regime,
+    })
+
+    # Step 9: notify
+    if not suppress_notify:
+        telegram_notify.notify_buy(
+            symbol=symbol, qty=t2_qty, price=t2_fill,
+            sl=round(blended_sl_price, 2), tp=None,
+            mode="T2_ADD", score=0, confidence=0,
+        )
+    logger.info(
+        "TRANCHE2_ADD %.0fx %s @ $%.2f | blended_entry=$%.2f SL=$%.2f (%.1f%%) | stop_order=%s",
+        t2_qty, symbol, t2_fill, blended_entry, blended_sl_price, blended_sl_pct,
+        stop_order_id or "none",
+    )
+    return updated_pos
