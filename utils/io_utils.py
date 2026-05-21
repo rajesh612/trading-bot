@@ -31,3 +31,22 @@ def save_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(serialized)
     os.replace(tmp, path)
+
+
+def mark_stale(path: Path, source_id: str, fallback_from: str | None = None) -> None:
+    """Inject _stale metadata into an existing JSON state file atomically."""
+    from datetime import datetime
+    from utils.constants import ET
+    data = load_json(path, {}) or {}
+    data["_stale"]         = True
+    data["_stale_since"]   = datetime.now(ET).isoformat()
+    data["_fallback_from"] = fallback_from
+    save_json(path, data)
+
+
+def clear_stale(path: Path) -> None:
+    """Remove _stale metadata after a successful fresh fetch."""
+    data = load_json(path, {}) or {}
+    for key in ("_stale", "_stale_since", "_fallback_from"):
+        data.pop(key, None)
+    save_json(path, data)

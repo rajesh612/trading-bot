@@ -968,3 +968,36 @@ class TestDrawdownAlertThreadSafety:
         # Second call within cooldown: timestamp should NOT change
         monitor._check_drawdown_alerts(positions, current_prices)
         assert monitor._drawdown_alerted["AAPL"] == second_alert_ts
+
+
+# ── mark_stale / clear_stale ────────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_mark_stale_writes_metadata(tmp_path):
+    """mark_stale injects _stale/_stale_since/_fallback_from into JSON."""
+    from utils.io_utils import mark_stale, load_json, save_json
+    f = tmp_path / "test.json"
+    save_json(f, {"regime": "NORMAL"})
+
+    mark_stale(f, "regime", fallback_from="CAPITULATION")
+
+    data = load_json(f, {})
+    assert data["_stale"] is True
+    assert "_stale_since" in data
+    assert data["_fallback_from"] == "CAPITULATION"
+    assert data["regime"] == "NORMAL"   # original data preserved
+
+
+@pytest.mark.unit
+def test_clear_stale_removes_metadata(tmp_path):
+    """clear_stale removes all _stale keys, preserves original data."""
+    from utils.io_utils import mark_stale, clear_stale, load_json, save_json
+    f = tmp_path / "test.json"
+    save_json(f, {"regime": "NORMAL"})
+    mark_stale(f, "regime")
+    clear_stale(f)
+
+    data = load_json(f, {})
+    assert "_stale" not in data
+    assert "_stale_since" not in data
+    assert data["regime"] == "NORMAL"
