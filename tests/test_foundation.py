@@ -515,6 +515,7 @@ def test_choppy_regime_blocks_high_rsi_entries(monkeypatch):
     iv.vwap_std2_upper = 120.0
     iv.current_price = 100.0
 
+    from utils.data_health import FRESH_GUARD
     snap = MagicMock()
     snap.regime = "CHOPPY"
     snap.regime_info = {"macro_health_score": 50}
@@ -522,6 +523,7 @@ def test_choppy_regime_blocks_high_rsi_entries(monkeypatch):
     snap.research = {}
     snap.intraday_news = {}
     snap.params = {"rsi_buy_max": 72, "rsi_buy_max_high_vol": 65, "choppy_rsi_max": 60, "vwap_slope_min": -0.3}
+    snap.staleness_guard = FRESH_GUARD
 
     result = pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision == "SKIP"

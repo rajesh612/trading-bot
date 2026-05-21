@@ -610,6 +610,7 @@ def _make_iv_pipeline(**kwargs):
 
 def _make_snap_pipeline(regime="NORMAL"):
     from unittest.mock import MagicMock
+    from utils.data_health import FRESH_GUARD
     snap = MagicMock()
     snap.regime = regime
     snap.params = {}
@@ -618,6 +619,7 @@ def _make_snap_pipeline(regime="NORMAL"):
     snap.research = {}
     snap.intraday_news = {}
     snap.sector_today = {}
+    snap.staleness_guard = FRESH_GUARD
     return snap
 
 

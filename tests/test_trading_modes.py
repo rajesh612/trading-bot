@@ -314,6 +314,7 @@ def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
     monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
 
     # Build a minimal snap with learned threshold = 60
+    from utils.data_health import FRESH_GUARD
     snap = MagicMock()
     snap.regime = "NORMAL"
     snap.regime_info = {"macro_health_score": 50}
@@ -321,6 +322,7 @@ def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
     snap.research = {}
     snap.intraday_news = {}
     snap.params = {"rsi_buy_max": 60, "vwap_slope_min": -0.3}
+    snap.staleness_guard = FRESH_GUARD
 
     # Build minimal iv: RSI=62 (above learned 60, below config 72) — should SKIP
     iv = MagicMock()

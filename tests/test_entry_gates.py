@@ -619,6 +619,31 @@ class TestEffectiveCompositeGate:
         bull_gate   = effective_composite_gate(iv, "BULL_TREND")
         assert bull_gate < normal_gate
 
+    @pytest.mark.unit
+    def test_stale_guard_adds_composite_penalty(self, monkeypatch):
+        """Stale regime guard adds DATA_COMPOSITE_PENALTY['regime'] to threshold."""
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
+        from signals.entry_gates import effective_composite_gate
+        from utils.data_health import StalenessGuard
+        stale_guard = StalenessGuard(
+            composite_penalty=10, auto_execute_allowed=False,
+            t2_allowed=False, swing_fallback_regime="NORMAL",
+            can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+        )
+        iv = self._iv()   # use existing _iv() helper in the test class
+        result = effective_composite_gate(iv, "NORMAL", staleness_guard=stale_guard)
+        assert result == 60   # 50 base + 10 penalty
+
+    @pytest.mark.unit
+    def test_fresh_guard_adds_no_penalty(self, monkeypatch):
+        """FRESH_GUARD adds zero penalty — baseline unchanged."""
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
+        from signals.entry_gates import effective_composite_gate
+        from utils.data_health import FRESH_GUARD
+        iv = self._iv()
+        result = effective_composite_gate(iv, "NORMAL", staleness_guard=FRESH_GUARD)
+        assert result == 50   # no penalty
+
 
 # ── Module-level gate config and stoch threshold tests ───────────────────────
 

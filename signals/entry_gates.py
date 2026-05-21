@@ -33,24 +33,37 @@ class GateResult:
     flags: tuple[str, ...] = ()
 
 
-def effective_composite_gate(iv: IndicatorValues, regime: str, params: dict | None = None) -> int:
+def effective_composite_gate(
+    iv: IndicatorValues,
+    regime: str,
+    params: dict | None = None,
+    staleness_guard=None,   # StalenessGuard | None
+) -> int:
     """Single source of truth for composite entry threshold by regime and signal context.
 
     Priority: HIGH_VOL safety → squeeze setup → bot herding → CHOPPY → BULL_TREND → NORMAL.
     When params is provided, NORMAL regime reads composite_min_normal from params
     (written by learning agent on zero-trade days).
+    When staleness_guard is provided, its composite_penalty is added to the base threshold.
     """
+    from utils.data_health import FRESH_GUARD
+    guard = staleness_guard or FRESH_GUARD
+
     if regime in regimes.HIGH_VOL_GATES:
-        return config.COMPOSITE_MIN_HIGH_VOL   # 55
-    if iv.squeeze_setup:
-        return config.SQUEEZE_COMPOSITE_MIN    # strong squeeze signal lowers bar
-    if iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
-        return config.HERD_ENTRY_GATE          # 25
-    ep = get_entry_params(regime)
-    # NORMAL regime: honor learning-agent-adjusted floor if present
-    if regime == "NORMAL":
-        return (params or {}).get("composite_min_normal", ep.composite_min)
-    return ep.composite_min
+        base = config.COMPOSITE_MIN_HIGH_VOL   # 55
+    elif iv.squeeze_setup:
+        base = config.SQUEEZE_COMPOSITE_MIN    # strong squeeze signal lowers bar
+    elif iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
+        base = config.HERD_ENTRY_GATE          # 25
+    else:
+        ep = get_entry_params(regime)
+        # NORMAL regime: honor learning-agent-adjusted floor if present
+        if regime == "NORMAL":
+            base = (params or {}).get("composite_min_normal", ep.composite_min)
+        else:
+            base = ep.composite_min
+
+    return base + guard.composite_penalty
 
 
 
