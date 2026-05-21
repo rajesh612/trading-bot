@@ -6,6 +6,8 @@ import pandas as pd
 
 import config
 from broker.alpaca_client import AlpacaClient
+from scheduler_jobs import _schedule_retry
+from utils.data_health import _tracker
 from utils.http import yahoo_get
 
 logger = logging.getLogger(__name__)
@@ -90,23 +92,41 @@ def run_volatility_screener() -> list[str]:
                 except Exception:
                     cap_results[sym] = None
 
-        eligible = []
-        for ticker in tickers:  # preserve original order
-            cap = cap_results.get(ticker)
-            if cap is not None and cap >= min_cap:
-                eligible.append(ticker)
-            elif cap is not None:
-                logger.debug(f"SCREEN OUT {ticker}: market cap ${cap:,.0f} < ${min_cap:,.0f}")
-            else:
-                logger.debug(f"SCREEN OUT {ticker}: market cap unavailable")
+        # Detect API-level failure before filtering
+        none_count = sum(1 for v in cap_results.values() if v is None)
+        failure_rate = none_count / max(len(tickers), 1)
+
+        if failure_rate >= config.DATA_SCREENER_FAILURE_RATE_THRESHOLD:
+            logger.error(
+                "Market cap API failure: %d/%d fetches returned None (%.0f%%) — "
+                "skipping filter, using full universe",
+                none_count, len(tickers), failure_rate * 100,
+            )
+            _schedule_retry("screener", run_volatility_screener)
+            eligible = tickers  # bypass filter
+        else:
+            eligible = []
+            for ticker in tickers:  # preserve original order
+                cap = cap_results.get(ticker)
+                if cap is not None and cap >= min_cap:
+                    eligible.append(ticker)
+                elif cap is not None:
+                    logger.debug(f"SCREEN OUT {ticker}: market cap ${cap:,.0f} < ${min_cap:,.0f}")
+                else:
+                    logger.debug(f"SCREEN OUT {ticker}: market cap unavailable")
+
         logger.info(
-            f"Market cap filter ({config.MIN_MARKET_CAP_B}B): {len(tickers)} → {len(eligible)} tickers"
+            "Market cap filter (%sB): %d → %d tickers%s",
+            config.MIN_MARKET_CAP_B, len(tickers), len(eligible),
+            " [API FAILURE — filter bypassed]"
+            if failure_rate >= config.DATA_SCREENER_FAILURE_RATE_THRESHOLD else "",
         )
         tickers = eligible
 
     if len(tickers) <= config.MAX_TICKERS_DIRECT:
         logger.info(f"{len(tickers)} tickers ≤ {config.MAX_TICKERS_DIRECT} — no screening needed.")
         config.DAILY_TRADEABLE_FILE.write_text("\n".join(tickers))
+        _tracker.record_success("screener")
         return tickers
 
     logger.info(f"Screening {len(tickers)} tickers for top 50 by volatility…")
@@ -120,6 +140,7 @@ def run_volatility_screener() -> list[str]:
     top50 = sorted(scores, key=lambda s: scores[s], reverse=True)[:50]
     config.DAILY_TRADEABLE_FILE.write_text("\n".join(top50))
     logger.info(f"Volatility screen done. Top 50: {top50}")
+    _tracker.record_success("screener")
     return top50
 
 
