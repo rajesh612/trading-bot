@@ -1,15 +1,10 @@
-"""
-Single source of truth for regime × mode dispatch.
-
-All per-regime entry, swing, and T2 parameters are defined here.
-Callers use get_entry_params(), get_swing_params(), get_t2_params()
-instead of inline if/elif chains.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import config
+
+_SENTINEL = 999  # sentinel value for disabled/CRISIS rows — callers must check eligible/cutoff_hour first
 
 
 @dataclass(frozen=True)
@@ -60,22 +55,27 @@ def _entry_table() -> dict[str, EntryParams]:
     }
 
 
+_CRISIS_SWING = SwingParams(False, _SENTINEL, _SENTINEL, _SENTINEL, _SENTINEL, 0.0, 0.0, 0.0)
+
+
 def _swing_table() -> dict[str, SwingParams]:
     return {
-        "NORMAL":         SwingParams(True,  0.5,  2.5,  -20, -1.0, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
-        "BULL_TREND":     SwingParams(True,  0.3,  2.0,  -30, -2.0, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
-        "OPPORTUNITY":    SwingParams(True,  0.5,  2.5,  -10,  0.0, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
-        "CRASH_RECOVERY": SwingParams(True,  1.0,  2.5,    0,  0.0, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "NORMAL":         SwingParams(True,  config.SWING_MIN_PNL_NORMAL,  config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_SENTIMENT_MIN_NORMAL, config.SWING_SECTOR_FLOOR_NORMAL, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "BULL_TREND":     SwingParams(True,  config.SWING_MIN_PNL_BULL,    config.SWING_PROFIT_LOCK_BULL,      config.SWING_SENTIMENT_MIN_BULL,   config.SWING_SECTOR_FLOOR_BULL,   config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "OPPORTUNITY":    SwingParams(True,  config.SWING_MIN_PNL_NORMAL,  config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_SENTIMENT_MIN_OPP,    0.0,                              config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "CRASH_RECOVERY": SwingParams(True,  config.SWING_MIN_PNL_CRASH,   config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_SENTIMENT_MIN_CRASH,  0.0,                              config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
         "CAPITULATION":   SwingParams(True,  config.SWING_MIN_PNL_PCT_CAPITULATION, 50.0, -50, -5.0, config.SWING_TP1_PCT_CAPITULATION, config.SWING_TP2_PCT_CAPITULATION, config.SWING_SL_PCT_CAPITULATION),
-        "CHOPPY":         SwingParams(False, 0.5,  2.5,   10,  0.5, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
-        "DEFENSIVE":      SwingParams(False, 0.5,  3.0,    0,  0.0, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
-        "HIGH_VOL":       SwingParams(True,  0.5,  3.0,  -10, -1.0, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
-        "CRISIS":         SwingParams(False, 999,  999,  999, 999,   0,                    0,                    0),
+        "CHOPPY":         SwingParams(False, config.SWING_MIN_PNL_NORMAL,  config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_SENTIMENT_MIN_CHOPPY, config.SWING_SECTOR_FLOOR_CHOPPY, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "DEFENSIVE":      SwingParams(False, config.SWING_MIN_PNL_NORMAL,  config.SWING_PROFIT_LOCK_DEFENSIVE, config.SWING_SENTIMENT_MIN_CRASH,  0.0,                              config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "HIGH_VOL":       SwingParams(True,  config.SWING_MIN_PNL_NORMAL,  config.SWING_PROFIT_LOCK_DEFENSIVE, config.SWING_SENTIMENT_MIN_OPP,    config.SWING_SECTOR_FLOOR_NORMAL, config.SWING_TP1_PCT, config.SWING_TP2_PCT, config.SWING_OVERNIGHT_SL_PCT),
+        "CRISIS":         _CRISIS_SWING,
     }
 
 
+_DISABLED_T2 = T2Params(0, 0, 0, 0, 0, _SENTINEL, _SENTINEL, _SENTINEL)
+
+
 def _t2_table() -> dict[str, T2Params]:
-    _disabled = T2Params(0, 0, 0, 0, 0, 999, 999, 999)
     _normal = T2Params(
         config.TRANCHE2_CUTOFF_HOUR,
         config.TRANCHE2_DROP_MIN_PCT,
@@ -87,8 +87,8 @@ def _t2_table() -> dict[str, T2Params]:
         config.TRANCHE2_MIN_HOLD_MIN,
     )
     return {
-        "CRISIS":         _disabled,
-        "CHOPPY":         _disabled,
+        "CRISIS":         _DISABLED_T2,
+        "CHOPPY":         _DISABLED_T2,
         "NORMAL":         _normal,
         "BULL_TREND":     _normal,
         "OPPORTUNITY":    _normal,

@@ -224,6 +224,22 @@ SWING_MIN_PNL_PCT_BULL         = -3.0   # BULL_TREND: wider PTJ rule (SL is 7%)
 SWING_MIN_PNL_PCT_CAPITULATION = -5.0   # CAPITULATION: widest PTJ rule (SL is 12%)
 SWING_MIN_PNL_PCT_CRASH        = -3.0   # CRASH_RECOVERY: wider PTJ rule (SL is 10%)
 
+# ── Swing per-regime promotion thresholds ──────────────────────────────────
+SWING_MIN_PNL_NORMAL        = 0.5    # minimum EOD P&L to promote to swing in NORMAL/standard regimes
+SWING_MIN_PNL_BULL          = 0.3    # relaxed floor in BULL_TREND (uptrend provides cushion)
+SWING_MIN_PNL_CRASH         = 1.0    # tighter floor in CRASH_RECOVERY (fragile recovery)
+SWING_PROFIT_LOCK_NORMAL    = 2.5    # profit-lock bypass: promote in any non-CRISIS regime at this P&L
+SWING_PROFIT_LOCK_BULL      = 2.0    # relaxed bypass in BULL_TREND
+SWING_PROFIT_LOCK_DEFENSIVE = 3.0    # stricter bypass in HIGH_VOL/DEFENSIVE
+SWING_SENTIMENT_MIN_NORMAL  = -20    # symbol sentiment floor for NORMAL swing promotion
+SWING_SENTIMENT_MIN_BULL    = -30    # wider floor in BULL_TREND (trend offsets weak sentiment)
+SWING_SENTIMENT_MIN_OPP     = -10    # tighter floor in OPPORTUNITY (thesis depends on sentiment)
+SWING_SENTIMENT_MIN_CRASH   = 0      # neutral+ required in CRASH_RECOVERY
+SWING_SENTIMENT_MIN_CHOPPY  = 10     # positive required in CHOPPY (sentiment must confirm)
+SWING_SECTOR_FLOOR_NORMAL   = -1.0   # sector ETF must not be down more than 1% for NORMAL swing
+SWING_SECTOR_FLOOR_BULL     = -2.0   # wider tolerance in BULL_TREND
+SWING_SECTOR_FLOOR_CHOPPY   = 0.5    # sector must be up in CHOPPY (confirming upward bias)
+
 # ── BUDGET & API COST ─────────────────────────────────────────────────────────
 
 API_BUDGET_NORMAL_CEILING   = 1.00  # normal daily Claude spend cap

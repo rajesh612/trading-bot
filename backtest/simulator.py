@@ -13,6 +13,7 @@ import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
 from utils.constants import ET
+from utils.regime_params import get_swing_params
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,6 @@ def _evaluate_swing_promotion(
         avail2 = df2[df2.index <= ts]
         eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
         pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
-        from utils.regime_params import get_swing_params
         if get_swing_params(regime).eligible and pnl_pct > 0 and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN and n_swings < SWING_MAX_POSITIONS:
             pos2["is_swing"] = True
             pos2["swing_days_remaining"] = SWING_MAX_DAYS

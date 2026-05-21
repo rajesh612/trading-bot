@@ -878,6 +878,5 @@ class TestGetT2Params:
 
     def test_choppy_t2_more_restrictive_than_normal(self):
         from utils.regime_params import get_t2_params
-        normal = get_t2_params("NORMAL")
         choppy = get_t2_params("CHOPPY")
-        assert choppy.rsi_max <= normal.rsi_max or choppy.drop_min_pct >= normal.drop_min_pct
+        assert choppy.cutoff_hour == 0  # CHOPPY fully disables T2 — sentinel value

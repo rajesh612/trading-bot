@@ -11,6 +11,7 @@ from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
 
 from utils.constants import ET
+from utils.regime_params import get_swing_params
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,6 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
                 logger.info(f"SWING SKIP {symbol}: {reason}")
                 continue
 
-            from utils.regime_params import get_swing_params
             sp = get_swing_params(regime)
             tp1_pct = sp.tp1_pct
             tp2_pct = sp.tp2_pct

@@ -9,6 +9,7 @@ from datetime import datetime
 
 import config
 import calendars.earnings as _earnings_mod
+from utils.regime_params import get_t2_params
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ def check_tranche2_gates(
         return T2GateResult(False, f"time cutoff — past {config.TRANCHE2_CUTOFF_HOUR}:00 ET")
 
     # Gate 3: adverse regime
-    from utils.regime_params import get_t2_params
+    # cutoff_hour=0 is the sentinel value for regimes that fully block T2 (CRISIS, CHOPPY)
     if get_t2_params(regime).cutoff_hour == 0:
         return T2GateResult(False, f"regime={regime} blocks T2")
 
