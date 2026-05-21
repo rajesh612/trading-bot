@@ -20,6 +20,7 @@ from utils.constants import ET
 from scheduler_jobs import (
     set_scheduler,
     set_heartbeat_refs,
+    set_data_tracker,
     _job_guard,
     job_earnings_calendar,
     job_economic_calendar,
@@ -292,6 +293,8 @@ def main():
     # (reconcile may call job_force_close which needs _scheduler)
     set_scheduler(scheduler)
     set_heartbeat_refs(_file_handler, _last_heartbeat_ts)
+    from utils.data_health import _tracker as _data_tracker_singleton
+    set_data_tracker(_data_tracker_singleton)
 
     reconcile_positions()
 

@@ -1,6 +1,8 @@
 import logging
 import time
 from datetime import datetime
+from apscheduler.triggers.date import DateTrigger
+
 import config
 import notifications.telegram as telegram_notify
 from utils.constants import ET
@@ -14,10 +16,43 @@ _scheduler = None
 _file_handler = None
 _last_heartbeat_ts = None
 
+# Set by main.py to enable data retry scheduling.
+_data_tracker = None
+
 
 def set_scheduler(sched) -> None:
     global _scheduler
     _scheduler = sched
+
+
+def set_data_tracker(tracker) -> None:
+    global _data_tracker
+    _data_tracker = tracker
+
+
+def _schedule_retry(source_id: str, job_fn, now=None) -> None:
+    """Register a one-shot retry job if tracker allows it."""
+    now = now or datetime.now(ET)
+    if _data_tracker is None or _scheduler is None:
+        return
+    if not _data_tracker.can_retry(source_id, now=now):
+        return
+    health = _data_tracker.record_failure(source_id, now=now)
+    if health.next_retry_at is None:
+        return
+    job_id = f"retry_{source_id}_{health.attempts_today}"
+    _scheduler.add_job(
+        job_fn,
+        DateTrigger(run_date=health.next_retry_at),
+        id=job_id,
+        replace_existing=True,
+        max_instances=1,
+    )
+    logger.info(
+        "DATA RETRY scheduled: %s attempt %d at %s ET",
+        source_id, health.attempts_today,
+        health.next_retry_at.strftime("%H:%M"),
+    )
 
 
 def set_heartbeat_refs(file_handler, last_heartbeat_ts) -> None:
