@@ -11,10 +11,13 @@ from datetime import datetime
 
 import config
 import notifications.telegram as telegram_notify
+import sectors
 from broker.alpaca_client import AlpacaClient
+from data.market_data import get_intraday_bars
 from indicators.engine import compute_indicators
 from macro.regime import load_macro_regime
 from macro.economic_calendar import get_todays_events
+from signals.tranche2_gates import check_tranche2_gates
 from trading.closer import close_position, _apply_profit_lock
 from trading.journal import (
     _POSITIONS_LOCK,
@@ -69,18 +72,22 @@ def _check_drawdown_alerts(positions: dict, current_prices: dict) -> None:
 
 def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> None:
     """Check each open position for T2 add-on eligibility. Called after the SL/TP loop."""
-    from signals.tranche2_gates import check_tranche2_gates
     from trading.executor import execute_tranche2_addon
 
-    research = load_json(config.RESEARCH_REPORT_FILE, {})
     try:
         regime = load_macro_regime().get("regime", "NORMAL")
     except Exception:
         regime = "NORMAL"
 
+    research: dict = {}
+    try:
+        research = load_json(config.RESEARCH_REPORT_FILE, {})
+    except Exception:
+        pass
+
     major_event_today = False
     try:
-        _high_impact = {"FOMC", "NFP", "CPI", "PCE", "JOLTS"}
+        _high_impact = {"FOMC", "CPI", "NFP", "PPI", "PCE", "JOLTS", "GDP"}
         for evt in get_todays_events():
             if any(tag in evt.get("name", "").upper() for tag in _high_impact):
                 major_event_today = True
@@ -93,6 +100,25 @@ def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> Non
     except Exception:
         portfolio_value = 100_000.0
 
+    # Batch-fetch sector ETF intraday % change once per unique ETF
+    unique_etfs: set[str] = set()
+    for sym in open_positions:
+        etf = sectors.get_sector_etf(sym)
+        if etf:
+            unique_etfs.add(etf)
+
+    sector_etf_chg: dict[str, float] = {}
+    for etf in unique_etfs:
+        try:
+            bars = get_intraday_bars(etf, lookback=2)
+            if bars is not None and not bars.empty:
+                session_open = float(bars.iloc[0]["open"])
+                latest = alpaca.get_latest_price(etf)
+                if session_open > 0:
+                    sector_etf_chg[etf] = (latest - session_open) / session_open * 100
+        except Exception as exc:
+            logger.debug("T2 sector ETF fetch failed for %s: %s", etf, exc)
+
     for symbol, pos in list(open_positions.items()):
         if pos.get("tranche_2_triggered"):
             continue
@@ -102,6 +128,8 @@ def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> Non
             continue
 
         sentiment = research.get(symbol, {}).get("sentiment_score", 0)
+        etf = sectors.get_sector_etf(symbol)
+        chg = sector_etf_chg.get(etf, 0.0) if etf else 0.0
 
         result = check_tranche2_gates(
             symbol=symbol,
@@ -110,11 +138,11 @@ def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> Non
             now=now,
             regime=regime,
             sentiment_score=float(sentiment) if sentiment else 0.0,
-            sector_etf_chg=0.0,
+            sector_etf_chg=chg,
             major_event_today=major_event_today,
         )
         if result.passed:
-            logger.info("T2 TRIGGER %s — all gates passed", symbol)
+            logger.info("T2 TRIGGER %s — all gates passed (sector=%s chg=%.1f%%)", symbol, etf, chg)
             execute_tranche2_addon(
                 symbol=symbol,
                 pos=pos,

@@ -532,7 +532,9 @@ class TestCheckTranche2Triggers:
         monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
 
         monkeypatch.setattr(mon, "_try_compute_iv", lambda sym, alpaca: _t2_iv(current_price=95.0))
-        monkeypatch.setattr(t2g, "check_tranche2_gates", lambda **kw: t2g.T2GateResult(True))
+        # Patch on the monitor module (imported by name at module level)
+        monkeypatch.setattr(mon, "check_tranche2_gates", lambda **kw: t2g.T2GateResult(True))
+        monkeypatch.setattr(mon, "get_intraday_bars", lambda sym, lookback=2: None)
 
         called_with = {}
         def _fake_addon(**kw):
@@ -541,7 +543,10 @@ class TestCheckTranche2Triggers:
         monkeypatch.setattr(exe, "execute_tranche2_addon", _fake_addon)
 
         import types as _t
-        fake_alpaca = _t.SimpleNamespace(get_portfolio_value=lambda: 100_000.0)
+        fake_alpaca = _t.SimpleNamespace(
+            get_portfolio_value=lambda: 100_000.0,
+            get_latest_price=lambda sym: 100.0,
+        )
 
         mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
         assert called_with.get("symbol") == "AAPL"
@@ -560,12 +565,16 @@ class TestCheckTranche2Triggers:
         monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
         monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
         monkeypatch.setattr(mon, "_try_compute_iv", lambda sym, alpaca: _t2_iv(current_price=95.0))
+        monkeypatch.setattr(mon, "get_intraday_bars", lambda sym, lookback=2: None)
 
         addon_called = []
         monkeypatch.setattr(exe, "execute_tranche2_addon", lambda **kw: addon_called.append(kw))
 
         import types as _t
-        fake_alpaca = _t.SimpleNamespace(get_portfolio_value=lambda: 100_000.0)
+        fake_alpaca = _t.SimpleNamespace(
+            get_portfolio_value=lambda: 100_000.0,
+            get_latest_price=lambda sym: 100.0,
+        )
 
         mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
         assert len(addon_called) == 0
@@ -584,15 +593,69 @@ class TestCheckTranche2Triggers:
         monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
         monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
         monkeypatch.setattr(mon, "_try_compute_iv", lambda sym, alpaca: None)
+        monkeypatch.setattr(mon, "get_intraday_bars", lambda sym, lookback=2: None)
 
         addon_called = []
         monkeypatch.setattr(exe, "execute_tranche2_addon", lambda **kw: addon_called.append(kw))
 
         import types as _t
-        fake_alpaca = _t.SimpleNamespace(get_portfolio_value=lambda: 100_000.0)
+        fake_alpaca = _t.SimpleNamespace(
+            get_portfolio_value=lambda: 100_000.0,
+            get_latest_price=lambda sym: 100.0,
+        )
 
         mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
         assert len(addon_called) == 0
+
+    def test_sector_etf_chg_passed_to_gate(self, monkeypatch):
+        """Monitor passes real sector ETF % change (not always 0.0) to check_tranche2_gates."""
+        import trading.monitor as mon
+        import sectors as _sectors
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import types, pandas as pd
+        import config
+
+        ET = ZoneInfo("America/New_York")
+        now = datetime(2026, 5, 21, 11, 0, tzinfo=ET)
+        captured = {}
+
+        def fake_gate(symbol, iv, pos, now, regime, sentiment_score, sector_etf_chg, major_event_today):
+            captured["sector_etf_chg"] = sector_etf_chg
+            from signals.tranche2_gates import T2GateResult
+            return T2GateResult(False, "test skip")
+
+        def fake_iv(sym, alpaca):
+            return _t2_iv(current_price=97.5)
+
+        def fake_price(sym):
+            return 104.0
+
+        def fake_bars(sym, lookback=2, timeframe_min=5):
+            idx = pd.to_datetime(["2026-05-21 09:30:00-04:00", "2026-05-21 09:35:00-04:00"])
+            return pd.DataFrame(
+                {"open": [100.0, 101.0], "high": [101.0, 102.0],
+                 "low": [99.0, 100.0], "close": [101.0, 102.0], "volume": [1000, 1000]},
+                index=idx,
+            )
+
+        monkeypatch.setattr(mon, "_try_compute_iv", fake_iv)
+        monkeypatch.setattr(_sectors, "get_sector_etf", lambda sym: "XLK")
+        monkeypatch.setattr(mon, "get_intraday_bars", fake_bars)
+        monkeypatch.setattr(mon, "check_tranche2_gates", fake_gate)
+
+        pos = _t2_pos()
+        open_positions = {"AAPL": pos}
+        fake_alpaca = types.SimpleNamespace(
+            get_latest_price=fake_price,
+            get_portfolio_value=lambda: 100_000.0,
+        )
+
+        mon._check_tranche2_triggers(open_positions, fake_alpaca, now)
+
+        # (104 - 100) / 100 * 100 = 4.0%
+        assert "sector_etf_chg" in captured
+        assert abs(captured["sector_etf_chg"] - 4.0) < 0.5
 
 
 # ── Task 7: backtest simulator T2 ────────────────────────────────────────────
