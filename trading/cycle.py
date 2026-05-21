@@ -43,6 +43,26 @@ def _rotate_telemetry(today_str: str) -> None:
         pass
 
 
+def _run_intraday_retries(now, guard) -> None:
+    """Re-run stale pre-market agents if tracker says retry is due."""
+    from utils.data_health import _tracker
+    from macro.regime import fetch_macro_regime
+    from research.agent import run_research_agent
+    from trading.watch_loader import load_watch_list
+
+    _INTRADAY_RETRY_MAP = {
+        "regime":   fetch_macro_regime,
+        "research": lambda: run_research_agent(load_watch_list()),
+    }
+    for source_id, fn in _INTRADAY_RETRY_MAP.items():
+        if _tracker.can_retry(source_id, now=now):
+            logger.info("DATA RETRY (intraday): re-running %s", source_id)
+            try:
+                fn()
+            except Exception as exc:
+                logger.error("DATA RETRY failed for %s: %s", source_id, exc)
+
+
 def run_trading_cycle() -> None:
     now = datetime.now(ET)
     logger.info("Trading cycle @ %s ET", now.strftime("%H:%M:%S"))
@@ -62,6 +82,12 @@ def run_trading_cycle() -> None:
     regime      = regime_info.get("regime", "NORMAL")
     params      = load_trading_params()
 
+    from utils.data_health import get_staleness_guard, _tracker
+    guard = get_staleness_guard(regime_info)     # build once, flows through entire cycle
+
+    # Intraday retry: re-run stale agents before building snapshot
+    _run_intraday_retries(now, guard)
+
     flash_crash_active = regime_info.get("flash_crash_active", False)
     flash_crash_until  = regime_info.get("flash_crash_until")
     can_open           = True
@@ -80,6 +106,13 @@ def run_trading_cycle() -> None:
         logger.warning(
             "CRISIS/flash-crash regime: VIX=%.1f | health=%+d — skipping all new entries.",
             regime_info.get("vix_current", 0), regime_info.get("macro_health_score", 0),
+        )
+        can_open = False
+
+    if not guard.can_open:
+        logger.warning(
+            "Regime data age > %dmin — blocking new entries (staleness guard).",
+            config.DATA_REGIME_CANOPEN_MAX_MINUTES,
         )
         can_open = False
 
@@ -113,6 +146,7 @@ def run_trading_cycle() -> None:
         portfolio_gain_pct=portfolio_gain_pct,
         regime_info=regime_info,
         params=params,
+        staleness_guard=guard,
     )
 
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
