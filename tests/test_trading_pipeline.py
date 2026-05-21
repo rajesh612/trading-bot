@@ -236,6 +236,31 @@ class TestPipelinePerCycleCap:
 
 
 @pytest.mark.unit
+def test_cycle_snapshot_defaults_to_fresh_guard():
+    """CycleSnapshot.staleness_guard defaults to FRESH_GUARD when not supplied."""
+    from trading.cycle_context import CycleSnapshot
+    from utils.data_health import FRESH_GUARD
+    from dataclasses import fields
+
+    snap = CycleSnapshot(
+        regime_info={"regime": "NORMAL", "macro_health_score": 0},
+        regime="NORMAL",
+        fred_cache={},
+        research={},
+        research_meta={},
+        strategy_memory="",
+        weights={},
+        params={},
+        portfolio_gain_pct=0.0,
+    )
+    # Verify the field exists
+    field_names = [f.name for f in fields(CycleSnapshot)]
+    assert "staleness_guard" in field_names, f"staleness_guard not found in CycleSnapshot. Fields: {field_names}"
+    # Verify FRESH_GUARD is the default
+    assert snap.staleness_guard == FRESH_GUARD, f"Expected FRESH_GUARD, got {snap.staleness_guard}"
+
+
+@pytest.mark.unit
 class TestContextSplit:
     """Verify stable vs. dynamic context separation for prompt caching."""
 

@@ -22,6 +22,7 @@ from macro.regime import load_macro_regime, load_trading_params
 from macro.intraday_context import get_intraday_context
 from utils.constants import ET
 from utils.io_utils import load_json
+from utils.data_health import StalenessGuard, FRESH_GUARD
 
 _logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class CycleSnapshot:
     weights: dict
     params: dict
     portfolio_gain_pct: float
+    staleness_guard: StalenessGuard = field(default_factory=lambda: FRESH_GUARD)
     intraday_news: dict = field(default_factory=dict)  # populated in Task 9
     sector_today: dict = field(default_factory=dict)
     advance_decline_ratio: float = 1.0   # IWM/SPY breadth ratio; < 0.85 → narrow breadth
@@ -78,6 +80,7 @@ def build_cycle_snapshot(
     *,
     regime_info: dict | None = None,
     params: dict | None = None,
+    staleness_guard: StalenessGuard | None = None,
 ) -> CycleSnapshot:
     """
     Load all cycle data in one place. Called once by run_trading_cycle().
@@ -138,6 +141,7 @@ def build_cycle_snapshot(
         weights=weights,
         params=params,
         portfolio_gain_pct=portfolio_gain_pct,
+        staleness_guard=staleness_guard or FRESH_GUARD,
         intraday_news=load_intraday_news(),
         sector_today=sector_today,
         advance_decline_ratio=advance_decline_ratio,
