@@ -129,3 +129,22 @@ class AlpacaClient:
     def cancel_order(self, order_id: str) -> None:
         """Cancel a single order by ID."""
         self._trading.cancel_order_by_id(order_id)
+
+    def place_stop_order(self, symbol: str, qty: float, stop_price: float) -> dict:
+        """Place a standalone SELL stop order to act as a server-side stop loss."""
+        from alpaca.trading.requests import StopOrderRequest
+        from alpaca.trading.enums import OrderType
+        req = StopOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.SELL,
+            type=OrderType.STOP,
+            time_in_force=TimeInForce.DAY,
+            stop_price=round(stop_price, 2),
+        )
+        order = self._trading.submit_order(req)
+        logger.info(
+            "Stop order placed: SELL %.0fx %s @ stop=$%.2f | id=%s",
+            qty, symbol, stop_price, order.id,
+        )
+        return {"stop_order_id": str(order.id), "symbol": symbol, "stop_price": stop_price}
