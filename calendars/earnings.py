@@ -127,30 +127,40 @@ def _fetch_earnings_day_reaction(symbol: str, report_date: str) -> dict:
 
 def refresh_earnings_calendar(symbols: list[str]) -> None:
     """Build earnings_calendar.json keyed by symbol. Called at 8:00 AM daily."""
-    today = datetime.now(ET).strftime("%Y-%m-%d")
-    cache: dict = {}
-    cutoff = datetime.now(ET) - timedelta(days=5)
+    from utils.data_health import _tracker
+    from utils.io_utils import mark_stale, clear_stale
+    try:
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        cache: dict = {}
+        cutoff = datetime.now(ET) - timedelta(days=5)
 
-    for symbol in symbols:
-        try:
-            next_date = _fetch_next_earnings_date(symbol)
-            entry: dict = {"next_earnings_date": next_date}
+        for symbol in symbols:
+            try:
+                next_date = _fetch_next_earnings_date(symbol)
+                entry: dict = {"next_earnings_date": next_date}
 
-            # Add recently_reported block if earnings happened within 5 trading days
-            history = _fetch_earnings_history(symbol)
-            if history and history.get("report_date"):
-                report_dt = datetime.fromisoformat(history["report_date"])
-                if report_dt >= cutoff:
-                    reaction = _fetch_earnings_day_reaction(symbol, history["report_date"])
-                    entry["recently_reported"] = {**history, **reaction}
+                # Add recently_reported block if earnings happened within 5 trading days
+                history = _fetch_earnings_history(symbol)
+                if history and history.get("report_date"):
+                    report_dt = datetime.fromisoformat(history["report_date"])
+                    if report_dt >= cutoff:
+                        reaction = _fetch_earnings_day_reaction(symbol, history["report_date"])
+                        entry["recently_reported"] = {**history, **reaction}
 
-            cache[symbol] = entry
-        except Exception as exc:
-            logger.debug(f"earnings refresh skipped {symbol}: {exc}")
-            cache[symbol] = {"next_earnings_date": None}
+                cache[symbol] = entry
+            except Exception as exc:
+                logger.debug(f"earnings refresh skipped {symbol}: {exc}")
+                cache[symbol] = {"next_earnings_date": None}
 
-    save_json(config.EARNINGS_CALENDAR_FILE, {"date": today, "symbols": cache})
-    logger.info(f"Earnings calendar refreshed for {len(symbols)} symbols.")
+        save_json(config.EARNINGS_CALENDAR_FILE, {"date": today, "symbols": cache})
+        logger.info(f"Earnings calendar refreshed for {len(symbols)} symbols.")
+        clear_stale(config.EARNINGS_CALENDAR_FILE)
+        _tracker.record_success("earnings")
+    except Exception as exc:
+        logger.error("refresh_earnings_calendar failed: %s", exc)
+        mark_stale(config.EARNINGS_CALENDAR_FILE, "earnings")
+        _tracker.record_failure("earnings")
+        # No retry — stale earnings is conservative
 
 
 def _load_cache() -> dict:

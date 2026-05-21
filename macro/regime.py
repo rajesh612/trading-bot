@@ -60,6 +60,8 @@ def _sector_scores(soxx_ret5d: float, qqq_ret5d: float) -> dict:
 
 def fetch_macro_regime() -> dict:
     """Fetch Yahoo signals → classify regime → write macro_regime.json. Falls back to CRISIS on any data failure."""
+    from utils.data_health import _tracker
+    from utils.io_utils import mark_stale, clear_stale
     now = datetime.now(ET)
     try:
         closes = fetch_closes_for_regime(_TICKERS)
@@ -144,17 +146,26 @@ def fetch_macro_regime() -> dict:
                 f"macro_health={macro_health:+d}, VIX={vix_current:.1f} ({vix_trend})"
             ),
         }
+        save_json(config.MACRO_REGIME_FILE, result)
+        logger.info(
+            f"Macro regime: {result['regime']} | health={result['macro_health_score']:+d} | "
+            f"VIX={result['vix_current']:.1f} | SPY5d={result['spy_5day_return']:+.2f}% | "
+            f"green={result['consecutive_green_days']} red={result['consecutive_red_days']}"
+        )
+        clear_stale(config.MACRO_REGIME_FILE)
+        _tracker.record_success("regime")
+        return result
     except Exception as exc:
         logger.warning(f"macro_regime fetch failed: {exc} — defaulting to CRISIS")
         result = _crisis_fallback(now)
-
-    save_json(config.MACRO_REGIME_FILE, result)
-    logger.info(
-        f"Macro regime: {result['regime']} | health={result['macro_health_score']:+d} | "
-        f"VIX={result['vix_current']:.1f} | SPY5d={result['spy_5day_return']:+.2f}% | "
-        f"green={result['consecutive_green_days']} red={result['consecutive_red_days']}"
-    )
-    return result
+        save_json(config.MACRO_REGIME_FILE, result)
+        logger.error("fetch_macro_regime failed: %s", exc)
+        prev = load_macro_regime() or {}
+        mark_stale(config.MACRO_REGIME_FILE, "regime", fallback_from=prev.get("regime"))
+        from scheduler_jobs import _schedule_retry
+        _schedule_retry("regime", fetch_macro_regime)
+        _tracker.record_failure("regime")
+        return prev or result
 
 
 def load_macro_regime() -> dict:
