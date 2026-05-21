@@ -336,10 +336,10 @@ PEAD_FWD_REVISION_MIN   = 3.0   # forward EPS revision % to qualify as 6th condi
 # ── Tranche-2 scaled entry ────────────────────────────────────────────────────
 TRANCHE1_SIZE_PCT        = 0.60   # T1 = 60% of computed position size
 TRANCHE2_SIZE_PCT        = 0.40   # T2 = 40% of fresh size computed at T2 price/ATR
-TRANCHE2_DROP_MIN_PCT    = 4.0    # T2 triggers when price ≥ 4% below T1 entry
-TRANCHE2_DROP_MAX_PCT    = 7.0    # T2 blocked if drop > 7% (breakdown, not dip)
-TRANCHE2_RSI_MAX         = 45     # RSI must show oversold at trigger time
-TRANCHE2_COMPOSITE_MIN   = 40     # Composite score must still be healthy
+TRANCHE2_DROP_MIN_PCT    = 1.5    # T2 triggers when price ≥ 1.5% below T1 entry (pullback zone, above SL)
+TRANCHE2_DROP_MAX_PCT    = 3.5    # T2 blocked if drop > 3.5% (approaching SL — likely breakdown)
+TRANCHE2_RSI_MAX         = 60     # RSI ceiling at trigger (pullback, not necessarily deeply oversold)
+TRANCHE2_COMPOSITE_MIN   = 10     # Composite floor at trigger (drops naturally on price decline; just avoid deeply negative)
 TRANCHE2_SL_PCT          = 5.5    # Blended SL: 5.5% below T2 fill price
 TRANCHE2_CUTOFF_HOUR     = 14     # No T2 triggers after 2:00 PM ET
 TRANCHE2_MIN_HOLD_MIN    = 60     # T1 must be held ≥ 60 min before T2 eligible

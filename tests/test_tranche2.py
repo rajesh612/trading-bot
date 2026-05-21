@@ -21,7 +21,7 @@ ET = ZoneInfo("America/New_York")
 def _t2_iv(**overrides):
     """IndicatorValues-compatible namespace that passes all T2 gates by default."""
     base = dict(
-        current_price=95.0,
+        current_price=97.5,
         rsi=40.0,
         composite_score=55.0,
         atr=1.5,
@@ -110,7 +110,7 @@ class TestCheckTranche2Gates:
             monkeypatch.setattr(ec, "is_earnings_imminent", lambda sym, days=1: False)
         return check_tranche2_gates(
             symbol="AAPL",
-            iv=iv or _t2_iv(current_price=95.0),
+            iv=iv or _t2_iv(current_price=97.5),
             pos=pos or _t2_pos(),
             now=now or _t2_now(),
             regime=regime,
@@ -181,40 +181,40 @@ class TestCheckTranche2Gates:
 
     # Gate 6: price drop window
     def test_gate6_drop_too_small_blocked(self, monkeypatch):
-        # price at 97 → only 3% below T1 entry of 100 → below DROP_MIN (4%)
-        result = self._call(iv=_t2_iv(current_price=97.0), monkeypatch=monkeypatch)
+        # price at 99 → only 1% below T1 entry of 100 → below DROP_MIN (1.5%)
+        result = self._call(iv=_t2_iv(current_price=99.0), monkeypatch=monkeypatch)
         assert result.passed is False
         assert "drop" in result.reason
 
     def test_gate6_drop_too_large_blocked(self, monkeypatch):
-        # price at 92 → 8% below T1 entry of 100 → above DROP_MAX (7%)
-        result = self._call(iv=_t2_iv(current_price=92.0), monkeypatch=monkeypatch)
+        # price at 96 → 4% below T1 entry of 100 → above DROP_MAX (3.5%)
+        result = self._call(iv=_t2_iv(current_price=96.0), monkeypatch=monkeypatch)
         assert result.passed is False
         assert "drop" in result.reason
 
     def test_gate6_drop_in_window_passes(self, monkeypatch):
-        # price at 95 → 5% below T1 entry of 100 → within 4–7%
-        result = self._call(iv=_t2_iv(current_price=95.0), monkeypatch=monkeypatch)
+        # price at 97.5 → 2.5% below T1 entry of 100 → within 1.5–3.5%
+        result = self._call(iv=_t2_iv(current_price=97.5), monkeypatch=monkeypatch)
         assert result.passed is True
 
     # Gate 7: RSI
     def test_gate7_high_rsi_blocked(self, monkeypatch):
-        result = self._call(iv=_t2_iv(current_price=95.0, rsi=50.0), monkeypatch=monkeypatch)
+        result = self._call(iv=_t2_iv(current_price=97.5, rsi=65.0), monkeypatch=monkeypatch)
         assert result.passed is False
         assert "rsi" in result.reason.lower()
 
     def test_gate7_rsi_at_max_passes(self, monkeypatch):
-        result = self._call(iv=_t2_iv(current_price=95.0, rsi=45.0), monkeypatch=monkeypatch)
+        result = self._call(iv=_t2_iv(current_price=97.5, rsi=60.0), monkeypatch=monkeypatch)
         assert result.passed is True
 
     # Gate 8: composite
     def test_gate8_low_composite_blocked(self, monkeypatch):
-        result = self._call(iv=_t2_iv(current_price=95.0, rsi=40.0, composite_score=35.0), monkeypatch=monkeypatch)
+        result = self._call(iv=_t2_iv(current_price=97.5, rsi=50.0, composite_score=5.0), monkeypatch=monkeypatch)
         assert result.passed is False
         assert "composite" in result.reason
 
     def test_gate8_composite_at_min_passes(self, monkeypatch):
-        result = self._call(iv=_t2_iv(current_price=95.0, rsi=40.0, composite_score=40.0), monkeypatch=monkeypatch)
+        result = self._call(iv=_t2_iv(current_price=97.5, rsi=50.0, composite_score=10.0), monkeypatch=monkeypatch)
         assert result.passed is True
 
     # Gate 9: earnings imminent
@@ -223,7 +223,7 @@ class TestCheckTranche2Gates:
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda sym, days=1: True)
         from signals.tranche2_gates import check_tranche2_gates
         result = check_tranche2_gates(
-            symbol="AAPL", iv=_t2_iv(current_price=95.0),
+            symbol="AAPL", iv=_t2_iv(current_price=97.5),
             pos=_t2_pos(), now=_t2_now(), regime="NORMAL",
             sentiment_score=30.0, sector_etf_chg=0.0, major_event_today=False,
         )
