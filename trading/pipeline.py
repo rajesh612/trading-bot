@@ -113,6 +113,7 @@ def _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value
         symbol_sector_etf=sectors.get_sector_etf(symbol),
         advance_decline_ratio=snap.advance_decline_ratio,
         suppress_notify=True, major_event_today=snap.major_event_today,
+        staleness_guard=snap.staleness_guard,
     )
 
 
@@ -149,13 +150,23 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
                           buying_power, pos_mult, spy_ret5d, rsi_max, atr_tp_mult,
                           can_open, now, daily_pnl_pct, entries_so_far) -> tuple:
     """Phase 4a: auto-execute buys. Returns (new_entries, updated_buying_power, batch)."""
+    guard = snap.staleness_guard
+    if not guard.auto_execute_allowed:
+        logger.info(
+            "[AUTO-EXEC] blocked — stale sources: %s",
+            ", ".join(sorted(guard.stale_sources & config.DATA_DISABLE_AUTO_EXECUTE)),
+        )
+        return 0, buying_power, []
     new_entries = 0
     batch: list[dict] = []
     for symbol, iv in auto_execute:
         if not can_open or buying_power < config.MIN_BUYING_POWER:
             continue
         try:
-            intra_sent = snap.research.get("__meta__", {}).get("shock_score", 0)
+            intra_sent = snap.intraday_news.get(symbol, {}).get(
+                "sentiment_score",
+                snap.research.get(symbol, {}).get("sentiment_score", 0),
+            )
             confidence = _compute_auto_execute_confidence(iv.composite_score, intra_sent)
             decision = {
                 "action": "BUY", "confidence": confidence, "source": "auto_execute",
@@ -331,8 +342,12 @@ class TradingPipeline:
         telegram_notify.notify_buy_batch(auto_batch + claude_batch, snap.regime)
         exec_elapsed = time.monotonic() - t_exec
         total = time.monotonic() - t0
+        stale_tag = (
+            f"[STALE:{','.join(sorted(snap.staleness_guard.stale_sources))}] "
+            if snap.staleness_guard.stale_sources else ""
+        )
         logger.info(
-            "[CYCLE] %d symbols | fetch=%.1fs gates=%.1fs (%d passed) claude=%.1fs execute=%.1fs | total=%.1fs",
-            len(symbols), fetch_elapsed, gates_elapsed, len(needs_claude), claude_elapsed, exec_elapsed, total,
+            "%s[CYCLE] %d symbols | fetch=%.1fs gates=%.1fs (%d passed) claude=%.1fs execute=%.1fs | total=%.1fs",
+            stale_tag, len(symbols), fetch_elapsed, gates_elapsed, len(needs_claude), claude_elapsed, exec_elapsed, total,
         )
         return result

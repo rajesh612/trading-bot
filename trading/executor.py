@@ -64,6 +64,7 @@ def execute_buy(
     advance_decline_ratio: float = 1.0,
     suppress_notify: bool = False,
     major_event_today: bool = False,
+    staleness_guard=None,
 ) -> dict | None:
     """
     Validate and place a single BUY order.
@@ -112,6 +113,13 @@ def execute_buy(
 
     sector_sentiment = _get_sector_sentiment(research.get("__meta__", {}), symbol)
 
+    from utils.data_health import FRESH_GUARD
+    guard = staleness_guard or FRESH_GUARD
+
+    # Stale regime → unknown swing params → block swing promotion
+    swing_eligible_raw = regime in regimes.SWING_ELIGIBLE
+    swing_eligible = swing_eligible_raw and ("regime" not in guard.stale_sources)
+
     gate = check_all_gates(
         symbol=symbol, iv=iv, open_positions=open_positions,
         daily_closed=fresh_daily_closed, bars_15min=bars_15min, now=now,
@@ -124,7 +132,7 @@ def execute_buy(
         sl_blacklisted=sl_blacklisted,
         sector_sentiment_score=sector_sentiment,
         sentiment_score=float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,
-        swing_eligible=(regime in regimes.SWING_ELIGIBLE),
+        swing_eligible=swing_eligible,
         major_event_today=major_event_today,
         regime=regime,
     )

@@ -1025,3 +1025,158 @@ def test_journal_stores_atr_pct(monkeypatch, tmp_path):
 
     assert recorded_trades[0].get("atr_pct") == 3.0
 
+
+@pytest.mark.unit
+def test_execute_buy_forces_swing_false_when_regime_stale(monkeypatch, tmp_path):
+    """execute_buy forces swing_eligible=False when regime is in guard.stale_sources."""
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import StalenessGuard
+
+    stale_guard = StalenessGuard(
+        composite_penalty=10, auto_execute_allowed=False,
+        t2_allowed=False, swing_fallback_regime="NORMAL",
+        can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+    )
+
+    captured = {}
+
+    def fake_check_all_gates(*args, **kwargs):
+        captured["swing_eligible"] = kwargs.get("swing_eligible")
+        from signals.entry_gates import GateResult
+        return GateResult(passed=False, reason="test block")
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
+    monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
+
+    with patch("trading.executor.check_all_gates", side_effect=fake_check_all_gates), \
+         patch("trading.executor.load_json", return_value=[]), \
+         patch("trading.executor.get_intraday_bars", return_value=None), \
+         patch("trading.executor.telegram_notify", MagicMock()):
+        from trading.executor import execute_buy
+        iv = MagicMock()
+        iv.composite_score = 75.0
+        iv.rsi = 50.0
+        iv.current_price = 100.0
+        iv.atr = 2.0
+        iv.bot_herding_score = 0
+        iv.squeeze_setup = False
+        iv.vwap_slope = 999.0  # pass VWAP slope gate
+        decision = {
+            "action": "BUY", "confidence": 85,
+            "stop_loss_pct": 4.0, "take_profit_pct": 6.0, "reasoning": "test"
+        }
+        execute_buy(
+            symbol="NVDA", iv=iv, decision=decision, symbol_ret5d=0.0,
+            alpaca=MagicMock(), open_positions={},
+            portfolio_value=100_000, pos_mult=1.0, spy_ret5d=0.0,
+            rsi_max=70, now=MagicMock(), entries_this_cycle=0,
+            daily_pnl_pct=0.0, params={}, regime="BULL_TREND",
+            regime_info={}, research={},
+            sector_today={}, staleness_guard=stale_guard,
+        )
+
+    assert captured.get("swing_eligible") is False, (
+        f"Expected swing_eligible=False due to stale regime, got {captured.get('swing_eligible')}"
+    )
+
+
+# ── Task 11: auto-execute guard gate + intra_sent fix ────────────────────────
+
+@pytest.mark.unit
+def test_auto_execute_blocked_when_guard_disallows(monkeypatch):
+    """_execute_auto_entries must not call execute_buy when auto_execute_allowed is False."""
+    from trading.pipeline import _execute_auto_entries
+    from unittest.mock import MagicMock, patch
+    from utils.data_health import StalenessGuard
+
+    stale_guard = StalenessGuard(
+        composite_penalty=10, auto_execute_allowed=False,
+        t2_allowed=False, swing_fallback_regime="NORMAL",
+        can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+    )
+    snap = MagicMock()
+    snap.staleness_guard = stale_guard
+    snap.research = {}
+    snap.intraday_news = {}
+
+    iv = MagicMock()
+    iv.composite_score = 80.0
+    iv.atr = 2.0
+    iv.current_price = 100.0
+
+    buy_called = []
+    with patch("trading.pipeline.execute_buy", side_effect=lambda *a, **kw: buy_called.append(True)), \
+         patch("trading.pipeline.compute_atr_tp_pct", return_value=5.0):
+        result_entries, result_bp, result_batch = _execute_auto_entries(
+            auto_execute=[("AAPL", iv)],
+            snap=snap,
+            alpaca=MagicMock(),
+            open_positions={},
+            portfolio_value=100_000,
+            buying_power=50_000,
+            pos_mult=1.0,
+            spy_ret5d=0.0,
+            rsi_max=70,
+            atr_tp_mult=2.0,
+            can_open=True,
+            now=MagicMock(),
+            daily_pnl_pct=0.0,
+            entries_so_far=0,
+        )
+    assert buy_called == [], "execute_buy must not be called when auto_execute_allowed=False"
+    assert result_entries == 0
+    assert result_bp == 50_000
+    assert result_batch == []
+
+
+@pytest.mark.unit
+def test_auto_execute_reads_symbol_intraday_sentiment_not_shock(monkeypatch):
+    """_execute_auto_entries uses intraday_news[symbol] sentiment, not __meta__ shock_score."""
+    from trading.pipeline import _execute_auto_entries
+    from unittest.mock import MagicMock, patch
+    from utils.data_health import FRESH_GUARD
+
+    snap = MagicMock()
+    snap.staleness_guard = FRESH_GUARD
+    # __meta__.shock_score=99 — if intra_sent reads this it would be 99 (wrong)
+    snap.research = {"__meta__": {"shock_score": 99}, "AAPL": {"sentiment_score": 80}}
+    snap.intraday_news = {"AAPL": {"sentiment_score": 60}}
+    snap.regime = "NORMAL"
+
+    iv = MagicMock()
+    iv.composite_score = 80.0
+    iv.atr = 2.0
+    iv.current_price = 100.0
+
+    captured_sentiment = {}
+
+    original_confidence = __import__("trading.pipeline", fromlist=["_compute_auto_execute_confidence"])._compute_auto_execute_confidence
+
+    def spy_confidence(composite_score, intra_sentiment):
+        captured_sentiment["intra_sentiment"] = intra_sentiment
+        return original_confidence(composite_score, intra_sentiment)
+
+    with patch("trading.pipeline._compute_auto_execute_confidence", side_effect=spy_confidence), \
+         patch("trading.pipeline.execute_buy", return_value=None):
+        _execute_auto_entries(
+            auto_execute=[("AAPL", iv)],
+            snap=snap,
+            alpaca=MagicMock(),
+            open_positions={},
+            portfolio_value=100_000,
+            buying_power=50_000,
+            pos_mult=1.0,
+            spy_ret5d=0.0,
+            rsi_max=70,
+            atr_tp_mult=2.0,
+            can_open=True,
+            now=MagicMock(),
+            daily_pnl_pct=0.0,
+            entries_so_far=0,
+        )
+
+    # intra_sent must come from intraday_news["AAPL"]["sentiment_score"]=60, NOT from __meta__.shock_score=99
+    assert captured_sentiment.get("intra_sentiment") == 60, (
+        f"Expected intra_sentiment=60 (from intraday_news), got {captured_sentiment.get('intra_sentiment')}"
+    )
+

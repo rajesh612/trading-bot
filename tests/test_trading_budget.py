@@ -832,6 +832,9 @@ def test_auto_execute_uses_atr_tp(monkeypatch, tmp_path):
     snap.intraday_news = {}
     snap.sector_today = {}
     snap.advance_decline_ratio = 1.0
+    from utils.data_health import FRESH_GUARD
+    snap.staleness_guard = FRESH_GUARD
+    snap.major_event_today = False
 
     pipeline = TradingPipeline()
     pipeline.run(
