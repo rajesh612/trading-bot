@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-20  
 **Status:** Approved  
-**Scope:** Intraday + swing positions; paper trading only (live-trading extensions noted inline)
+**Scope:** Intraday + swing positions; paper + live trading
 
 ---
 
@@ -107,6 +107,7 @@ position_data = {
     "tranche_2_triggered": False,     # sentinel — set True before T2 order placed
     "tranche_1_qty":       qty,       # T1 shares (for blended calc and learning)
     "tranche_1_entry":     entry_price,  # T1 fill price
+    "stop_order_id":       None,      # server-side stop order id (set after T2 fires)
 }
 ```
 
@@ -122,11 +123,12 @@ Fields updated atomically under `_POSITIONS_LOCK` when T2 fires:
     "stop_loss_price":     t2_fill * (1 - TRANCHE2_SL_PCT/100),  # absolute
     "stop_loss_pct":       blended_sl_pct,            # pct from blended entry
     "order_id":            None,                      # bracket cancelled
+    "stop_order_id":       stop_order_id,             # server-side stop order id
 }
 ```
 
 **Why both layers of monitor.py work correctly after update:**
-- Layer 1 reads `stop_loss_pct` and `entry_price` → recomputes absolute SL → matches `stop_loss_price`
+- Layer 1 reads `stop_loss_pct` and `entry_price` → recomputes absolute SL → matches `stop_loss_price`. If `stop_order_id` is set, Layer 1 skips re-placing the stop (already server-side); it only cancels the server-side stop when the software SL fires, via `alpaca.cancel_order(stop_order_id)`.
 - Layer 2 reads `stop_loss_pct` and computes `pnl_pct` from `entry_price` → both use blended basis
 
 ---
@@ -201,12 +203,15 @@ Steps:
    - `blended_entry = (t1_qty × t1_entry + t2_qty × t2_fill) / (t1_qty + t2_qty)`
    - `blended_sl_price = t2_fill × (1 - TRANCHE2_SL_PCT / 100)`
    - `blended_sl_pct = (blended_entry - blended_sl_price) / blended_entry × 100`
-6. Update position under `_POSITIONS_LOCK` (atomic write of all blended fields)
-7. Append `TRANCHE2_ADD` journal entry with full blended position state
-8. Telegram notify (unless `suppress_notify`)
-9. Return updated position dict
+6. Place server-side stop order: `alpaca.place_stop_order(symbol, t1_qty + t2_qty, blended_sl_price)` — returns `stop_order_id`. Wrapped in try/except; log warning on failure but continue (software SL is the primary enforcer).
+7. Update position under `_POSITIONS_LOCK` (atomic write of all blended fields including `stop_order_id`)
+8. Append `TRANCHE2_ADD` journal entry with full blended position state
+9. Telegram notify (unless `suppress_notify`)
+10. Return updated position dict
 
 **Bracket cancellation failure handling:** If `cancel_order()` raises, log a warning but do NOT abort T2. The original bracket SL may fire at the wrong level, but the software SL is now set at the blended level. The monitor's Layer 1 will reconcile any bracket fill on the next 60s cycle.
+
+**Stop order failure handling:** If `place_stop_order()` raises, log a warning and store `stop_order_id=None`. The software SL in Layer 2 remains the primary enforcer; the server-side stop is a secondary safety net.
 
 ---
 
@@ -268,12 +273,6 @@ After T2:
 
 ---
 
-## Live Trading Extension (future, not in scope)
-
-After T2 fills, place a server-side `stop_limit` order at the blended SL price for the full combined qty. This gives Alpaca-side protection if the monitor goes down. Not implemented in this phase — the software SL is sufficient for paper trading.
-
----
-
 ## Files Changed
 
 | File | Type | Change |
@@ -281,6 +280,7 @@ After T2 fills, place a server-side `stop_limit` order at the blended SL price f
 | `config.py` | Modify | 10 new constants under `# ── Tranche-2 ──` |
 | `signals/tranche2_gates.py` | New | `T2GateResult`, `check_tranche2_gates()` |
 | `trading/executor.py` | Modify | T1 sizing × 0.60; `execute_tranche2_addon()` |
-| `trading/monitor.py` | Modify | `_check_tranche2_triggers()` after SL/TP loop |
+| `trading/monitor.py` | Modify | `_check_tranche2_triggers()` after SL/TP loop; Layer 1 stop order cancel on software SL |
 | `backtest/simulator.py` | Modify | T2 check in per-bar loop; `_sim_apply_tranche2()` |
+| `broker/alpaca_client.py` | Modify | `place_stop_order(symbol, qty, stop_price)` new method |
 | `tests/test_tranche2.py` | New | Full T2 test suite |
