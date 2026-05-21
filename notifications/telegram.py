@@ -207,6 +207,20 @@ def notify_buy(
     )
 
 
+def notify_tranche2_add(
+    symbol: str, qty: float, t2_price: float,
+    blended_entry: float, blended_sl_price: float, blended_sl_pct: float,
+    stop_order_placed: bool,
+) -> None:
+    stop_status = "placed" if stop_order_placed else "software-only"
+    _send(
+        f"<b>📊 T2 ADD {symbol}</b>\n"
+        f"{qty:.0f} shares @ ${t2_price:.2f}\n"
+        f"Blended entry: ${blended_entry:.2f} | SL ${blended_sl_price:.2f} ({blended_sl_pct:.1f}%)\n"
+        f"Stop order: {stop_status}"
+    )
+
+
 def notify_close(
     symbol: str, qty: float,
     entry: float, exit_price: float,

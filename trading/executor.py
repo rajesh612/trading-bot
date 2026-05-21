@@ -350,10 +350,12 @@ def execute_tranche2_addon(
 
     # Step 9: notify
     if not suppress_notify:
-        telegram_notify.notify_buy(
-            symbol=symbol, qty=t2_qty, price=t2_fill,
-            sl=round(blended_sl_price, 2), tp=None,
-            mode="T2_ADD", score=0, confidence=0,
+        telegram_notify.notify_tranche2_add(
+            symbol=symbol, qty=t2_qty, t2_price=t2_fill,
+            blended_entry=round(blended_entry, 2),
+            blended_sl_price=round(blended_sl_price, 2),
+            blended_sl_pct=round(blended_sl_pct, 1),
+            stop_order_placed=stop_order_id is not None,
         )
     logger.info(
         "TRANCHE2_ADD %.0fx %s @ $%.2f | blended_entry=$%.2f SL=$%.2f (%.1f%%) | stop_order=%s",
