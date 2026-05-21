@@ -114,6 +114,16 @@ def run_watch_list_agent() -> list[str]:
 
     if not scored:
         logger.error("No stocks scored — watch list empty.")
+        from utils.io_utils import save_json
+        from datetime import datetime
+        from utils.constants import ET
+        save_json(config.DATA_WATCH_LIST_HEALTH_FILE, {
+            "stale": True,
+            "stale_since": datetime.now(ET).isoformat(),
+            "reason": "volatility_screener returned 0 tickers",
+        })
+        from utils.data_health import _tracker
+        _tracker.record_failure("watch_list")
         return []
 
     strategy_memory = (
@@ -185,6 +195,16 @@ def run_watch_list_agent() -> list[str]:
     from macro.regime import load_macro_regime
     regime = load_macro_regime().get("regime", "UNKNOWN")
     telegram_notify.notify_watch_list(watch_list, regime)
+
+    from utils.io_utils import save_json
+    from datetime import datetime
+    from utils.constants import ET
+    save_json(config.DATA_WATCH_LIST_HEALTH_FILE, {
+        "stale": False,
+        "last_updated": datetime.now(ET).isoformat(),
+    })
+    from utils.data_health import _tracker
+    _tracker.record_success("watch_list")
 
     return watch_list
 

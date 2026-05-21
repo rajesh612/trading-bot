@@ -931,3 +931,122 @@ class TestQualifiesForEodHold:
         ok, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=4.0, earnings_tomorrow=True)
         assert not ok
         assert "earnings" in reason.lower()
+
+
+@pytest.mark.unit
+def test_screener_skips_market_cap_filter_on_api_failure(monkeypatch, tmp_path):
+    """When ≥80% of market cap fetches return None (API failure), filter is bypassed."""
+    import config
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.setattr(config, "DATA_SCREENER_FAILURE_RATE_THRESHOLD", 0.80)
+    monkeypatch.setattr(config, "DAILY_TRADEABLE_FILE", tmp_path / "daily_tradeable.txt")
+    monkeypatch.setattr(config, "MIN_MARKET_CAP_B", 1.0)
+    # Set MAX_TICKERS_DIRECT low enough that volatility scoring is triggered
+    monkeypatch.setattr(config, "MAX_TICKERS_DIRECT", 0)
+
+    fake_tickers = ["AAAA", "BBBB", "CCCC"]
+
+    # All 3 fetches return None → 100% failure rate → filter bypassed
+    with patch("agents.volatility_screener._fetch_market_cap", return_value=None), \
+         patch("agents.volatility_screener._schedule_retry") as mock_retry, \
+         patch("sectors.load_universe", return_value=fake_tickers), \
+         patch("agents.volatility_screener._score_ticker", return_value=1.0), \
+         patch("agents.volatility_screener.AlpacaClient"):
+        from agents import volatility_screener
+        result = volatility_screener.run_volatility_screener()
+
+    # All tickers must survive (filter bypassed) — none filtered out due to None market cap
+    assert set(result) == set(fake_tickers), (
+        f"Expected all tickers to survive API failure bypass, got: {result}"
+    )
+    # Retry must have been scheduled
+    assert mock_retry.called, "_schedule_retry was not called on API failure"
+
+
+# ---------------------------------------------------------------------------
+# watch_loader — held-ticker merge tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_watch_loader_merges_open_position_tickers(monkeypatch, tmp_path):
+    """load_watch_list always includes tickers from open_positions.json."""
+    import config
+    from utils.io_utils import save_json
+
+    watch_file = tmp_path / "watch_list.txt"
+    watch_file.write_text("AAPL\nMSFT\n")
+    open_pos_file = tmp_path / "open_positions.json"
+    save_json(open_pos_file, {"NVDA": {"qty": 10}})
+    swing_pos_file = tmp_path / "swing_positions.json"
+    save_json(swing_pos_file, {})
+
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", open_pos_file)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_pos_file)
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "wl_health.json")
+
+    import importlib
+    import trading.watch_loader
+    importlib.reload(trading.watch_loader)
+    from trading.watch_loader import load_watch_list
+    result = load_watch_list()
+
+    assert "NVDA" in result
+    assert "AAPL" in result
+    assert "MSFT" in result
+
+
+@pytest.mark.unit
+def test_watch_loader_merges_swing_position_tickers(monkeypatch, tmp_path):
+    """load_watch_list includes tickers from swing_positions.json."""
+    import config
+    from utils.io_utils import save_json
+
+    watch_file = tmp_path / "watch_list.txt"
+    watch_file.write_text("AAPL\n")
+    open_pos_file = tmp_path / "open_positions.json"
+    save_json(open_pos_file, {})
+    swing_pos_file = tmp_path / "swing_positions.json"
+    save_json(swing_pos_file, {"PANW": {"qty": 5}})
+
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", open_pos_file)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_pos_file)
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "wl_health.json")
+
+    import importlib
+    import trading.watch_loader
+    importlib.reload(trading.watch_loader)
+    from trading.watch_loader import load_watch_list
+    result = load_watch_list()
+
+    assert "PANW" in result
+    assert "AAPL" in result
+
+
+@pytest.mark.unit
+def test_watch_loader_no_duplicates(monkeypatch, tmp_path):
+    """If a held ticker is already in watch_list.txt, it appears only once."""
+    import config
+    from utils.io_utils import save_json
+
+    watch_file = tmp_path / "watch_list.txt"
+    watch_file.write_text("AAPL\nNVDA\n")
+    open_pos_file = tmp_path / "open_positions.json"
+    save_json(open_pos_file, {"NVDA": {"qty": 10}})
+    swing_pos_file = tmp_path / "swing_positions.json"
+    save_json(swing_pos_file, {})
+
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", open_pos_file)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_pos_file)
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "wl_health.json")
+
+    import importlib
+    import trading.watch_loader
+    importlib.reload(trading.watch_loader)
+    from trading.watch_loader import load_watch_list
+    result = load_watch_list()
+
+    assert result.count("NVDA") == 1
