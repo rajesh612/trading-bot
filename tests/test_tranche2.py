@@ -671,3 +671,74 @@ class TestSimTranche2:
         now = _t2_now(hour=11)
 
         assert _sim_tranche2_gates_pass(pos, iv, drop_pct=8.0, regime="NORMAL", now=now) is False
+
+
+# ── Fix 1: stop_order_id cancelled on close ───────────────────────────────────
+
+@pytest.mark.unit
+class TestStopOrderCancelledOnClose:
+    """close_position cancels the T2 stop order before closing the position."""
+
+    def test_close_position_cancels_stop_order_id(self, monkeypatch, tmp_path):
+        """If stop_order_id is set in pos, close_position cancels it before closing."""
+        import types as _t
+        from trading.closer import close_position
+        from utils.io_utils import save_json
+        import notifications.telegram as tg
+        import trading.journal as jrn
+        monkeypatch.setattr(tg, "notify_close", lambda **kw: None)
+        monkeypatch.setattr(jrn, "append_trade", lambda e: None)
+        monkeypatch.setattr(jrn, "record_daily_closed", lambda s: None)
+        op_file = tmp_path / "op.json"
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", op_file)
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "dc.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "tj.json")
+
+        cancelled = []
+        def _cancel(order_id):
+            cancelled.append(order_id)
+
+        fake_alpaca = _t.SimpleNamespace(
+            close_position=lambda sym: None,
+            cancel_order=_cancel,
+            get_latest_price=lambda sym: 98.0,
+        )
+
+        pos = _t2_pos(stop_order_id="stop-live-789", entry_price=100.0, qty=100)
+        open_positions = {"AAPL": pos}
+        save_json(op_file, open_positions)
+
+        close_position("AAPL", fake_alpaca, open_positions, 98.0, None, "monitor_stop_loss")
+
+        assert "stop-live-789" in cancelled
+
+    def test_close_position_skips_cancel_when_no_stop_order(self, monkeypatch, tmp_path):
+        """If stop_order_id is None, close_position does not call cancel_order."""
+        import types as _t
+        from trading.closer import close_position
+        from utils.io_utils import save_json
+        import notifications.telegram as tg
+        import trading.journal as jrn
+        monkeypatch.setattr(tg, "notify_close", lambda **kw: None)
+        monkeypatch.setattr(jrn, "append_trade", lambda e: None)
+        monkeypatch.setattr(jrn, "record_daily_closed", lambda s: None)
+        op_file = tmp_path / "op.json"
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", op_file)
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "dc.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "tj.json")
+
+        cancel_called = []
+        fake_alpaca = _t.SimpleNamespace(
+            close_position=lambda sym: None,
+            cancel_order=lambda oid: cancel_called.append(oid),
+            get_latest_price=lambda sym: 98.0,
+        )
+
+        # pos with no stop_order_id (regular T1-only position)
+        pos = _t2_pos(stop_order_id=None, entry_price=100.0, qty=60)
+        open_positions = {"AAPL": pos}
+        save_json(op_file, open_positions)
+
+        close_position("AAPL", fake_alpaca, open_positions, 98.0, None, "monitor_stop_loss")
+
+        assert len(cancel_called) == 0

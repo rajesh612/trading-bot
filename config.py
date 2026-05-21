@@ -344,6 +344,7 @@ TRANCHE2_SL_PCT          = 5.5    # Blended SL: 5.5% below T2 fill price
 TRANCHE2_CUTOFF_HOUR     = 14     # No T2 triggers after 2:00 PM ET
 TRANCHE2_MIN_HOLD_MIN    = 60     # T1 must be held ≥ 60 min before T2 eligible
 TRANCHE2_MIN_SENTIMENT   = 20     # Symbol sentiment score floor for T2
+TRANCHE2_SECTOR_WEAK_PCT = -1.0  # Sector ETF must not be down more than 1% for T2
 
 # ── BACKTEST SIMULATION ────────────────────────────────────────────────────────
 

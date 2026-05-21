@@ -75,6 +75,14 @@ def close_position(
         open_positions.pop(symbol, None)
         save_json(config.OPEN_POSITIONS_FILE, disk_positions)
 
+    # Cancel server-side stop order placed by T2 addon (best-effort)
+    stop_order_id = pos.get("stop_order_id") if pos else None
+    if stop_order_id:
+        try:
+            alpaca.cancel_order(stop_order_id)
+        except Exception as exc:
+            logger.warning("close_position %s: cancel stop order %s failed — %s", symbol, stop_order_id, exc)
+
     alpaca.close_position(symbol)
 
     entry_price = pos["entry_price"]

@@ -85,7 +85,7 @@ def check_tranche2_gates(
         return T2GateResult(False, f"sentiment {sentiment_score:.0f} < min {config.TRANCHE2_MIN_SENTIMENT}")
 
     # Gate 11: sector health
-    if sector_etf_chg < -1.0:
+    if sector_etf_chg < config.TRANCHE2_SECTOR_WEAK_PCT:
         return T2GateResult(False, f"sector ETF down {sector_etf_chg:.1f}% — sector leading the drop")
 
     return T2GateResult(True)
