@@ -108,6 +108,7 @@ SL_BLACKLIST_ENABLED   = True   # block SL-hit symbols from re-entry next day
 
 ENTRY_START_HOUR       = 10   # No entries before 10:00 AM (avoid open noise)
 ENTRY_END_HOUR         = 15   # No entries at or after 3:00 PM
+ENTRY_HARD_CLOSE_HOUR  = 13   # Default regime hard cutoff (NORMAL); per-regime values in EntryParams
 ENTRY_GATE_OPEN_MINUTES  = 30 # block entries for first N minutes after open
 ENTRY_GATE_CLOSE_MINUTES = 35 # block entries for last N minutes before close
 ENTRY_LATE_HOUR          = 14   # 2:00 PM ET — after this, require higher composite for entry
@@ -218,10 +219,25 @@ EOD_FORCE_CLOSE_MINUTE = 55  # minute at which force_close_all() runs (ET)
 EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
 EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
-SWING_MIN_PNL_PCT        = -2.0 # PTJ rule: don't hold overnight if P&L <= this %
-SWING_MIN_PNL_PCT_BULL         = -3.0   # BULL_TREND: wider PTJ rule (SL is 7%)
 SWING_MIN_PNL_PCT_CAPITULATION = -5.0   # CAPITULATION: widest PTJ rule (SL is 12%)
-SWING_MIN_PNL_PCT_CRASH        = -3.0   # CRASH_RECOVERY: wider PTJ rule (SL is 10%)
+
+# ── Swing per-regime promotion thresholds ──────────────────────────────────
+SWING_MIN_PNL_NORMAL        = 0.5    # minimum EOD P&L to promote to swing in NORMAL/standard regimes
+SWING_MIN_PNL_BULL          = 0.3    # relaxed floor in BULL_TREND (uptrend provides cushion)
+SWING_MIN_PNL_CRASH         = 1.0    # tighter floor in CRASH_RECOVERY (fragile recovery)
+SWING_PROFIT_LOCK_NORMAL    = 2.5    # profit-lock bypass: promote in any non-CRISIS regime at this P&L
+SWING_PROFIT_LOCK_BULL      = 2.0    # relaxed bypass in BULL_TREND
+SWING_PROFIT_LOCK_DEFENSIVE = 3.0    # stricter bypass in HIGH_VOL/DEFENSIVE
+PROFIT_LOCK_SWING_PCT    = 2.5       # default/documentation anchor for profit-lock bypass threshold
+SWING_PROMOTE_MIN_PNL_PCT = 0.5     # default/documentation anchor for standard promotion min P&L
+SWING_SENTIMENT_MIN_NORMAL  = -20    # symbol sentiment floor for NORMAL swing promotion
+SWING_SENTIMENT_MIN_BULL    = -30    # wider floor in BULL_TREND (trend offsets weak sentiment)
+SWING_SENTIMENT_MIN_OPP     = -10    # tighter floor in OPPORTUNITY (thesis depends on sentiment)
+SWING_SENTIMENT_MIN_CRASH   = 0      # neutral+ required in CRASH_RECOVERY
+SWING_SENTIMENT_MIN_CHOPPY  = 10     # positive required in CHOPPY (sentiment must confirm)
+SWING_SECTOR_FLOOR_NORMAL   = -1.0   # sector ETF must not be down more than 1% for NORMAL swing
+SWING_SECTOR_FLOOR_BULL     = -2.0   # wider tolerance in BULL_TREND
+SWING_SECTOR_FLOOR_CHOPPY   = 0.5    # sector must be up in CHOPPY (confirming upward bias)
 
 # ── BUDGET & API COST ─────────────────────────────────────────────────────────
 

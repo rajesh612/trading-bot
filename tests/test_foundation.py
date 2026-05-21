@@ -718,17 +718,18 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert "DEFENSIVE" in reason
 
     @pytest.mark.unit
-    def test_normal_ptj_veto_at_minus_2(self, monkeypatch):
+    def test_normal_min_pnl_gate_blocks_below_threshold(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -2.0)
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=-2.1)
+        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 0.5)
+        ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.3)
         assert not ok
+        assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
-    def test_normal_passes_above_ptj(self, monkeypatch):
+    def test_normal_passes_at_min_pnl_threshold(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -2.0)
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=-1.9)
+        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 0.5)
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=0.5)
         assert ok
 
     @pytest.mark.unit
@@ -749,13 +750,13 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert ok
 
     @pytest.mark.unit
-    def test_bull_trend_wider_ptj_threshold(self, monkeypatch):
+    def test_bull_trend_relaxed_min_pnl_threshold(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_BULL", -3.0)
-        ok_at_minus_2_9, _ = self._call(regime="BULL_TREND", current_pnl_pct=-2.9)
-        ok_at_minus_3_1, _ = self._call(regime="BULL_TREND", current_pnl_pct=-3.1)
-        assert ok_at_minus_2_9
-        assert not ok_at_minus_3_1
+        monkeypatch.setattr(config, "SWING_MIN_PNL_BULL", 0.3)
+        ok_at_0_3, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.3)
+        ok_at_0_2, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.2)
+        assert ok_at_0_3
+        assert not ok_at_0_2
 
     @pytest.mark.unit
     def test_opportunity_vetoes_when_sector_goes_negative(self):
@@ -782,11 +783,10 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert not ok_at_minus_5_1
 
     @pytest.mark.unit
-    def test_crash_recovery_vetoes_on_3_red_days(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_CRASH", -3.0)
-        ok_2_red, _ = self._call(regime="CRASH_RECOVERY", consecutive_red_days=2)
-        ok_3_red, reason = self._call(regime="CRASH_RECOVERY", consecutive_red_days=3)
+    def test_crash_recovery_vetoes_on_3_red_days(self):
+        """3 consecutive red days blocks CRASH_RECOVERY swing even with sufficient P&L."""
+        ok_2_red, _ = self._call(regime="CRASH_RECOVERY", consecutive_red_days=2, current_pnl_pct=1.1)
+        ok_3_red, reason = self._call(regime="CRASH_RECOVERY", consecutive_red_days=3, current_pnl_pct=1.1)
         assert ok_2_red
         assert not ok_3_red
         assert "red" in reason.lower()
@@ -802,3 +802,132 @@ class TestQualifiesForEodHoldRegimeMatrix:
         """event_risk_tomorrow gate removed — only earnings_tomorrow matters."""
         ok, _ = self._call(regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.0)
         assert ok
+
+
+# ── utils/regime_params ───────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestGetEntryParams:
+    def test_crisis_has_zero_hard_close_hour(self):
+        from utils.regime_params import get_entry_params
+        p = get_entry_params("CRISIS")
+        assert p.hard_close_hour == 0
+
+    def test_choppy_raises_composite_min(self):
+        from utils.regime_params import get_entry_params
+        normal = get_entry_params("NORMAL")
+        choppy = get_entry_params("CHOPPY")
+        assert choppy.composite_min > normal.composite_min
+
+    def test_bull_trend_returns_entry_params(self):
+        from utils.regime_params import get_entry_params
+        p = get_entry_params("BULL_TREND")
+        assert isinstance(p.composite_min, int)
+        assert p.hard_close_hour == 14
+
+    def test_unknown_regime_falls_back_to_normal(self):
+        from utils.regime_params import get_entry_params
+        p = get_entry_params("UNKNOWN_FUTURE_REGIME")
+        normal = get_entry_params("NORMAL")
+        assert p.composite_min == normal.composite_min
+
+
+@pytest.mark.unit
+class TestGetSwingParams:
+    def test_crisis_not_eligible(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("CRISIS")
+        assert p.eligible is False
+
+    def test_choppy_not_eligible(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("CHOPPY")
+        assert p.eligible is False
+
+    def test_defensive_not_eligible(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("DEFENSIVE")
+        assert p.eligible is False
+
+    def test_normal_eligible_with_positive_min_pnl(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("NORMAL")
+        assert p.eligible is True
+        assert p.min_pnl_pct > 0
+
+    def test_profit_lock_bypass_above_min_pnl(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("CHOPPY")
+        assert p.profit_lock_pct > p.min_pnl_pct
+
+    def test_high_vol_swing_ineligible(self):
+        """HIGH_VOL must not be eligible for swing promotion (same as CHOPPY/DEFENSIVE)."""
+        from utils.regime_params import get_swing_params
+        sp = get_swing_params("HIGH_VOL")
+        assert sp.eligible is False
+
+
+@pytest.mark.unit
+class TestGetT2Params:
+    def test_crisis_has_no_t2(self):
+        from utils.regime_params import get_t2_params
+        p = get_t2_params("CRISIS")
+        assert p.cutoff_hour == 0
+
+    def test_normal_t2_params_well_formed(self):
+        from utils.regime_params import get_t2_params
+        p = get_t2_params("NORMAL")
+        assert p.cutoff_hour > 0
+
+    def test_choppy_t2_more_restrictive_than_normal(self):
+        from utils.regime_params import get_t2_params
+        choppy = get_t2_params("CHOPPY")
+        assert choppy.cutoff_hour == 0  # CHOPPY fully disables T2 — sentinel value
+
+
+@pytest.mark.unit
+class TestQualifiesForEodHold:
+    def _call(self, monkeypatch, **kwargs):
+        import config
+        monkeypatch.setattr(config, "PROFIT_LOCK_SWING_PCT", 2.5)
+        monkeypatch.setattr(config, "SWING_PROMOTE_MIN_PNL_PCT", 0.5)
+        from trading.eod_holds import qualifies_for_eod_hold
+        defaults = dict(
+            symbol="AAPL", regime="NORMAL", earnings_tomorrow=False,
+            current_pnl_pct=1.0, entry_sector_sentiment=10.0,
+            current_sector_sentiment=5.0, consecutive_red_days=0, vix_trend="stable",
+        )
+        defaults.update(kwargs)
+        return qualifies_for_eod_hold(**defaults)
+
+    def test_profit_lock_bypass_choppy(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=2.5)
+        assert result is True
+        assert reason == ""
+
+    def test_profit_lock_requires_enough_pnl(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=1.0)
+        assert result is False
+        assert "CHOPPY" in reason or "swing" in reason.lower()
+
+    def test_profit_lock_blocked_in_crisis(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="CRISIS", current_pnl_pct=5.0)
+        assert result is False
+        assert "CRISIS" in reason
+
+    def test_min_pnl_gate_blocks_flat_position(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.3)
+        assert result is False
+        assert "insufficient" in reason.lower() or "P&L" in reason
+
+    def test_min_pnl_gate_passes_at_threshold(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.5)
+        assert result is True
+        assert reason == ""
+
+    @pytest.mark.unit
+    def test_earnings_tomorrow_overrides_profit_lock_bypass(self, monkeypatch):
+        """earnings_tomorrow=True must veto even a highly profitable position (profit-lock bypass should not fire)."""
+        ok, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=4.0, earnings_tomorrow=True)
+        assert not ok
+        assert "earnings" in reason.lower()

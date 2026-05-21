@@ -126,6 +126,7 @@ def execute_buy(
         sentiment_score=float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,
         swing_eligible=(regime in regimes.SWING_ELIGIBLE),
         major_event_today=major_event_today,
+        regime=regime,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)

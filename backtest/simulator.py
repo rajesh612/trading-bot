@@ -13,6 +13,7 @@ import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
 from utils.constants import ET
+from utils.regime_params import get_swing_params, get_entry_params, get_t2_params
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MIN_COMPOSITE = config.COMPOSITE_MIN_NORMAL; MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
 RSI_BUY_MAX   = config.RSI_BUY_MAX;    RSI_BUY_MAX_HV   = config.RSI_BUY_MAX_HIGH_VOL
 VWAP_SLOPE_MIN = config.VWAP_SLOPE_MIN; ENTRY_START_H   = config.ENTRY_START_HOUR
-ENTRY_END_H   = config.ENTRY_END_HOUR;  HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
+HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
 MAX_POSITION_PCT = config.MAX_POSITION_PCT; RISK_PER_TRADE = config.RISK_PER_TRADE_PCT
 LOOKBACK_BARS = config.BARS_LOOKBACK;   SWING_MAX_POSITIONS = config.SWING_MAX_POSITIONS
 SWING_MAX_DAYS = config.BACKTEST_SWING_MAX_DAYS
@@ -65,6 +66,7 @@ class SimState:
     atr_tp_multiplier: float = config.ATR_TP_MULT_DEFAULT
     sl_blacklist: set = field(default_factory=set)
     sl_blacklist_pending: set = field(default_factory=set)
+    t2_fire_count: int = 0
 
 
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
@@ -147,13 +149,29 @@ def _evaluate_swing_promotion(
         avail2 = df2[df2.index <= ts]
         eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
         pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
-        if regime in ("NORMAL", "CRASH_RECOVERY") and pnl_pct > 0 and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN and n_swings < SWING_MAX_POSITIONS:
+        sp = get_swing_params(regime)
+        profit_lock_bypass = (
+            pnl_pct >= sp.profit_lock_pct
+            and regime != "CRISIS"
+            and n_swings < SWING_MAX_POSITIONS
+        )
+        standard_qualify = (
+            sp.eligible
+            and pnl_pct >= sp.min_pnl_pct
+            and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
+            and n_swings < SWING_MAX_POSITIONS
+        )
+        if profit_lock_bypass or standard_qualify:
             pos2["is_swing"] = True
             pos2["swing_days_remaining"] = SWING_MAX_DAYS
             pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
             pos2["tp"] = round(pos2["entry"] * (1 + SWING_TP_PCT / 100), 4)
             n_swings += 1
-            logger.info(f"    SWING PROMOTE {sym2}: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f} | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}")
+            tag = "PROFIT-LOCK" if profit_lock_bypass else "STANDARD"
+            logger.info(
+                f"    SWING PROMOTE {sym2} [{tag}]: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f}"
+                f" | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}"
+            )
     return n_swings
 
 
@@ -222,7 +240,7 @@ def _sim_tranche2_gates_pass(
         return False
     if now.hour >= config.TRANCHE2_CUTOFF_HOUR:
         return False
-    if regime in ("CRISIS", "CHOPPY"):
+    if get_t2_params(regime).cutoff_hour == 0:
         return False
     if drop_pct < config.TRANCHE2_DROP_MIN_PCT or drop_pct > config.TRANCHE2_DROP_MAX_PCT:
         return False
@@ -286,7 +304,8 @@ def simulate_day(
     mkt_open      = _ts(MARKET_OPEN_H, MARKET_OPEN_M)
     force_ts      = _ts(FORCE_CLOSE_H, FORCE_CLOSE_M)
     swing_eval_ts = _ts(SWING_EVAL_H,  SWING_EVAL_M)
-    entry_start   = _ts(ENTRY_START_H); entry_end = _ts(ENTRY_END_H)
+    entry_start = _ts(ENTRY_START_H)
+    entry_end   = _ts(get_entry_params(regime).hard_close_hour)
     day_start_equity = state.cash
     halted = False
     swing_evaluated = False
@@ -350,6 +369,7 @@ def simulate_day(
                     if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et):
                         current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
                         _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
+                        state.t2_fire_count += 1
 
         if is_force:
             continue

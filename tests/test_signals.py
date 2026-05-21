@@ -82,8 +82,8 @@ class TestTimeGate:
         assert is_entry_allowed(self._et(15, 50)) is False
 
     def test_allowed_before_close_window(self):
-        """15:24 ET should be allowed (just before close gate)."""
-        assert is_entry_allowed(self._et(15, 24)) is True
+        """12:59 ET in NORMAL (default) regime should be allowed (hard cutoff at 13:00)."""
+        assert is_entry_allowed(self._et(12, 59)) is True
 
     def test_naive_datetime_handled(self):
         """Naive datetime (no timezone) should be localized to ET and not raise."""
@@ -449,7 +449,8 @@ class TestLateEntryCompositeGate:
 
     def _late_now(self):
         from zoneinfo import ZoneInfo
-        return datetime(2024, 1, 15, 14, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+        # 13:30 ET — past ENTRY_LATE_HOUR=13, within BULL_TREND cutoff=14
+        return datetime(2024, 1, 15, 13, 30, 0, tzinfo=ZoneInfo("America/New_York"))
 
     def _early_now(self):
         from zoneinfo import ZoneInfo
@@ -466,12 +467,13 @@ class TestLateEntryCompositeGate:
         """After ENTRY_LATE_HOUR, composite below ENTRY_LATE_COMPOSITE_MIN → blocked."""
         from signals.entry_gates import check_all_gates
         self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
+        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 13)
         monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
+        # _late_now() = 13:30; use BULL_TREND (hard_close_hour=14) so time gate passes
         result = check_all_gates(
             symbol="AAPL", iv=self._iv_late(composite=35.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), entries_this_cycle=0,
+            now=self._late_now(), entries_this_cycle=0, regime="BULL_TREND",
         )
         assert result.passed is False
         assert "late" in result.reason.lower() or "composite" in result.reason.lower()
@@ -481,12 +483,13 @@ class TestLateEntryCompositeGate:
         """After ENTRY_LATE_HOUR, composite at or above threshold → passes gate."""
         from signals.entry_gates import check_all_gates
         self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
+        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 13)
         monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
+        # _late_now() = 13:30; use BULL_TREND (hard_close_hour=14) so time gate passes
         result = check_all_gates(
             symbol="AAPL", iv=self._iv_late(composite=60.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), entries_this_cycle=0,
+            now=self._late_now(), entries_this_cycle=0, regime="BULL_TREND",
         )
         assert result.passed is True
 
@@ -575,3 +578,40 @@ class TestBacktestSwingMaxDays:
     def test_backtest_swing_max_days_shorter_than_live(self):
         """Backtest swing cap must be shorter than live SWING_MAX_DAYS."""
         assert config.BACKTEST_SWING_MAX_DAYS < config.SWING_MAX_DAYS
+
+
+@pytest.mark.unit
+class TestEntryHardCutoff:
+    def _now(self, hour, minute=0):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime(2026, 5, 21, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+
+    def test_entry_allowed_before_hard_cutoff_normal(self):
+        from signals.time_gate import is_entry_allowed
+        assert is_entry_allowed(self._now(12, 59), regime="NORMAL") is True
+
+    def test_entry_blocked_at_hard_cutoff_normal(self):
+        from signals.time_gate import is_entry_allowed
+        assert is_entry_allowed(self._now(13, 0), regime="NORMAL") is False
+
+    def test_entry_blocked_earlier_in_choppy(self, monkeypatch):
+        from signals.time_gate import is_entry_allowed
+        # 12:00 PM in CHOPPY (cutoff=12) should be blocked
+        assert is_entry_allowed(self._now(12, 0), regime="CHOPPY") is False
+
+    def test_entry_allowed_later_in_bull_trend(self, monkeypatch):
+        from signals.time_gate import is_entry_allowed
+        # 1:30 PM in BULL_TREND (cutoff=14) should be allowed
+        assert is_entry_allowed(self._now(13, 30), regime="BULL_TREND") is True
+
+    def test_entry_blocked_after_bull_trend_cutoff(self, monkeypatch):
+        from signals.time_gate import is_entry_allowed
+        # 2:00 PM in BULL_TREND (cutoff=14) should be blocked
+        assert is_entry_allowed(self._now(14, 0), regime="BULL_TREND") is False
+
+    def test_backward_compat_no_regime_arg(self):
+        from signals.time_gate import is_entry_allowed
+        # No regime arg → defaults to NORMAL (cutoff=13)
+        # 12:59 should be allowed
+        assert is_entry_allowed(self._now(12, 59)) is True

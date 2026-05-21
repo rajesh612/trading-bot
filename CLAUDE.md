@@ -60,8 +60,8 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `trading/cycle_context.py` | `CycleSnapshot` dataclass: regime, params, research, intraday news, breadth ratio |
 | `trading/executor.py` | `execute_buy()` — calls `check_all_gates()`, places orders, records fills |
 | `trading/risk_manager.py` | Budget TOCTOU-safe R/W under `BUDGET_LOCK`; 75% intraday warning; gap guard |
-| `trading/monitor.py` | Position monitor: SL/TP enforcement, drawdown alerts at `-DRAWDOWN_WARN_PCT` |
-| `trading/swing_manager.py` | Overnight swing: 7-gate EOD qualification, tiered TP 40/30/30, trailing stop |
+| `trading/monitor.py` | Position monitor: SL/TP enforcement, drawdown alerts at `-DRAWDOWN_WARN_PCT`; batch-fetches real sector ETF intraday % change for T2 Gate 11 |
+| `trading/swing_manager.py` | Overnight swing: EOD qualification via `get_swing_params(regime)` (profit-lock bypass + min P&L gate), tiered TP 40/30/30, trailing stop |
 | `macro/regime.py` | 9-state regime (CRISIS/BULL_TREND/CHOPPY/…) from VIX/SPY/SOXX/QQQ/WTI/TNX/Gold/DXY |
 | `macro/breadth_signals.py` | `get_advance_decline_ratio()` — IWM/SPY session return ratio; < 0.85 → soft flag |
 | `data/market_data.py` | Provider-agnostic OHLCV (Yahoo/Alpaca/hybrid via `MARKET_DATA_PROVIDER`) |
@@ -73,6 +73,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `trading/journal.py` | JSON state R/W with locks: `_POSITIONS_LOCK`, `_DAILY_CLOSED_LOCK`, `_JOURNAL_LOCK` |
 | `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping, ATR-TP multiplier tuning, strategy_memory versioning |
 | `utils/metrics.py` | `record_cycle_metric()` + `get_daily_summary()` — JSONL cycle telemetry |
+| `utils/regime_params.py` | **SoT for all regime × mode dispatch** — `EntryParams`, `SwingParams`, `T2Params` frozen dataclasses; `get_entry_params()`, `get_swing_params()`, `get_t2_params()` lookup functions. All per-regime thresholds (composite floor, entry cutoff, swing eligibility, T2 gates) live here. No caller should hold inline `if regime ==` dispatch chains. |
 | `utils/http.py` | Shared `yahoo_get()` — Session + 429 backoff (3 retries) |
 | `utils/io_utils.py` | `load_json` / `save_json` — atomic writes, corrupt-file recovery |
 | `utils/catchup.py` | `catchup_missed_agents()` — runs stale pre-market agents on startup if bot missed their cron window (threshold: 8:00 AM ET) |
@@ -131,7 +132,8 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `DAILY_LOSS_WARN_PCT` | 0.015 | Warn Telegram at 1.5% intraday loss |
 | `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 30 / 35 | Pre-Claude composite threshold (regime-adjusted) |
 | `AUTO_EXECUTE_COMPOSITE_MIN` | 55 | Auto-execute (skip Claude) composite threshold |
-| `ENTRY_START_HOUR` / `ENTRY_END_HOUR` | 10 / 15 | ET entry window |
+| `ENTRY_START_HOUR` / `ENTRY_END_HOUR` | 10 / 15 | ET entry window (ENTRY_END_HOUR is the absolute market close; per-regime hard cutoff is `EntryParams.hard_close_hour` via `get_entry_params()`) |
+| `ENTRY_HARD_CLOSE_HOUR` | 13 | Default hard cutoff hour (NORMAL regime); CHOPPY/DEFENSIVE=12, BULL_TREND/OPPORTUNITY=14. Overrides `ENTRY_END_HOUR` earlier in the day. |
 | `BAR_TIMEFRAME_MINUTES` / `BARS_LOOKBACK` | 5 / 100 | Bar config |
 | `STOCH_HARD_VETO_THRESHOLD` | 97 | Stochastic ≥ this → hard block |
 | `STOCH_SOFT_FLAG_THRESHOLD` | 85 | Stochastic ≥ this → soft flag for Claude |
@@ -147,6 +149,8 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `ATR_TP_MULT_DEFAULT` | 2.0 | Default ATR-TP multiplier (TP = ATR% × multiplier) |
 | `ATR_TP_MULT_MIN` / `ATR_TP_MULT_MAX` | 1.0 / 4.0 | Learning agent bounds for ATR-TP multiplier |
 | `ATR_TP_FLOOR_PCT` / `ATR_TP_CEILING_PCT` | 1.5 / 12.0 | Hard floor/ceiling for computed ATR-TP % |
+| `PROFIT_LOCK_SWING_PCT` | 2.5 | Positions with unrealised P&L ≥ this % qualify for swing in any non-CRISIS regime (per-regime override in `SwingParams.profit_lock_pct`) |
+| `SWING_PROMOTE_MIN_PNL_PCT` | 0.5 | Standard EOD swing promotion requires at least this % gain (per-regime override in `SwingParams.min_pnl_pct`; 0.3 BULL_TREND, 1.0 CRASH_RECOVERY) |
 
 ---
 
@@ -283,3 +287,6 @@ Only when the **why** is non-obvious. Never describe what the code does. Never r
 
 ### 23. Gate architecture — never duplicate safety rules
 `pre_claude_filter` is a quality/budget router only. `check_all_gates()` is the single source of truth for all safety enforcement. Adding a safety rule to `pre_claude_filter` creates a duplicate that drifts independently — add it to `check_all_gates()` instead.
+
+### 24. Regime dispatch — always use utils/regime_params.py
+Never write inline `if regime == "CHOPPY": ...` dispatch chains in source modules. All regime × mode threshold dispatch belongs in `utils/regime_params.py`. Callers use `get_entry_params(regime)`, `get_swing_params(regime)`, or `get_t2_params(regime)`. Adding a new regime variant = update the table in `regime_params.py` only.

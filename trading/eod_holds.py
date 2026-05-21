@@ -11,6 +11,7 @@ from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
 
 from utils.constants import ET
+from utils.regime_params import get_swing_params
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,8 @@ def qualifies_for_eod_hold(
     Pure — no Alpaca calls, no file I/O.
     Asymmetric design: fail-fast on thesis-break signals only.
     """
+    params = get_swing_params(regime)
+
     # Universal veto 1: CRISIS — no overnight exposure under any circumstances
     if regime == "CRISIS":
         return False, "CRISIS regime — no overnight exposure"
@@ -55,14 +58,17 @@ def qualifies_for_eod_hold(
     if earnings_tomorrow:
         return False, "earnings tomorrow — overnight binary risk"
 
-    # Any non-swing-eligible regime — block new swing promotions
-    if regime not in regimes.SWING_ELIGIBLE:
+    # Profit-lock bypass: strongly profitable positions qualify in any non-CRISIS regime
+    if current_pnl_pct >= params.profit_lock_pct:
+        return True, ""
+
+    # Any non-swing-eligible regime — block new swing promotions (CHOPPY, DEFENSIVE, HIGH_VOL)
+    if not params.eligible:
         return False, f"{regime} regime — no new swing promotions"
 
-    # PTJ rule: don't hold losers overnight — threshold varies by regime
-    ptj_threshold = _ptj_threshold(regime)
-    if current_pnl_pct < ptj_threshold:
-        return False, f"PTJ rule: P&L {current_pnl_pct:.1f}% < {ptj_threshold}% ({regime})"
+    # Min P&L gate: prevent overnight risk on flat/marginal positions
+    if current_pnl_pct < params.min_pnl_pct:
+        return False, f"insufficient P&L for swing ({current_pnl_pct:.1f}% < {params.min_pnl_pct}%)"
 
     # NORMAL: veto on sector reversal (current < -20 AND entry was > +10)
     if regime == "NORMAL":
@@ -86,17 +92,6 @@ def qualifies_for_eod_hold(
             return False, f"CRASH_RECOVERY: recovery stalled ({consecutive_red_days} consecutive red days)"
 
     return True, ""
-
-
-def _ptj_threshold(regime: str) -> float:
-    """Return PTJ rule P&L floor for overnight hold by regime."""
-    if regime == "BULL_TREND":
-        return config.SWING_MIN_PNL_PCT_BULL
-    if regime == "CAPITULATION":
-        return config.SWING_MIN_PNL_PCT_CAPITULATION
-    if regime == "CRASH_RECOVERY":
-        return config.SWING_MIN_PNL_PCT_CRASH
-    return config.SWING_MIN_PNL_PCT   # NORMAL, OPPORTUNITY (and any unrecognized regime): -2.0%
 
 
 def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK) -> list[str]:
@@ -170,11 +165,11 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
                 logger.info(f"SWING SKIP {symbol}: {reason}")
                 continue
 
-            # Use capitulation TP tiers if in CAPITULATION regime
+            sp = get_swing_params(regime)
+            tp1_pct = sp.tp1_pct
+            tp2_pct = sp.tp2_pct
+            sl_pct  = sp.sl_pct
             capitulation = regime == "CAPITULATION"
-            tp1_pct  = config.SWING_TP1_PCT_CAPITULATION if capitulation else config.SWING_TP1_PCT
-            tp2_pct  = config.SWING_TP2_PCT_CAPITULATION if capitulation else config.SWING_TP2_PCT
-            sl_pct   = config.SWING_SL_PCT_CAPITULATION  if capitulation else config.SWING_OVERNIGHT_SL_PCT
 
             total_qty = int(pos["qty"])
             tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)

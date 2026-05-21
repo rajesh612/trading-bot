@@ -119,7 +119,14 @@ The bot selects a mode per trade based on the macro regime and symbol:
 
 ## Overnight Swing Positions
 
-At 3:50 PM the swing evaluator may promote a day-trade to an overnight hold if it passes 7 gates (trend alignment, volume, sector sentiment, macro regime, earnings safety, max-days limit). Swing positions use tiered take-profit (40%/30%/30% of position size) and a trailing stop after TP2 fires.
+At 3:50 PM the swing evaluator promotes qualifying day-trades to overnight holds. Eligibility is fully regime-dynamic via `get_swing_params(regime)` (`utils/regime_params.py`):
+
+- **Profit-lock bypass** — positions with unrealised P&L ≥ `profit_lock_pct` (2.0–3.0% by regime) qualify in any non-CRISIS regime, even CHOPPY/DEFENSIVE
+- **Min P&L gate** — standard promotion requires ≥ `min_pnl_pct` (0.3% BULL_TREND → 1.0% CRASH_RECOVERY; prevents overnight risk on flat positions)
+- **Regime eligibility** — CHOPPY/DEFENSIVE/CRISIS block standard promotion; profit-lock bypass still applies for CHOPPY/DEFENSIVE
+- **Sector/sentiment gates** — per-regime floors on sector ETF % change and symbol sentiment
+
+Swing positions use tiered take-profit (40%/30%/30% of position size) and a trailing stop after TP2 fires.
 
 A morning gap check at 9:30 AM re-evaluates each swing position against the pre-market gap and closes it if necessary.
 
@@ -174,6 +181,9 @@ Edit `config.py`. Key parameters:
 | `AUTO_EXECUTE_COMPOSITE_MIN` | `55` | composite > this + positive intraday sentiment → skip Claude, auto-execute |
 | `COMPOSITE_MIN_NORMAL` | `20` | Minimum composite score to pass pre-Claude filter (NORMAL regime) |
 | `COMPOSITE_MIN_HIGH_VOL` | `35` | Minimum composite score in HIGH_VOL / CRISIS regime |
+| `ENTRY_HARD_CLOSE_HOUR` | `13` | Default per-regime hard entry cutoff (1 PM NORMAL; CHOPPY/DEFENSIVE=12, BULL_TREND/OPPORTUNITY=14). Overrides `ENTRY_END_HOUR` earlier. |
+| `PROFIT_LOCK_SWING_PCT` | `2.5` | Positions with P&L ≥ this qualify for swing in any non-CRISIS regime (per-regime override in `SwingParams`) |
+| `SWING_PROMOTE_MIN_PNL_PCT` | `0.5` | Standard swing promotion floor (per-regime: 0.3 BULL_TREND, 1.0 CRASH_RECOVERY) |
 | `STOCH_HARD_VETO_THRESHOLD` | `97` | Stochastic ≥ this → hard block regardless of other signals |
 | `STOCH_SOFT_FLAG_THRESHOLD` | `85` | Stochastic ≥ this → soft flag appended to Claude context |
 | `REL_VOLUME_MIN` | `0.60` | Volume < 60% of 20-day average → soft flag |
