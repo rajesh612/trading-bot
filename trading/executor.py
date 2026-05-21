@@ -142,6 +142,7 @@ def execute_buy(
     qty = apply_regime_multiplier(qty, pos_mult)
     if isinstance(symbol_sentiment, (int, float)):
         qty = apply_sentiment_multiplier(qty, int(symbol_sentiment))
+    qty = max(1, int(qty * config.TRANCHE1_SIZE_PCT))  # T1 = 60% of full size
 
     sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
     if decision.get("stop_loss_pct"):
@@ -194,6 +195,10 @@ def execute_buy(
         "claude_reasoning": decision.get("reasoning", ""), "indicator_signals": decision.get("indicator_signals", {}),
         "order_id": order.get("id"), "mode_at_entry": mode, "regime_at_entry": regime,
         "atr_pct": round((iv.atr / iv.current_price) * 100, 2) if iv.atr > 0 and iv.current_price > 0 else None,
+        "tranche_2_triggered": False,
+        "tranche_1_qty":       qty,
+        "tranche_1_entry":     iv.current_price,
+        "stop_order_id":       None,
     }
     open_positions[symbol] = position_data
 

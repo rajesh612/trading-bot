@@ -249,3 +249,105 @@ class TestCheckTranche2Gates:
     def test_gate11_sector_at_threshold_passes(self, monkeypatch):
         result = self._call(sector_chg=-1.0, monkeypatch=monkeypatch)
         assert result.passed is True
+
+
+# ── Task 4: T1 60% sizing ────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestT1Sizing:
+    """execute_buy() places T1 at 60% of computed size and records tranche fields."""
+
+    def _make_iv(self):
+        from indicators.values import IndicatorValues
+        return IndicatorValues(
+            symbol="AAPL", timestamp="2026-05-21T11:00:00",
+            current_price=100.0, vwap=99.0,
+            vwap_std1_upper=102.0, vwap_std1_lower=98.0,
+            vwap_std2_upper=115.0, vwap_std2_lower=85.0,
+            rsi=50.0, macd=0.5, macd_signal=0.3, macd_hist=0.2,
+            bb_upper=105.0, bb_mid=100.0, bb_lower=95.0,
+            ema9=100.5, ema21=99.5, atr=1.5,
+            volume_ratio=1.2, stoch_k=50.0, stoch_d=50.0, obv=10000.0,
+            vwap_slope=0.01, rsi_slope=0.0,
+            daily_volume_ratio=1.0, daily_volume_trend=0.0, daily_volume_mean=1_000_000.0,
+            composite_score=55.0, signal="BUY", confidence=80.0,
+            parabolic=False, momentum_exhaustion=False, stop_hunt_zone=False,
+            bot_herding_score=0, squeeze_setup=False, prev_close=99.0,
+            relative_volume=1.1, or_position="outside",
+        )
+
+    def _setup_mocks(self, monkeypatch, tmp_path):
+        import trading.executor as exe
+        import trading.risk_manager as rm
+        import trading.journal as jrn
+        import notifications.telegram as tg
+        from signals.entry_gates import GateResult
+
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "op.json")
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "dc.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "tj.json")
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test")
+        monkeypatch.setattr(config, "TRANCHE1_SIZE_PCT", 0.60)
+        monkeypatch.setattr(exe, "check_all_gates", lambda *a, **kw: GateResult(passed=True))
+        monkeypatch.setattr(exe, "effective_composite_gate", lambda *a, **kw: 30)
+        # Patch directly on executor module (functions are imported by name, not accessed via module)
+        monkeypatch.setattr(exe, "compute_position_size_for_mode", lambda *a, **kw: 100)
+        monkeypatch.setattr(exe, "apply_regime_multiplier", lambda qty, mult: qty)
+        monkeypatch.setattr(exe, "apply_sentiment_multiplier", lambda qty, s: qty)
+        monkeypatch.setattr(rm, "correct_bracket_after_fill", lambda *a, **kw: None)
+        monkeypatch.setattr(tg, "notify_buy", lambda **kw: None)
+        monkeypatch.setattr(jrn, "append_trade", lambda entry: None)
+
+    def _call_execute_buy(self, exe, alpaca, iv):
+        return exe.execute_buy(
+            symbol="AAPL", iv=iv,
+            decision={"action": "BUY", "confidence": 80, "stop_loss_pct": 4.0,
+                      "take_profit_pct": 5.0, "reasoning": "test"},
+            open_positions={}, research={}, alpaca=alpaca,
+            portfolio_value=100_000.0, now=_t2_now(), regime="NORMAL",
+            regime_info={"regime": "NORMAL"}, params={},
+            pos_mult=1.0, spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=70.0,
+            entries_this_cycle=0,
+        )
+
+    def test_execute_buy_sizes_t1_at_60pct(self, monkeypatch, tmp_path):
+        """execute_buy returns position_data with qty = 60% of full computed size."""
+        import trading.executor as exe
+        import types as _t
+        self._setup_mocks(monkeypatch, tmp_path)
+
+        placed_qty = {}
+        def _fake_bracket(symbol, qty, entry_price, stop_loss_pct, take_profit_pct):
+            placed_qty["qty"] = qty
+            return {"id": "ord-1", "stop_loss_price": 96.0, "take_profit_price": 105.0}
+
+        fake_alpaca = _t.SimpleNamespace(
+            place_bracket_order=_fake_bracket,
+            _trading=_t.SimpleNamespace(),
+        )
+
+        result = self._call_execute_buy(exe, fake_alpaca, self._make_iv())
+
+        assert result is not None
+        assert placed_qty["qty"] == 60  # 60% of 100
+
+    def test_execute_buy_records_tranche_fields(self, monkeypatch, tmp_path):
+        """execute_buy writes tranche_2_triggered, tranche_1_qty, tranche_1_entry, stop_order_id."""
+        import trading.executor as exe
+        import types as _t
+        self._setup_mocks(monkeypatch, tmp_path)
+
+        fake_alpaca = _t.SimpleNamespace(
+            place_bracket_order=lambda symbol, qty, entry_price, stop_loss_pct, take_profit_pct: {
+                "id": "ord-1", "stop_loss_price": 96.0, "take_profit_price": 105.0,
+            },
+            _trading=_t.SimpleNamespace(),
+        )
+
+        result = self._call_execute_buy(exe, fake_alpaca, self._make_iv())
+
+        assert result["tranche_2_triggered"] is False
+        assert result["tranche_1_qty"] == 60
+        assert result["tranche_1_entry"] == 100.0
+        assert result["stop_order_id"] is None
