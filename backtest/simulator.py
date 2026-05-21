@@ -66,6 +66,7 @@ class SimState:
     atr_tp_multiplier: float = config.ATR_TP_MULT_DEFAULT
     sl_blacklist: set = field(default_factory=set)
     sl_blacklist_pending: set = field(default_factory=set)
+    t2_fire_count: int = 0
 
 
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
@@ -368,6 +369,7 @@ def simulate_day(
                     if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et):
                         current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
                         _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
+                        state.t2_fire_count += 1
 
         if is_force:
             continue

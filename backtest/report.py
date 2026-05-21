@@ -105,6 +105,8 @@ def print_report(
     print(f"  Total trades        : {n}")
     print(f"  Win / Loss          : {wins} / {losses}  (win rate {win_rate:.1f}%)")
     print(f"  Force-close rate    : {force_close_pct:.1f}%  ({force_close_count}/{n} trades)")
+    t2_rate = state.t2_fire_count / n * 100 if n else 0.0
+    print(f"  T2 fire count       : {state.t2_fire_count}  ({t2_rate:.1f}% of T1 positions)")
     print(f"  Avg winning trade   : ${avg_win:+.2f}")
     print(f"  Avg losing trade    : ${avg_loss:+.2f}")
 

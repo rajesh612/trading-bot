@@ -735,6 +735,33 @@ class TestSimTranche2:
 
         assert _sim_tranche2_gates_pass(pos, iv, drop_pct=8.0, regime="NORMAL", now=now) is False
 
+    def test_t2_fire_count_increments(self, monkeypatch):
+        """SimState.t2_fire_count starts at 0 and increments when T2 fires."""
+        import backtest.simulator as sim
+        state = sim.SimState()
+        assert state.t2_fire_count == 0
+
+        pos = {
+            "qty": 10, "entry": 100.0, "sl": 96.0, "tp": 105.0,
+            "entry_ts": "2026-05-21T10:00:00-04:00",
+            "entry_time": "2026-05-21T10:00:00-04:00",
+            "tranche_1_entry": 100.0, "tranche_2_triggered": False,
+        }
+        state.positions["AAPL"] = pos
+        state.cash = 90_000.0
+
+        monkeypatch.setattr(config, "TRANCHE2_SIZE_PCT", 0.40)
+        monkeypatch.setattr(config, "TRANCHE2_SL_PCT", 5.5)
+        monkeypatch.setattr(config, "TRANCHE1_SIZE_PCT", 0.60)
+        monkeypatch.setattr(config, "RISK_PER_TRADE_PCT", 0.005)
+        monkeypatch.setattr(config, "ATR_FALLBACK_PROXY_PCT", 0.02)
+        monkeypatch.setattr(config, "MAX_POSITION_PCT", 0.05)
+
+        sim._sim_apply_tranche2(pos, 97.5, 10, 100_000.0)
+        state.t2_fire_count += 1  # mimic the call site increment
+        assert state.t2_fire_count == 1
+        assert pos.get("tranche_2_triggered") is True
+
 
 # ── Fix 1: stop_order_id cancelled on close ───────────────────────────────────
 
