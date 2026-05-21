@@ -718,17 +718,18 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert "DEFENSIVE" in reason
 
     @pytest.mark.unit
-    def test_normal_ptj_veto_at_minus_2(self, monkeypatch):
+    def test_normal_min_pnl_gate_blocks_below_threshold(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -2.0)
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=-2.1)
+        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 0.5)
+        ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.3)
         assert not ok
+        assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
-    def test_normal_passes_above_ptj(self, monkeypatch):
+    def test_normal_passes_at_min_pnl_threshold(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -2.0)
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=-1.9)
+        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 0.5)
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=0.5)
         assert ok
 
     @pytest.mark.unit
@@ -749,13 +750,13 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert ok
 
     @pytest.mark.unit
-    def test_bull_trend_wider_ptj_threshold(self, monkeypatch):
+    def test_bull_trend_relaxed_min_pnl_threshold(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_BULL", -3.0)
-        ok_at_minus_2_9, _ = self._call(regime="BULL_TREND", current_pnl_pct=-2.9)
-        ok_at_minus_3_1, _ = self._call(regime="BULL_TREND", current_pnl_pct=-3.1)
-        assert ok_at_minus_2_9
-        assert not ok_at_minus_3_1
+        monkeypatch.setattr(config, "SWING_MIN_PNL_BULL", 0.3)
+        ok_at_0_3, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.3)
+        ok_at_0_2, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.2)
+        assert ok_at_0_3
+        assert not ok_at_0_2
 
     @pytest.mark.unit
     def test_opportunity_vetoes_when_sector_goes_negative(self):
@@ -880,3 +881,44 @@ class TestGetT2Params:
         from utils.regime_params import get_t2_params
         choppy = get_t2_params("CHOPPY")
         assert choppy.cutoff_hour == 0  # CHOPPY fully disables T2 — sentinel value
+
+
+@pytest.mark.unit
+class TestQualifiesForEodHold:
+    def _call(self, monkeypatch, **kwargs):
+        import config
+        monkeypatch.setattr(config, "PROFIT_LOCK_SWING_PCT", 2.5)
+        monkeypatch.setattr(config, "SWING_PROMOTE_MIN_PNL_PCT", 0.5)
+        from trading.eod_holds import qualifies_for_eod_hold
+        defaults = dict(
+            symbol="AAPL", regime="NORMAL", earnings_tomorrow=False,
+            current_pnl_pct=1.0, entry_sector_sentiment=10.0,
+            current_sector_sentiment=5.0, consecutive_red_days=0, vix_trend="stable",
+        )
+        defaults.update(kwargs)
+        return qualifies_for_eod_hold(**defaults)
+
+    def test_profit_lock_bypass_choppy(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=2.5)
+        assert result is True
+        assert reason == ""
+
+    def test_profit_lock_requires_enough_pnl(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="CHOPPY", current_pnl_pct=1.0)
+        assert result is False
+        assert "CHOPPY" in reason or "swing" in reason.lower()
+
+    def test_profit_lock_blocked_in_crisis(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="CRISIS", current_pnl_pct=5.0)
+        assert result is False
+        assert "CRISIS" in reason
+
+    def test_min_pnl_gate_blocks_flat_position(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.3)
+        assert result is False
+        assert "insufficient" in reason.lower() or "P&L" in reason
+
+    def test_min_pnl_gate_passes_at_threshold(self, monkeypatch):
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.5)
+        assert result is True
+        assert reason == ""

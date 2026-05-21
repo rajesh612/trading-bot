@@ -205,19 +205,19 @@ class TestSwingManager:
         assert ok is False
         assert "earnings" in reason
 
-    def test_qualifies_for_eod_hold_ptj_rule(self):
+    def test_qualifies_for_eod_hold_min_pnl_gate(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", regime="BULL_TREND",
             earnings_tomorrow=False,
-            current_pnl_pct=-3.1,  # below BULL_TREND threshold of -3.0
+            current_pnl_pct=0.1,  # below BULL_TREND min_pnl of 0.3
             entry_sector_sentiment=20.0,
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
         )
         assert ok is False
-        assert "PTJ" in reason
+        assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
     def test_qualifies_for_eod_hold_normal_regime_allowed(self):
@@ -416,13 +416,13 @@ class TestSwingManagerOrchestration:
         assert ok is True
         assert reason == ""
 
-    def test_pnl_exactly_minus_two_passes_in_bull_trend(self):
-        """BULL_TREND PTJ threshold is -3.0 so -2.0 P&L should pass."""
+    def test_pnl_at_bull_trend_min_passes(self):
+        """BULL_TREND min_pnl_pct is 0.3 so exactly 0.3% P&L should pass."""
         from trading.eod_holds import qualifies_for_eod_hold
         ok, _ = qualifies_for_eod_hold(
             symbol="NVDA", regime="BULL_TREND",
             earnings_tomorrow=False,
-            current_pnl_pct=-2.0,
+            current_pnl_pct=0.3,
             entry_sector_sentiment=20.0,
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
@@ -431,21 +431,21 @@ class TestSwingManagerOrchestration:
         assert ok is True
 
     @pytest.mark.unit
-    def test_eod_hold_ptj_rule_uses_config_threshold(self, monkeypatch):
+    def test_eod_hold_min_pnl_uses_swing_params(self, monkeypatch):
         import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT", -1.0)  # stricter than default -2.0
+        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 1.0)  # stricter than default 0.5
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", regime="NORMAL",
             earnings_tomorrow=False,
-            current_pnl_pct=-1.5,   # below -1.0 threshold
+            current_pnl_pct=0.5,   # below patched 1.0 threshold
             entry_sector_sentiment=20.0,
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
         )
         assert ok is False
-        assert "PTJ" in reason
+        assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
     def test_gap_tighten_uses_config_sl_pct(self, monkeypatch, tmp_path):

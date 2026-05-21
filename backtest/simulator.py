@@ -148,13 +148,29 @@ def _evaluate_swing_promotion(
         avail2 = df2[df2.index <= ts]
         eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
         pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
-        if get_swing_params(regime).eligible and pnl_pct > 0 and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN and n_swings < SWING_MAX_POSITIONS:
+        sp = get_swing_params(regime)
+        profit_lock_bypass = (
+            pnl_pct >= sp.profit_lock_pct
+            and regime != "CRISIS"
+            and n_swings < SWING_MAX_POSITIONS
+        )
+        standard_qualify = (
+            sp.eligible
+            and pnl_pct >= sp.min_pnl_pct
+            and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
+            and n_swings < SWING_MAX_POSITIONS
+        )
+        if profit_lock_bypass or standard_qualify:
             pos2["is_swing"] = True
             pos2["swing_days_remaining"] = SWING_MAX_DAYS
             pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
             pos2["tp"] = round(pos2["entry"] * (1 + SWING_TP_PCT / 100), 4)
             n_swings += 1
-            logger.info(f"    SWING PROMOTE {sym2}: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f} | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}")
+            tag = "PROFIT-LOCK" if profit_lock_bypass else "STANDARD"
+            logger.info(
+                f"    SWING PROMOTE {sym2} [{tag}]: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f}"
+                f" | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}"
+            )
     return n_swings
 
 
