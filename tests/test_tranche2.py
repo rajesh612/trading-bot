@@ -499,3 +499,97 @@ class TestExecuteTranche2Addon:
         assert result is not None
         assert result["stop_order_id"] is None
         assert result["stop_order_id"] is None
+
+
+# ── Task 6: _check_tranche2_triggers ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestCheckTranche2Triggers:
+    """Monitor triggers T2 when gates pass; idempotency sentinel blocks re-fire."""
+
+    def _write_positions(self, tmp_path, pos_dict):
+        from utils.io_utils import save_json
+        path = tmp_path / "open_positions.json"
+        save_json(path, pos_dict)
+        return path
+
+    def test_trigger_fires_when_gates_pass(self, monkeypatch, tmp_path):
+        """_check_tranche2_triggers calls execute_tranche2_addon when all gates pass."""
+        import trading.monitor as mon
+        import signals.tranche2_gates as t2g
+        import trading.executor as exe
+        import notifications.telegram as tg
+        monkeypatch.setattr(tg, "notify_buy", lambda **kw: None)
+
+        from datetime import timedelta
+        old_entry = (datetime.now(ET) - timedelta(minutes=65)).isoformat()
+        pos = _t2_pos(entry_time=old_entry, tranche_2_triggered=False)
+        open_positions = {"AAPL": pos}
+
+        op_file = self._write_positions(tmp_path, open_positions)
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", op_file)
+        monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
+
+        monkeypatch.setattr(mon, "_try_compute_iv", lambda sym, alpaca: _t2_iv(current_price=95.0))
+        monkeypatch.setattr(t2g, "check_tranche2_gates", lambda **kw: t2g.T2GateResult(True))
+
+        called_with = {}
+        def _fake_addon(**kw):
+            called_with.update(kw)
+            return {**pos, "tranche_2_triggered": True, "qty": 100, "entry_price": 98.0}
+        monkeypatch.setattr(exe, "execute_tranche2_addon", _fake_addon)
+
+        import types as _t
+        fake_alpaca = _t.SimpleNamespace(get_portfolio_value=lambda: 100_000.0)
+
+        mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
+        assert called_with.get("symbol") == "AAPL"
+
+    def test_sentinel_prevents_double_trigger(self, monkeypatch, tmp_path):
+        """_check_tranche2_triggers skips positions with tranche_2_triggered=True."""
+        import trading.monitor as mon
+        import trading.executor as exe
+        import notifications.telegram as tg
+        monkeypatch.setattr(tg, "notify_buy", lambda **kw: None)
+
+        pos = _t2_pos(tranche_2_triggered=True)
+        open_positions = {"AAPL": pos}
+
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "op.json")
+        monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
+        monkeypatch.setattr(mon, "_try_compute_iv", lambda sym, alpaca: _t2_iv(current_price=95.0))
+
+        addon_called = []
+        monkeypatch.setattr(exe, "execute_tranche2_addon", lambda **kw: addon_called.append(kw))
+
+        import types as _t
+        fake_alpaca = _t.SimpleNamespace(get_portfolio_value=lambda: 100_000.0)
+
+        mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
+        assert len(addon_called) == 0
+
+    def test_iv_none_skips_symbol(self, monkeypatch, tmp_path):
+        """_check_tranche2_triggers skips symbol when IV computation fails."""
+        import trading.monitor as mon
+        import trading.executor as exe
+        import notifications.telegram as tg
+        monkeypatch.setattr(tg, "notify_buy", lambda **kw: None)
+
+        pos = _t2_pos(tranche_2_triggered=False)
+        open_positions = {"AAPL": pos}
+
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "op.json")
+        monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "rr.json")
+        monkeypatch.setattr(config, "ECONOMIC_CALENDAR_FILE", tmp_path / "ec.json")
+        monkeypatch.setattr(mon, "_try_compute_iv", lambda sym, alpaca: None)
+
+        addon_called = []
+        monkeypatch.setattr(exe, "execute_tranche2_addon", lambda **kw: addon_called.append(kw))
+
+        import types as _t
+        fake_alpaca = _t.SimpleNamespace(get_portfolio_value=lambda: 100_000.0)
+
+        mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
+        assert len(addon_called) == 0

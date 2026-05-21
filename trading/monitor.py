@@ -13,6 +13,8 @@ import config
 import notifications.telegram as telegram_notify
 from broker.alpaca_client import AlpacaClient
 from indicators.engine import compute_indicators
+from macro.regime import load_macro_regime
+from macro.economic_calendar import get_todays_events
 from trading.closer import close_position, _apply_profit_lock
 from trading.journal import (
     _POSITIONS_LOCK,
@@ -63,6 +65,67 @@ def _check_drawdown_alerts(positions: dict, current_prices: dict) -> None:
                 if now_ts - last >= cooldown_s:
                     telegram_notify.notify_position_drawdown(symbol, pnl_pct, stop_pct)
                     _drawdown_alerted[symbol] = now_ts
+
+
+def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> None:
+    """Check each open position for T2 add-on eligibility. Called after the SL/TP loop."""
+    from signals.tranche2_gates import check_tranche2_gates
+    from trading.executor import execute_tranche2_addon
+
+    research = load_json(config.RESEARCH_REPORT_FILE, {})
+    try:
+        regime = load_macro_regime().get("regime", "NORMAL")
+    except Exception:
+        regime = "NORMAL"
+
+    major_event_today = False
+    try:
+        _high_impact = {"FOMC", "NFP", "CPI", "PCE", "JOLTS"}
+        for evt in get_todays_events():
+            if any(tag in evt.get("name", "").upper() for tag in _high_impact):
+                major_event_today = True
+                break
+    except Exception:
+        pass
+
+    try:
+        portfolio_value = alpaca.get_portfolio_value()
+    except Exception:
+        portfolio_value = 100_000.0
+
+    for symbol, pos in list(open_positions.items()):
+        if pos.get("tranche_2_triggered"):
+            continue
+
+        iv = _try_compute_iv(symbol, alpaca)
+        if iv is None:
+            continue
+
+        sentiment = research.get(symbol, {}).get("sentiment_score", 0)
+
+        result = check_tranche2_gates(
+            symbol=symbol,
+            iv=iv,
+            pos=pos,
+            now=now,
+            regime=regime,
+            sentiment_score=float(sentiment) if sentiment else 0.0,
+            sector_etf_chg=0.0,
+            major_event_today=major_event_today,
+        )
+        if result.passed:
+            logger.info("T2 TRIGGER %s — all gates passed", symbol)
+            execute_tranche2_addon(
+                symbol=symbol,
+                pos=pos,
+                regime=regime,
+                research=research,
+                alpaca=alpaca,
+                portfolio_value=portfolio_value,
+                now=now,
+            )
+        else:
+            logger.debug("T2 skip %s — %s", symbol, result.reason)
 
 
 def run_position_monitor():
@@ -204,3 +267,8 @@ def run_position_monitor():
         monitor_swing_positions(alpaca)
     except Exception as exc:
         logger.warning("Swing position monitor failed: %s", exc)
+
+    try:
+        _check_tranche2_triggers(open_positions, alpaca, now)
+    except Exception as exc:
+        logger.warning("T2 trigger check failed: %s", exc)
