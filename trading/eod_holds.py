@@ -170,11 +170,12 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
                 logger.info(f"SWING SKIP {symbol}: {reason}")
                 continue
 
-            # Use capitulation TP tiers if in CAPITULATION regime
+            from utils.regime_params import get_swing_params
+            sp = get_swing_params(regime)
+            tp1_pct = sp.tp1_pct
+            tp2_pct = sp.tp2_pct
+            sl_pct  = sp.sl_pct
             capitulation = regime == "CAPITULATION"
-            tp1_pct  = config.SWING_TP1_PCT_CAPITULATION if capitulation else config.SWING_TP1_PCT
-            tp2_pct  = config.SWING_TP2_PCT_CAPITULATION if capitulation else config.SWING_TP2_PCT
-            sl_pct   = config.SWING_SL_PCT_CAPITULATION  if capitulation else config.SWING_OVERNIGHT_SL_PCT
 
             total_qty = int(pos["qty"])
             tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)

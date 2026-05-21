@@ -61,13 +61,15 @@ def pre_claude_filter(
 
     # Layer 1.5 — Regime-adaptive directional bias
     if config.REGIME_ADAPTIVE_LOGIC:
+        from utils.regime_params import get_entry_params
+        ep = get_entry_params(snap.regime)
         if snap.regime == "CHOPPY":
-            choppy_rsi_max = snap.params.get("choppy_rsi_max", config.CHOPPY_RSI_PULLBACK_MAX)
+            choppy_rsi_max = snap.params.get("choppy_rsi_max", ep.rsi_max)
             if iv.rsi > choppy_rsi_max:
                 return FilterResult("SKIP",
                     f"choppy regime: RSI {iv.rsi:.1f} > pullback max {choppy_rsi_max}")
         elif snap.regime == "DEFENSIVE":
-            if iv.composite_score < config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT:
+            if iv.composite_score < ep.composite_min:
                 return FilterResult("SKIP",
                     f"defensive regime: composite {iv.composite_score:+.1f} below elevated bar")
 

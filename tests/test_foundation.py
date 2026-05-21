@@ -802,3 +802,82 @@ class TestQualifiesForEodHoldRegimeMatrix:
         """event_risk_tomorrow gate removed — only earnings_tomorrow matters."""
         ok, _ = self._call(regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.0)
         assert ok
+
+
+# ── utils/regime_params ───────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestGetEntryParams:
+    def test_crisis_blocks_entry(self):
+        from utils.regime_params import get_entry_params
+        p = get_entry_params("CRISIS")
+        assert p.entry_allowed is False
+
+    def test_choppy_raises_composite_min(self):
+        from utils.regime_params import get_entry_params
+        normal = get_entry_params("NORMAL")
+        choppy = get_entry_params("CHOPPY")
+        assert choppy.composite_min > normal.composite_min
+
+    def test_bull_trend_returns_entry_params(self):
+        from utils.regime_params import get_entry_params
+        p = get_entry_params("BULL_TREND")
+        assert p.entry_allowed is True
+        assert isinstance(p.composite_min, int)
+
+    def test_unknown_regime_falls_back_to_normal(self):
+        from utils.regime_params import get_entry_params
+        p = get_entry_params("UNKNOWN_FUTURE_REGIME")
+        normal = get_entry_params("NORMAL")
+        assert p.composite_min == normal.composite_min
+
+
+@pytest.mark.unit
+class TestGetSwingParams:
+    def test_crisis_not_eligible(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("CRISIS")
+        assert p.eligible is False
+
+    def test_choppy_not_eligible(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("CHOPPY")
+        assert p.eligible is False
+
+    def test_defensive_not_eligible(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("DEFENSIVE")
+        assert p.eligible is False
+
+    def test_normal_eligible_with_positive_min_pnl(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("NORMAL")
+        assert p.eligible is True
+        assert p.min_pnl_pct > 0
+
+    def test_profit_lock_bypass_above_min_pnl(self):
+        from utils.regime_params import get_swing_params
+        p = get_swing_params("CHOPPY")
+        assert p.profit_lock_pct > p.min_pnl_pct
+
+
+@pytest.mark.unit
+class TestGetT2Params:
+    def test_crisis_has_no_t2(self):
+        from utils.regime_params import get_t2_params
+        p = get_t2_params("CRISIS")
+        assert p.cutoff_hour == 0
+
+    def test_normal_t2_params_well_formed(self):
+        from utils.regime_params import get_t2_params
+        p = get_t2_params("NORMAL")
+        assert 0 < p.drop_min_pct < p.drop_max_pct
+        assert p.rsi_max > 0
+        assert p.cutoff_hour > 0
+        assert p.min_hold_min > 0
+
+    def test_choppy_t2_more_restrictive_than_normal(self):
+        from utils.regime_params import get_t2_params
+        normal = get_t2_params("NORMAL")
+        choppy = get_t2_params("CHOPPY")
+        assert choppy.rsi_max <= normal.rsi_max or choppy.drop_min_pct >= normal.drop_min_pct

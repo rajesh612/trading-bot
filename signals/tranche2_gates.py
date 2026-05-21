@@ -41,7 +41,8 @@ def check_tranche2_gates(
         return T2GateResult(False, f"time cutoff — past {config.TRANCHE2_CUTOFF_HOUR}:00 ET")
 
     # Gate 3: adverse regime
-    if regime in ("CRISIS", "CHOPPY"):
+    from utils.regime_params import get_t2_params
+    if get_t2_params(regime).cutoff_hour == 0:
         return T2GateResult(False, f"regime={regime} blocks T2")
 
     # Gate 4: major macro event today
