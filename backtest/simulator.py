@@ -111,7 +111,7 @@ def _open_trade(
     state.cash -= cost
     state.positions[symbol] = {
         "qty": qty, "entry": entry, "sl": sl, "tp": tp,
-        "entry_ts": ts, "composite": composite,
+        "entry_ts": ts, "entry_time": ts, "composite": composite,
     }
     logger.debug(f"    OPEN  {symbol:5s} x{qty:.0f} @ ${entry:.2f}  SL=${sl:.2f} TP=${tp:.2f}")
 
