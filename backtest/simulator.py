@@ -210,6 +210,60 @@ def _execute_pending_signals(
     pending.clear()
 
 
+def _sim_tranche2_gates_pass(
+    pos: dict,
+    iv,
+    drop_pct: float,
+    regime: str,
+    now,
+) -> bool:
+    """Simplified T2 gate check for per-bar simulation — no earnings/sentiment data available."""
+    if pos.get("tranche_2_triggered"):
+        return False
+    if now.hour >= config.TRANCHE2_CUTOFF_HOUR:
+        return False
+    if regime in ("CRISIS", "CHOPPY"):
+        return False
+    if drop_pct < config.TRANCHE2_DROP_MIN_PCT or drop_pct > config.TRANCHE2_DROP_MAX_PCT:
+        return False
+    if getattr(iv, "rsi", 100) > config.TRANCHE2_RSI_MAX:
+        return False
+    if getattr(iv, "composite_score", 0) < config.TRANCHE2_COMPOSITE_MIN:
+        return False
+    try:
+        from datetime import datetime as _dt
+        entry_dt = _dt.fromisoformat(pos["entry_time"])
+        elapsed_min = (now - entry_dt).total_seconds() / 60
+        if elapsed_min < config.TRANCHE2_MIN_HOLD_MIN:
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _sim_apply_tranche2(pos: dict, bar_low: float, t1_qty: int, portfolio_value: float) -> None:
+    """Update position dict in-place with blended T2 values. Mutates pos."""
+    t1_entry = pos.get("tranche_1_entry", pos.get("entry", 0))
+    price    = bar_low
+
+    risk_amount    = portfolio_value * config.RISK_PER_TRADE_PCT
+    atr_proxy      = price * config.ATR_FALLBACK_PROXY_PCT
+    shares_by_risk = risk_amount / atr_proxy if atr_proxy > 0 else 1
+    shares_by_pct  = (portfolio_value * config.MAX_POSITION_PCT) / price if price > 0 else 1
+    full_qty       = max(1, int(min(shares_by_risk, shares_by_pct)))
+    t2_qty         = max(1, int(full_qty * config.TRANCHE2_SIZE_PCT))
+
+    combined_qty  = t1_qty + t2_qty
+    blended_entry = (t1_qty * t1_entry + t2_qty * price) / combined_qty
+    blended_sl    = price * (1 - config.TRANCHE2_SL_PCT / 100)
+
+    pos["tranche_2_triggered"] = True
+    pos["tranche_2_qty"]       = t2_qty
+    pos["qty"]                 = combined_qty
+    pos["entry"]               = round(blended_entry, 4)
+    pos["sl"]                  = round(blended_sl, 4)
+
+
 def simulate_day(
     day: datetime,
     watch_list: list[str],
@@ -285,6 +339,17 @@ def simulate_day(
                 _close_trade(state, sym, str(ts), exit_price, reason, date_str)
                 if reason in ("SL", "SWING_SL"):
                     state.sl_blacklist_pending.add(sym)
+            # T2 add-on check — use bar["low"] as worst intrabar price proxy
+            elif not pos.get("tranche_2_triggered") and not is_sw:
+                t1_entry = pos.get("tranche_1_entry", pos.get("entry", 0))
+                if t1_entry > 0:
+                    drop_pct = (t1_entry - float(bar["low"])) / t1_entry * 100
+                    iv_at_bar = precomp.get(sym, {}).get(ts)
+                    if iv_at_bar is None:
+                        iv_at_bar = type("_IV", (), {"rsi": 100, "composite_score": 0})()
+                    if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et):
+                        current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
+                        _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
 
         if is_force:
             continue

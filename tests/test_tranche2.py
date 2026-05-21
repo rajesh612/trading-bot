@@ -593,3 +593,81 @@ class TestCheckTranche2Triggers:
 
         mon._check_tranche2_triggers(open_positions, fake_alpaca, _t2_now())
         assert len(addon_called) == 0
+
+
+# ── Task 7: backtest simulator T2 ────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestSimTranche2:
+    """_sim_apply_tranche2 updates position dict with blended entry and SL."""
+
+    def test_sim_apply_tranche2_updates_entry_and_sl(self, monkeypatch):
+        """After T2, position entry = weighted avg, sl = 5.5% below bar low."""
+        monkeypatch.setattr(config, "TRANCHE2_SIZE_PCT", 0.40)
+        monkeypatch.setattr(config, "TRANCHE2_SL_PCT", 5.5)
+        monkeypatch.setattr(config, "TRANCHE1_SIZE_PCT", 0.60)
+        monkeypatch.setattr(config, "RISK_PER_TRADE_PCT", 0.005)
+        monkeypatch.setattr(config, "ATR_FALLBACK_PROXY_PCT", 0.02)
+        monkeypatch.setattr(config, "MAX_POSITION_PCT", 0.05)
+
+        from backtest.simulator import _sim_apply_tranche2
+
+        # T1: 60 shares @ $100, bar low = $95 (5% drop — in window)
+        pos = {
+            "entry": 100.0, "qty": 60, "tranche_1_entry": 100.0,
+            "tranche_2_triggered": False, "sl": 96.0, "tp": 105.0,
+        }
+        _sim_apply_tranche2(pos, bar_low=95.0, t1_qty=60, portfolio_value=100_000.0)
+
+        assert pos["tranche_2_triggered"] is True
+        t2_qty = pos["tranche_2_qty"]
+        # blended = (60*100 + t2_qty*95) / (60+t2_qty)
+        expected_entry = (60 * 100.0 + t2_qty * 95.0) / (60 + t2_qty)
+        assert abs(pos["entry"] - expected_entry) < 0.01
+        # SL = 95 * (1 - 5.5/100) = 89.775
+        expected_sl = 95.0 * (1 - 5.5 / 100)
+        assert abs(pos["sl"] - expected_sl) < 0.01
+
+    def test_sim_tranche2_gates_pass_returns_true_in_window(self, monkeypatch):
+        """_sim_tranche2_gates_pass returns True when drop is in 4–7% window."""
+        monkeypatch.setattr(config, "TRANCHE2_DROP_MIN_PCT", 4.0)
+        monkeypatch.setattr(config, "TRANCHE2_DROP_MAX_PCT", 7.0)
+        monkeypatch.setattr(config, "TRANCHE2_RSI_MAX", 45)
+        monkeypatch.setattr(config, "TRANCHE2_COMPOSITE_MIN", 40)
+        monkeypatch.setattr(config, "TRANCHE2_CUTOFF_HOUR", 14)
+        monkeypatch.setattr(config, "TRANCHE2_MIN_HOLD_MIN", 60)
+
+        from backtest.simulator import _sim_tranche2_gates_pass
+        from datetime import timedelta
+
+        pos = {
+            "tranche_1_entry": 100.0,
+            "entry_time": (datetime.now(ET) - timedelta(minutes=65)).isoformat(),
+            "tranche_2_triggered": False,
+        }
+        iv = _t2_iv(current_price=95.0, rsi=40.0, composite_score=50.0)
+        now = _t2_now(hour=11)
+
+        assert _sim_tranche2_gates_pass(pos, iv, drop_pct=5.0, regime="NORMAL", now=now) is True
+
+    def test_sim_tranche2_gates_fail_above_drop_max(self, monkeypatch):
+        """_sim_tranche2_gates_pass returns False when drop > DROP_MAX."""
+        monkeypatch.setattr(config, "TRANCHE2_DROP_MIN_PCT", 4.0)
+        monkeypatch.setattr(config, "TRANCHE2_DROP_MAX_PCT", 7.0)
+        monkeypatch.setattr(config, "TRANCHE2_RSI_MAX", 45)
+        monkeypatch.setattr(config, "TRANCHE2_COMPOSITE_MIN", 40)
+        monkeypatch.setattr(config, "TRANCHE2_CUTOFF_HOUR", 14)
+        monkeypatch.setattr(config, "TRANCHE2_MIN_HOLD_MIN", 60)
+
+        from backtest.simulator import _sim_tranche2_gates_pass
+        from datetime import timedelta
+
+        pos = {
+            "tranche_1_entry": 100.0,
+            "entry_time": (datetime.now(ET) - timedelta(minutes=65)).isoformat(),
+            "tranche_2_triggered": False,
+        }
+        iv = _t2_iv(current_price=92.0, rsi=40.0, composite_score=50.0)
+        now = _t2_now(hour=11)
+
+        assert _sim_tranche2_gates_pass(pos, iv, drop_pct=8.0, regime="NORMAL", now=now) is False
