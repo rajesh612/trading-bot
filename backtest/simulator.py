@@ -14,7 +14,7 @@ from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
 from signals.entry_gates import effective_composite_gate
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params
+from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
 from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
 from utils.ticker_quality import TickerQuality, compute_ticker_quality
 
@@ -325,6 +325,43 @@ def _sim_apply_tranche2(pos: dict, bar_low: float, t1_qty: int, portfolio_value:
     pos["sl"]                  = round(blended_sl, 4)
 
 
+def _sim_entry_signal_passes(
+    iv,
+    regime: str,
+    quality: "TickerQuality | None",
+    params: dict,
+    rsi_max: float,
+) -> bool:
+    """Return True iff the bar's signals pass all backtest entry gates.
+
+    Mirrors the hard-gate checks in check_all_gates() that are computable
+    from precomputed IndicatorValues — no calendar/journal data required.
+    """
+    tier = quality.tier if quality else "MEDIUM"
+    fp = get_filter_params(regime, tier)
+    gp = get_gate_params(regime, tier)
+
+    composite_floor = max(fp.composite_min, effective_composite_gate(iv, regime, params=params))
+    if iv.composite_score <= composite_floor:
+        return False
+    if iv.signal != "BUY":
+        return False
+    if iv.rsi > rsi_max:
+        return False
+    if iv.vwap_slope < VWAP_SLOPE_MIN:
+        return False
+    # Stochastic hard veto (Gate 11 in check_all_gates)
+    if iv.stoch_d > gp.stoch_hard_veto:
+        return False
+    # Parabolic hard block (Gate 8)
+    if config.PARABOLIC_ENTRY_BLOCK and iv.parabolic:
+        return False
+    # Gap-up skip (Gate 12)
+    if iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
+        return False
+    return True
+
+
 def simulate_day(
     day: datetime,
     watch_list: list[str],
@@ -441,15 +478,11 @@ def simulate_day(
             if iv is None: continue
             quality = quality_map.get(sym)
             tier = quality.tier if quality else "MEDIUM"
-            fp = get_filter_params(regime, tier)
-            composite_floor = max(
-                fp.composite_min,
-                effective_composite_gate(iv, regime, params=p),
-            )
-            if iv.composite_score > composite_floor and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
-                if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
-                    continue
-                pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr, "tier": tier}
+            if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max):
+                continue
+            if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
+                continue
+            pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr, "tier": tier}
 
         equity = state.cash + _pos_value_at(state, day_bars, ts)
         state.equity_curve.append({"ts": str(ts), "equity": round(equity, 2)})

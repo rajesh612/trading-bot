@@ -59,3 +59,53 @@ class TestBacktestQuality:
                     regime="NORMAL", entry_time_et=ts_et)
         assert "AAPL" in state.positions
         assert state.positions["AAPL"]["quality_tier"] == "HIGH"
+
+
+@pytest.mark.unit
+class TestBacktestSafetyGates:
+    def test_stoch_hard_veto_blocks_entry(self):
+        """iv.stoch_d above stoch_hard_veto must not produce a pending signal."""
+        from utils.regime_params import get_gate_params
+        gp = get_gate_params("NORMAL", "MEDIUM")
+        iv = _make_iv(composite=60.0, stoch_d=float(gp.stoch_hard_veto) + 1)
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality(tier="MEDIUM", score=50, unlocks=frozenset(),
+                                quality_gaps=(), component_scores={})
+        result = _sim_entry_signal_passes(iv, "NORMAL", quality, {}, rsi_max=74.0)
+        assert result is False
+
+    def test_parabolic_blocks_entry(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", True)
+        iv = _make_iv(composite=60.0, parabolic=True)
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality(tier="MEDIUM", score=50, unlocks=frozenset(),
+                                quality_gaps=(), component_scores={})
+        result = _sim_entry_signal_passes(iv, "NORMAL", quality, {}, rsi_max=74.0)
+        assert result is False
+
+    def test_gap_up_skip_blocks_entry(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "GAP_SKIP_PCT", 3.0)
+        iv = _make_iv(composite=60.0, prev_close=100.0, current_price=104.0)
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality(tier="MEDIUM", score=50, unlocks=frozenset(),
+                                quality_gaps=(), component_scores={})
+        result = _sim_entry_signal_passes(iv, "NORMAL", quality, {}, rsi_max=74.0)
+        assert result is False
+
+    def test_clean_signal_passes_all_gates(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", True)
+        monkeypatch.setattr(config, "GAP_SKIP_PCT", 3.0)
+        iv = _make_iv(composite=60.0, stoch_d=40.0, parabolic=False,
+                      prev_close=100.0, current_price=100.5)
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality(tier="MEDIUM", score=50, unlocks=frozenset(),
+                                quality_gaps=(), component_scores={})
+        result = _sim_entry_signal_passes(iv, "NORMAL", quality, {}, rsi_max=74.0)
+        assert result is True
