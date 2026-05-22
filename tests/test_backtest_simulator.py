@@ -202,3 +202,74 @@ class TestBacktestTieredSwingTP:
         _close_trade(state, "AAPL", "ts", 105.0, "SWING_TP2", "2026-01-02")
         assert "AAPL" not in state.positions
         assert "AAPL" in state.daily_closed
+
+
+@pytest.mark.unit
+class TestBacktestChoppySwingUnlock:
+    def _make_conviction_quality(self):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(
+            tier="CONVICTION", score=85,
+            unlocks=frozenset({"SWING_CHOPPY", "SWING_SENTIMENT"}),
+            quality_gaps=(), component_scores={},
+        )
+
+    def _make_medium_quality(self):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(
+            tier="MEDIUM", score=40, unlocks=frozenset(),
+            quality_gaps=(), component_scores={},
+        )
+
+    def test_choppy_medium_blocked(self):
+        """MEDIUM tier in CHOPPY must NOT be promoted to swing."""
+        from backtest.simulator import SimState, _evaluate_swing_promotion
+        import pandas as pd
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = {
+            "qty": 5, "entry": 100.0, "sl": 97.0, "tp": 105.0,
+            "entry_ts": "ts", "entry_time": "ts", "composite": 60.0,
+            "quality_tier": "MEDIUM",
+        }
+        ts = pd.Timestamp("2026-01-02 15:50:00+00:00")
+        day_bars = {"AAPL": pd.DataFrame({"close": [101.5], "high": [102.0], "low": [100.0], "open": [100.5]}, index=[ts])}
+        quality_map = {"AAPL": self._make_medium_quality()}
+        n = _evaluate_swing_promotion(state, day_bars, ts, "CHOPPY", 0, quality_map)
+        assert n == 0
+        assert not state.positions["AAPL"].get("is_swing", False)
+
+    def test_choppy_conviction_unlocked(self):
+        """CONVICTION tier with SWING_CHOPPY unlock MUST be promoted in CHOPPY."""
+        from backtest.simulator import SimState, _evaluate_swing_promotion
+        import pandas as pd
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = {
+            "qty": 5, "entry": 100.0, "sl": 97.0, "tp": 105.0,
+            "entry_ts": "ts", "entry_time": "ts", "composite": 60.0,
+            "quality_tier": "CONVICTION",
+        }
+        ts = pd.Timestamp("2026-01-02 15:50:00+00:00")
+        # P&L = 1.5% — above the CHOPPY swing min_pnl threshold (0.5%)
+        day_bars = {"AAPL": pd.DataFrame({"close": [101.5], "high": [102.0], "low": [100.0], "open": [100.5]}, index=[ts])}
+        quality_map = {"AAPL": self._make_conviction_quality()}
+        n = _evaluate_swing_promotion(state, day_bars, ts, "CHOPPY", 0, quality_map)
+        assert n == 1
+        assert state.positions["AAPL"].get("is_swing", False)
+
+    def test_profit_lock_bypass_in_normal_regime(self):
+        """In NORMAL regime, profit_lock_pct drives profit-lock bypass for MEDIUM tier."""
+        from backtest.simulator import SimState, _evaluate_swing_promotion
+        import pandas as pd
+        state = SimState(cash=100_000.0)
+        # P&L = 2.6% — above SWING_PROFIT_LOCK_NORMAL (2.5%)
+        state.positions["AAPL"] = {
+            "qty": 5, "entry": 100.0, "sl": 97.0, "tp": 105.0,
+            "entry_ts": "ts", "entry_time": "ts", "composite": 60.0,
+            "quality_tier": "MEDIUM",
+        }
+        ts = pd.Timestamp("2026-01-02 15:50:00+00:00")
+        day_bars = {"AAPL": pd.DataFrame({"close": [102.6], "high": [103.0], "low": [100.0], "open": [100.5]}, index=[ts])}
+        quality_map = {"AAPL": self._make_medium_quality()}
+        n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, quality_map)
+        assert n == 1
+        assert state.positions["AAPL"].get("is_swing", False)

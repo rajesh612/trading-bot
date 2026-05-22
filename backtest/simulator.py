@@ -12,7 +12,7 @@ import pandas as pd
 import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
-from signals.entry_gates import effective_composite_gate
+from signals.entry_gates import effective_composite_gate, get_effective_profit_lock
 from trading.tiered_tp import evaluate_tiered_tp_action
 from utils.constants import ET
 from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
@@ -207,8 +207,10 @@ def _init_tiered_swing_fields(pos: dict, regime: str) -> None:
 
 
 def _evaluate_swing_promotion(
-    state: SimState, day_bars: dict, ts, regime: str, n_swings: int
+    state: SimState, day_bars: dict, ts, regime: str, n_swings: int,
+    quality_map: "dict[str, TickerQuality] | None" = None,
 ) -> int:
+    qmap = quality_map or {}
     for sym2 in list(state.positions.keys()):
         pos2 = state.positions[sym2]
         if pos2.get("is_swing"):
@@ -219,13 +221,22 @@ def _evaluate_swing_promotion(
         eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
         pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
         sp = get_swing_params(regime)
+        quality = qmap.get(sym2)
+
+        effective_lock = get_effective_profit_lock(regime, quality)
         profit_lock_bypass = (
-            pnl_pct >= sp.profit_lock_pct
+            pnl_pct >= effective_lock
             and regime != "CRISIS"
             and n_swings < SWING_MAX_POSITIONS
         )
+        choppy_conviction_ok = (
+            regime == "CHOPPY"
+            and quality is not None
+            and "SWING_CHOPPY" in quality.unlocks
+            and n_swings < SWING_MAX_POSITIONS
+        )
         standard_qualify = (
-            sp.eligible
+            (sp.eligible or choppy_conviction_ok)
             and pnl_pct >= sp.min_pnl_pct
             and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
             and n_swings < SWING_MAX_POSITIONS
@@ -449,7 +460,7 @@ def simulate_day(
         if SWING_ENABLED and not swing_evaluated and ts_et >= swing_eval_ts:
             swing_evaluated = True
             n_swings = sum(1 for p in state.positions.values() if p.get("is_swing"))
-            _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings)
+            n_swings = _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings, quality_map)
 
         for sym in list(state.positions.keys()):
             df_sym = day_bars.get(sym)
