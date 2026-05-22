@@ -67,27 +67,24 @@ def _make_snap(regime="NORMAL", sentiment=30, intra_sent=25, research=None):
 # ---------------------------------------------------------------------------
 
 class TestComputeTickerQuality:
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_medium_tier_standard_signals(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_medium_tier_standard_signals(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=55.0)
         snap = _make_snap(sentiment=35, intra_sent=30)
         result = compute_ticker_quality(
-            "AAPL", iv, snap, gate_flags=[], mode="DAY_TRADE",
+            "AAPL", iv, snap, mode="DAY_TRADE",
             sub_etf_chg=0.5, earnings_clear_days=20,
+            pead_ok=False, pead_score=0, event_active=False,
         )
         assert result.tier == "MEDIUM"
         assert 35 <= result.score <= 59
         assert isinstance(result.unlocks, frozenset)
-        assert isinstance(result.quality_gaps, list)
+        assert isinstance(result.quality_gaps, tuple)
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(True, 85))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_conviction_with_pead_and_strong_sentiment(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_conviction_with_pead_and_strong_sentiment(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=75.0)
@@ -96,85 +93,79 @@ class TestComputeTickerQuality:
         snap.research = {"NVDA": {"sentiment_score": 70}}
         snap.intraday_news = {"NVDA": {"sentiment_score": 65, "shock_score": 0}}
         result = compute_ticker_quality(
-            "NVDA", iv, snap, gate_flags=[], mode="PEAD",
+            "NVDA", iv, snap, mode="PEAD",
             sub_etf_chg=2.5, earnings_clear_days=35,
+            pead_ok=True, pead_score=85, event_active=False,
         )
         assert result.tier == "CONVICTION"
         assert result.score >= 80
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_low_quality_gaps_populated(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_low_quality_gaps_populated(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=32.0, relative_volume=0.5)
         snap = _make_snap(sentiment=-5, intra_sent=-3)
         result = compute_ticker_quality(
-            "RIVN", iv, snap, gate_flags=["volume_weak"], mode="DAY_TRADE",
+            "RIVN", iv, snap, mode="DAY_TRADE",
             sub_etf_chg=-0.5, earnings_clear_days=5,
+            pead_ok=False, pead_score=0, event_active=False,
         )
         assert result.tier == "LOW"
         assert len(result.quality_gaps) > 0
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_returns_ticker_quality_dataclass(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_returns_ticker_quality_dataclass(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=55.0)
         snap = _make_snap()
         result = compute_ticker_quality(
-            "AAPL", iv, snap, gate_flags=[], mode="DAY_TRADE",
+            "AAPL", iv, snap, mode="DAY_TRADE",
+            pead_ok=False, pead_score=0, event_active=False,
         )
         assert isinstance(result, TickerQuality)
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_component_scores_keys_present(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_component_scores_keys_present(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=55.0)
         snap = _make_snap()
         result = compute_ticker_quality(
-            "AAPL", iv, snap, gate_flags=[], mode="DAY_TRADE",
+            "AAPL", iv, snap, mode="DAY_TRADE",
+            pead_ok=False, pead_score=0, event_active=False,
         )
         expected_keys = {"composite", "sentiment", "intraday", "sub_etf", "pead", "earnings", "econ"}
         assert expected_keys == set(result.component_scores.keys())
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(True, "FOMC"))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_econ_event_active_scores_zero(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_econ_event_active_scores_zero(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=55.0)
         snap = _make_snap()
         result = compute_ticker_quality(
-            "AAPL", iv, snap, gate_flags=[], mode="DAY_TRADE",
+            "AAPL", iv, snap, mode="DAY_TRADE",
+            pead_ok=False, pead_score=0, event_active=True,
         )
         assert result.component_scores["econ"] == 0
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_score_clamped_to_100(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_score_clamped_to_100(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=100.0)
         snap = _make_snap(sentiment=100, intra_sent=100)
         result = compute_ticker_quality(
-            "AAPL", iv, snap, gate_flags=[], mode="DAY_TRADE",
+            "AAPL", iv, snap, mode="DAY_TRADE",
             sub_etf_chg=5.0, earnings_clear_days=60,
+            pead_ok=False, pead_score=0, event_active=False,
         )
         assert result.score <= 100
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(True, 90))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_conviction_tier_unlocks_t2_choppy(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_conviction_tier_unlocks_t2_choppy(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=80.0)
@@ -183,16 +174,15 @@ class TestComputeTickerQuality:
         snap.research = {"NVDA": {"sentiment_score": 65}}
         snap.intraday_news = {"NVDA": {"sentiment_score": 65, "shock_score": 0}}
         result = compute_ticker_quality(
-            "NVDA", iv, snap, gate_flags=[], mode="PEAD",
+            "NVDA", iv, snap, mode="PEAD",
             sub_etf_chg=2.5, earnings_clear_days=35,
+            pead_ok=True, pead_score=90, event_active=False,
         )
         assert result.tier == "CONVICTION"
         assert "T2_CHOPPY" in result.unlocks
 
-    @patch("utils.ticker_quality.detect_pead_setup", return_value=(False, 0))
-    @patch("utils.ticker_quality.is_event_risk_window", return_value=(False, ""))
     @patch("utils.ticker_quality.get_entry_params")
-    def test_missing_symbol_in_research_defaults_to_zero(self, mock_ep, mock_ec, mock_pead, monkeypatch):
+    def test_missing_symbol_in_research_defaults_to_zero(self, mock_ep, monkeypatch):
         monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
         mock_ep.return_value = MagicMock(composite_min=50)
         iv = _make_iv(composite=55.0)
@@ -201,7 +191,8 @@ class TestComputeTickerQuality:
         snap.research = {}  # symbol not present
         snap.intraday_news = {}
         result = compute_ticker_quality(
-            "AAPL", iv, snap, gate_flags=[], mode="DAY_TRADE",
+            "AAPL", iv, snap, mode="DAY_TRADE",
+            pead_ok=False, pead_score=0, event_active=False,
         )
         assert isinstance(result, TickerQuality)
 
@@ -219,6 +210,3 @@ class TestDeriveMode:
 
     def test_default_day_trade(self):
         assert derive_mode("RIVN", pead_ok=False, existing_swing_pos=False) == "DAY_TRADE"
-
-    def test_no_pead_no_swing_returns_day_trade(self):
-        assert derive_mode("TSLA", pead_ok=False, existing_swing_pos=False) == "DAY_TRADE"

@@ -4,13 +4,8 @@ Pure — no I/O. All inputs supplied by callers.
 """
 from __future__ import annotations
 
-import datetime
 from dataclasses import dataclass
-from zoneinfo import ZoneInfo
 
-from calendars.earnings import detect_pead_setup
-from macro.economic_calendar import is_event_risk_window
-from utils.constants import ET
 from utils.regime_params import get_entry_params
 
 TIERS = ("LOW", "MEDIUM", "HIGH", "CONVICTION")
@@ -21,7 +16,7 @@ class TickerQuality:
     tier: str
     score: int
     unlocks: frozenset
-    quality_gaps: list
+    quality_gaps: tuple
     component_scores: dict
 
 
@@ -126,13 +121,9 @@ def _score_earnings(earnings_clear_days: int) -> tuple[int, str | None]:
     return pts, gap
 
 
-def _score_econ(event_active: bool, event_medium: bool = False) -> int:
+def _score_econ(event_active: bool) -> int:
     """Max 5 pts — economic calendar risk window."""
-    if event_active:
-        return 0
-    if event_medium:
-        return 2
-    return 5
+    return 0 if event_active else 5
 
 
 def _compute_unlocks(
@@ -165,10 +156,12 @@ def compute_ticker_quality(
     symbol: str,
     iv,
     snap,
-    gate_flags: list,
     mode: str,
     sub_etf_chg: float = 0.0,
     earnings_clear_days: int = 30,
+    pead_ok: bool = False,
+    pead_score: int = 0,
+    event_active: bool = False,
 ) -> TickerQuality:
     """Compute a TickerQuality for *symbol* at the current evaluation instant.
 
@@ -177,10 +170,12 @@ def compute_ticker_quality(
     symbol:              Ticker being evaluated.
     iv:                  IndicatorValues (or MagicMock in tests) for the symbol.
     snap:                CycleSnapshot (regime, research, intraday_news).
-    gate_flags:          Soft-flag names raised by entry_gates (informational only).
     mode:                "DAY_TRADE" | "PEAD" | "SWING" — use derive_mode() to obtain.
     sub_etf_chg:         Sub-sector ETF intraday % change (from monitor batch fetch).
     earnings_clear_days: Days until the next earnings event (≥0).
+    pead_ok:             Whether the symbol qualifies as a PEAD setup (pre-computed by caller).
+    pead_score:          PEAD score 0–100 (pre-computed by caller).
+    event_active:        Whether an economic risk window is currently active (pre-computed by caller).
     """
     regime = snap.regime
     ep = get_entry_params(regime)
@@ -189,11 +184,6 @@ def compute_ticker_quality(
     sentiment: int = research_sym.get("sentiment_score", 0)
     intra_data = snap.intraday_news.get(symbol, {})
     intra_sent: int = intra_data.get("sentiment_score", sentiment)
-
-    pead_ok, pead_score = detect_pead_setup(symbol)
-
-    now = datetime.datetime.now(ET)
-    event_active, _ = is_event_risk_window(now)
 
     c_pts, c_gap = _score_composite(iv.composite_score, ep.composite_min)
     s_pts, s_gap = _score_sentiment(sentiment)
@@ -206,7 +196,7 @@ def compute_ticker_quality(
     score = max(0, min(100, c_pts + s_pts + i_pts + e_pts + p_pts + ec_pts + ev_pts))
     tier = _score_to_tier(score)
 
-    gaps = [g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap] if g]
+    gaps = tuple(g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap] if g)
     unlocks = _compute_unlocks(
         tier, mode, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
     )

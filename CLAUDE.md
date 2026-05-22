@@ -78,6 +78,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `utils/io_utils.py` | `load_json` / `save_json` — atomic writes, corrupt-file recovery |
 | `utils/catchup.py` | `catchup_missed_agents()` — runs stale pre-market agents on startup if bot missed their cron window (threshold: 8:00 AM ET) |
 | `utils/constants.py` | `ET = ZoneInfo("America/New_York")` — single source |
+| `utils/ticker_quality.py` | `compute_ticker_quality()` — 4-tier quality scorer (LOW/MEDIUM/HIGH/CONVICTION); `derive_mode()` — trading mode derivation |
 
 ### Gate Architecture (Option A)
 
