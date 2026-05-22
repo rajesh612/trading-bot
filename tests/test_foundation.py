@@ -1098,3 +1098,39 @@ def test_position_monitor_skips_t2_when_guard_disallows(monkeypatch, tmp_path):
         run_position_monitor()
 
     assert len(t2_called) == 0, f"T2 should not fire when guard.t2_allowed is False, called {len(t2_called)} times"
+
+
+@pytest.mark.unit
+def test_evaluate_eod_holds_uses_normal_params_when_regime_stale(monkeypatch, tmp_path):
+    """evaluate_eod_holds uses NORMAL swing params when guard.swing_fallback_regime is set."""
+    import config
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import StalenessGuard
+
+    stale_guard = StalenessGuard(
+        composite_penalty=10, auto_execute_allowed=False,
+        t2_allowed=False, swing_fallback_regime="NORMAL",
+        can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+    )
+
+    captured_regime = []
+
+    def fake_get_swing_params(regime):
+        captured_regime.append(regime)
+        from utils.regime_params import SwingParams
+        return SwingParams(False, 999, 999, 0.0, 0.0, 0.0)
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
+
+    with patch("trading.swing_manager.load_macro_regime",
+               return_value={"regime": "BULL_TREND", "_stale": True}), \
+         patch("utils.data_health.get_staleness_guard", return_value=stale_guard), \
+         patch("trading.swing_manager.get_swing_params", side_effect=fake_get_swing_params), \
+         patch("trading.swing_manager.load_open_positions", return_value={}):
+        from trading.swing_manager import evaluate_eod_holds
+        evaluate_eod_holds()
+
+    assert "NORMAL" in captured_regime, (
+        f"Expected NORMAL (fallback), got {captured_regime}"
+    )

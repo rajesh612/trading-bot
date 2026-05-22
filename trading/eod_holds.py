@@ -94,10 +94,12 @@ def qualifies_for_eod_hold(
     return True, ""
 
 
-def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK) -> list[str]:
+def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
+                       override_regime: str | None = None) -> list[str]:
     """
     Called at 3:50 PM ET. Evaluate open day-trade positions for overnight swing hold.
     Accepts persistence callables to avoid circular import with swing_manager.
+    override_regime: when set, bypasses load_macro_regime (used for staleness fallback).
     Returns list of promoted symbols.
     """
     from trading.journal import load_open_positions
@@ -105,7 +107,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK)
     import sectors
 
     regime_info = load_macro_regime()
-    regime = regime_info.get("regime", "NORMAL")
+    regime = override_regime or regime_info.get("regime", "NORMAL")
     now = datetime.now(ET)
 
     open_positions = load_open_positions()

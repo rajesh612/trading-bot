@@ -7,10 +7,12 @@ import threading
 from datetime import datetime
 import config
 from calendars.earnings import is_earnings_imminent
+from macro.regime import load_macro_regime
+from trading.journal import load_open_positions
 from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities, evaluate_tiered_tp_action
-
 from utils.constants import ET
+from utils.regime_params import get_swing_params
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +36,22 @@ def evaluate_eod_holds() -> list[str]:
     Called at 3:50 PM ET. Evaluate open day-trade positions for overnight swing hold.
     Returns list of promoted symbols.
     """
+    from utils.data_health import get_staleness_guard
     from trading.eod_holds import evaluate_eod_holds as _eval
-    return _eval(load_swing_positions, _save_swing_positions, _SWING_LOCK)
+
+    regime_info      = load_macro_regime()
+    guard            = get_staleness_guard(regime_info)
+    effective_regime = guard.swing_fallback_regime or regime_info.get("regime", "NORMAL")
+
+    if guard.swing_fallback_regime:
+        logger.warning(
+            "Regime stale — using %s swing params as safe fallback",
+            effective_regime,
+        )
+        get_swing_params(effective_regime)   # validate params exist for fallback regime
+
+    return _eval(load_swing_positions, _save_swing_positions, _SWING_LOCK,
+                 override_regime=effective_regime)
 
 
 # ── Morning gap check ─────────────────────────────────────────────────────────
@@ -62,6 +78,13 @@ def _evaluate_gap_action(position: dict, current_price: float) -> str:
 
 def run_gap_check(alpaca_client) -> None:
     """Called at 9:30 AM. Check pre-market price for each swing position."""
+    from utils.data_health import get_staleness_guard
+    regime_info      = load_macro_regime()
+    guard            = get_staleness_guard(regime_info)
+    effective_regime = guard.swing_fallback_regime or regime_info.get("regime", "NORMAL")
+    if guard.swing_fallback_regime:
+        logger.warning("run_gap_check: regime stale — using %s fallback", effective_regime)
+
     swings = load_swing_positions()
     if not swings:
         return
