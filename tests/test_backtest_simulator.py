@@ -109,3 +109,40 @@ class TestBacktestSafetyGates:
                                 quality_gaps=(), component_scores={})
         result = _sim_entry_signal_passes(iv, "NORMAL", quality, {}, rsi_max=74.0)
         assert result is True
+
+
+@pytest.mark.unit
+class TestBacktestTPDecay:
+    def _open(self, hour: int, minute: int = 0, tier="MEDIUM", regime="NORMAL"):
+        from backtest.simulator import SimState, _open_trade
+        state = SimState(cash=100_000.0)
+        ts_et = datetime(2026, 1, 2, hour, minute, tzinfo=ET)
+        _open_trade(state, "AAPL", str(ts_et), 100.0, 2.0,
+                    pos_mult=1.0, composite=55.0, tier=tier,
+                    regime=regime, entry_time_et=ts_et)
+        return state.positions.get("AAPL")
+
+    def test_morning_entry_full_tp(self):
+        """Entry before noon has wider TP than afternoon entry."""
+        pos_morning = self._open(10, 30)
+        pos_afternoon = self._open(14, 0)
+        assert pos_morning is not None and pos_afternoon is not None
+        assert pos_morning["tp"] > pos_afternoon["tp"]
+
+    def test_afternoon_entry_tighter_tp(self):
+        """Entry at 14:00 ET uses reduced multiplier — TP must be < morning entry."""
+        pos_early = self._open(10, 0)
+        pos_late = self._open(14, 0)
+        assert pos_late["tp"] < pos_early["tp"]
+
+    def test_conviction_tier_widens_tp(self):
+        """CONVICTION tier applies wider TP multiplier in NORMAL regime."""
+        pos_med = self._open(10, 30, tier="MEDIUM", regime="NORMAL")
+        pos_conv = self._open(10, 30, tier="CONVICTION", regime="NORMAL")
+        assert pos_conv["tp"] > pos_med["tp"]
+
+    def test_conviction_tightens_sl(self):
+        """CONVICTION tier applies tighter SL (higher absolute price = closer to entry)."""
+        pos_med = self._open(10, 30, tier="MEDIUM", regime="NORMAL")
+        pos_conv = self._open(10, 30, tier="CONVICTION", regime="NORMAL")
+        assert pos_conv["sl"] > pos_med["sl"]
