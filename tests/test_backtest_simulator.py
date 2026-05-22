@@ -4,9 +4,7 @@ Tests for backtest/simulator.py — quality tier integration.
 import pytest
 from unittest.mock import MagicMock
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
-ET = ZoneInfo("America/New_York")
+from utils.constants import ET
 
 
 def _make_iv(composite=55.0, rsi=50.0, vwap_slope=0.1, stoch_d=40.0,

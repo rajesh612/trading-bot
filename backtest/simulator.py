@@ -12,9 +12,10 @@ import pandas as pd
 import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
-from signals.entry_gates import effective_composite_gate, get_effective_profit_lock
+from signals.entry_gates import effective_composite_gate
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
+from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params
+from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
 from utils.ticker_quality import TickerQuality, compute_ticker_quality
 
 logger = logging.getLogger(__name__)
@@ -142,7 +143,6 @@ def _open_trade(
     if qty < 1 or cost > state.cash:
         return
     base_tp_pct = compute_atr_tp_pct(atr, entry, state.atr_tp_multiplier)
-    from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
     tp_pct, sl_pct = _compute_tp_sl(
         base_tp_pct, STOP_LOSS_PCT, entry_time_et or datetime.now(ET), tier, regime
     )
