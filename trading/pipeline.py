@@ -23,7 +23,7 @@ from trading.claude_caller import _ask_claude_batch, _ask_claude_exit_batch
 from trading import risk_manager
 from trading.closer import close_position
 from trading.executor import execute_buy
-from trading.pre_claude_filter import pre_claude_filter
+from trading.pre_claude_filter import pre_claude_filter, FilterResult
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
@@ -283,7 +283,7 @@ class TradingPipeline:
 
         # ── Phase 2: Pre-Claude filter ────────────────────────────────────────
         t_gates = time.monotonic()
-        needs_claude: list[tuple[str, IndicatorValues, dict | None]] = []
+        needs_claude: list[tuple[str, IndicatorValues, dict | None, FilterResult]] = []
         auto_execute: list[tuple[str, IndicatorValues]] = []
         ts_str = now.isoformat()
         for symbol, iv, existing_pos, _ in stock_data:
@@ -301,7 +301,7 @@ class TradingPipeline:
                 logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 _record_telemetry(ts_str, symbol, "AUTO_EXECUTE", filt.reason, iv)
             elif not risk_manager.is_entry_budget_exhausted():
-                needs_claude.append((symbol, iv, None))
+                needs_claude.append((symbol, iv, None, filt))
                 _record_telemetry(ts_str, symbol, "CLAUDE", "", iv)
             else:
                 logger.info("BUDGET-EXHAUSTED HOLD %s: would need Claude", symbol)

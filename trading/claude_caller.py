@@ -21,6 +21,8 @@ from trading.context_builder import build_stable_system_context, build_dynamic_u
 from signals.atr_tp import compute_atr_tp_pct
 from signals.entry_gates import GateResult
 from utils.ticker_quality import TickerQuality
+from trading.modes import get_active_mode
+from trading.pre_claude_filter import FilterResult
 
 from utils.constants import ET
 
@@ -82,13 +84,13 @@ def _estimate_batch_call_cost(batch_size: int) -> float:
 
 
 def _ask_claude_batch(
-    batch: list[tuple[str, IndicatorValues, dict | None]],
+    batch: list[tuple[str, IndicatorValues, dict | None, FilterResult]],
     snap: CycleSnapshot,
     ai: anthropic.Anthropic,
 ) -> dict[str, dict]:
     """Ask Claude for decisions on multiple stocks in a single API call."""
     global _CLAUDE_DISABLED_REASON, _CLAUDE_DISABLED_UNTIL
-    symbols = [sym for sym, _, _ in batch]
+    symbols = [sym for sym, _, _, _ in batch]
 
     with _CLAUDE_LOCK:
         if _CLAUDE_DISABLED.is_set():
@@ -111,12 +113,16 @@ def _ask_claude_batch(
 
     stock_blocks = "\n\n".join(
         build_stock_block(
-            sym, iv, snap, _default_gate, _default_quality, "DAY_TRADE", now,
+            sym, iv, snap,
+            gate_result=fr.gate_result or _default_gate,
+            quality=fr.quality or _default_quality,
+            mode=get_active_mode(snap.regime, sym),
+            entry_time=now,
             existing_pos=existing_pos,
             atr_suggested_tp_pct=compute_atr_tp_pct(iv.atr, iv.current_price, _atr_mult),
             intraday_news=snap.intraday_news.get(sym, {}),
         )
-        for sym, iv, existing_pos in batch
+        for sym, iv, existing_pos, fr in batch
     )
     stable_ctx = _get_cached_stable_context(snap.fred_cache, snap.research_meta, snap.regime_info)
     dynamic_ctx = build_dynamic_user_context(now, portfolio_gain_pct=snap.portfolio_gain_pct)

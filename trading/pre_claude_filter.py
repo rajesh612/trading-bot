@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 import config
 from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
-from signals.entry_gates import effective_composite_gate
+from signals.entry_gates import effective_composite_gate, GateResult
 from utils import regimes
 from utils.ticker_quality import TickerQuality, compute_ticker_quality
 from utils.regime_params import get_filter_params
@@ -25,6 +25,7 @@ class FilterResult:
     decision: str   # "SKIP" | "AUTO_EXECUTE" | "CLAUDE"
     reason: str
     quality: TickerQuality | None = field(default=None)
+    gate_result: GateResult | None = field(default=None)
 
 
 def pre_claude_filter(

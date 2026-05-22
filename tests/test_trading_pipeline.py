@@ -816,7 +816,7 @@ def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
     iv.atr = 1.5
 
     monkeypatch.setattr("trading.claude_caller.build_stock_block",
-                        lambda sym, iv, snap, gate, quality, mode, entry_time, **kw: f"BLOCK {sym}")
+                        lambda sym, iv, snap, **kw: f"BLOCK {sym}")
     monkeypatch.setattr("trading.claude_caller.build_stable_system_context",
                         lambda *a: "STABLE CTX")
     monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context",
@@ -826,8 +826,9 @@ def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
     monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage",
                         lambda **kw: None)
 
+    from trading.pre_claude_filter import FilterResult
     _ask_claude_batch(
-        [("AAPL", iv, None)], snap,
+        [("AAPL", iv, None, FilterResult("CLAUDE", ""))], snap,
         _make_fake_ai(calls, '{"AAPL": {"action": "HOLD", "confidence": 50, '
                              '"reasoning": "ok", "stop_loss_pct": 4.0, '
                              '"take_profit_pct": 5.0, "indicator_signals": {}}}'),
@@ -953,7 +954,8 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
     monkeypatch.setattr("trading.claude_caller._get_cached_stable_context", lambda *a, **kw: "ctx")
     monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context", lambda now, **kw: "dynamic")
 
-    _ask_claude_batch([("TEST", iv, None)], snap, FakeAI())
+    from trading.pre_claude_filter import FilterResult
+    _ask_claude_batch([("TEST", iv, None, FilterResult("CLAUDE", ""))], snap, FakeAI())
 
     # atr=2.0, price=100.0, mult=2.0 → atr_pct=2.0% → raw=4.0% → clamped to 4.0
     assert abs(captured.get("atr_suggested_tp_pct", -1) - 4.0) < 0.01

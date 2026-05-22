@@ -708,6 +708,7 @@ class TestCircuitBreakerTTL:
     def test_429_sets_5min_ttl(self):
         """HTTP 429 trips circuit breaker with ~300s TTL."""
         from trading import claude_caller
+        from trading.pre_claude_filter import FilterResult
         snap = self._make_snap()
 
         t_before = time.monotonic()
@@ -719,7 +720,7 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.telegram_notify"):
             mock_ai = MagicMock()
             mock_ai.messages.create.side_effect = self._make_exc(429, "rate limit exceeded")
-            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None, FilterResult("CLAUDE", ""))], snap, mock_ai)
 
         assert claude_caller._CLAUDE_DISABLED.is_set()
         ttl = claude_caller._CLAUDE_DISABLED_UNTIL - t_before
@@ -729,6 +730,7 @@ class TestCircuitBreakerTTL:
     def test_402_sets_30min_ttl_and_telegrams(self):
         """HTTP 402 trips circuit breaker with ~1800s TTL and sends Telegram."""
         from trading import claude_caller
+        from trading.pre_claude_filter import FilterResult
         snap = self._make_snap()
 
         t_before = time.monotonic()
@@ -740,7 +742,7 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.telegram_notify") as mock_tg:
             mock_ai = MagicMock()
             mock_ai.messages.create.side_effect = self._make_exc(402, "billing error")
-            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None, FilterResult("CLAUDE", ""))], snap, mock_ai)
 
         assert claude_caller._CLAUDE_DISABLED.is_set()
         ttl = claude_caller._CLAUDE_DISABLED_UNTIL - t_before
@@ -767,13 +769,14 @@ class TestCircuitBreakerTTL:
         )
 
         snap = self._make_snap()
+        from trading.pre_claude_filter import FilterResult
         with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
              patch("trading.claude_caller.risk_manager.record_usage"), \
              patch("trading.claude_caller.build_stock_block", return_value="block"), \
              patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
              patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn"), \
              patch("trading.claude_caller.compute_atr_tp_pct", return_value=5.0):
-            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None, FilterResult("CLAUDE", ""))], snap, mock_ai)
 
         assert not claude_caller._CLAUDE_DISABLED.is_set()
         assert claude_caller._CLAUDE_DISABLED_REASON == ""  # reason cleared on TTL expiry
@@ -791,6 +794,7 @@ class TestCircuitBreakerTTL:
 
         snap = self._make_snap()
         t_before = time.monotonic()
+        from trading.pre_claude_filter import FilterResult
         with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
              patch("trading.claude_caller.build_stock_block", return_value="block"), \
              patch("trading.claude_caller._get_cached_stable_context", return_value="ctx"), \
@@ -799,7 +803,7 @@ class TestCircuitBreakerTTL:
              patch("trading.claude_caller.telegram_notify"):
             mock_ai = MagicMock()
             mock_ai.messages.create.side_effect = self._make_exc(429, "rate limit")
-            claude_caller._ask_claude_batch([("TEST", MagicMock(), None)], snap, mock_ai)
+            claude_caller._ask_claude_batch([("TEST", MagicMock(), None, FilterResult("CLAUDE", ""))], snap, mock_ai)
 
         new_ttl = claude_caller._CLAUDE_DISABLED_UNTIL - t_before
         # remaining was ~200s; doubled = 400s > base 300s → new_ttl should be ~400s
