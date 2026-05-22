@@ -279,6 +279,41 @@ def notify_watch_list(symbols: list[str], regime: str) -> None:
 
 # ── Midday health check ───────────────────────────────────────────────────────
 
+_degraded_alerted: dict[str, bool] = {}   # {source_id_date: True}
+
+
+def notify_data_degraded(source_id: str, guard) -> None:
+    """One-shot Telegram alert when a data source activates stale fallback.
+
+    Deduped per source per calendar day.
+    guard is a StalenessGuard instance.
+    """
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+    sentinel = f"{source_id}_{today}"
+    if _degraded_alerted.get(sentinel):
+        return
+    _degraded_alerted[sentinel] = True
+
+    penalties = [
+        f"+{v} composite"
+        for k, v in config.DATA_COMPOSITE_PENALTY.items()
+        if k in guard.stale_sources and v > 0
+    ]
+    blocks = []
+    if not guard.auto_execute_allowed:
+        blocks.append("auto-execute")
+    if not guard.t2_allowed:
+        blocks.append("T2")
+
+    msg = (
+        f"⚠️ <b>DATA DEGRADED — {source_id.upper()}</b>\n"
+        f"Fallback active. "
+        f"Penalties: {', '.join(penalties) or 'none'}. "
+        f"Blocked: {', '.join(blocks) or 'none'}."
+    )
+    notify_alert(msg)
+
+
 def notify_alert(message: str) -> None:
     """Send a generic one-off alert message."""
     _send(message)

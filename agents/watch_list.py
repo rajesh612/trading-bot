@@ -124,6 +124,9 @@ def run_watch_list_agent() -> list[str]:
         })
         from utils.data_health import _tracker
         _tracker.record_failure("watch_list")
+        from utils.data_health import get_staleness_guard
+        guard = get_staleness_guard(tracker=_tracker)
+        telegram_notify.notify_data_degraded("watch_list", guard)
         return []
 
     strategy_memory = (
