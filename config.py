@@ -398,3 +398,7 @@ DATA_REGIME_CANOPEN_MAX_MINUTES      = 240   # force can_open=False if regime > 
 DATA_SWING_STALE_FALLBACK_REGIME     = "NORMAL"
 DATA_SCREENER_FAILURE_RATE_THRESHOLD = 0.80
 DATA_WATCH_LIST_HEALTH_FILE          = STATE_DIR / "watch_list_health.json"
+
+# ── Dynamic Regime × Tier System ──────────────────────────────────────────────
+SUB_ETF_CONFIRM_MIN_03 = 0.3   # sub-sector ETF % floor for OPPORTUNITY/HIGH auto-execute
+SUB_ETF_CONFIRM_MIN_05 = 0.5   # sub-sector ETF % floor for OPPORTUNITY/CONVICTION auto-execute

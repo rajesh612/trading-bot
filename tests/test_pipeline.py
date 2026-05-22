@@ -960,3 +960,64 @@ class TestAutoExecuteWhenBudgetExhausted:
             mock_claude.assert_not_called()
         finally:
             risk_manager._entry_exhausted_flag = False
+
+
+from utils.regime_params import (
+    get_filter_params, get_gate_params, get_auto_execute_params,
+    FilterParams, GateParams, AutoExecuteParams,
+)
+
+
+class TestDynamicRegimeParams:
+    @pytest.mark.unit
+    def test_filter_params_all_regimes_covered(self):
+        from utils.regimes import VALID
+        for regime in VALID:
+            for tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION"):
+                p = get_filter_params(regime, tier)
+                assert isinstance(p, FilterParams)
+
+    @pytest.mark.unit
+    def test_gate_params_all_regimes_covered(self):
+        from utils.regimes import VALID
+        for regime in VALID:
+            for tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION"):
+                p = get_gate_params(regime, tier)
+                assert isinstance(p, GateParams)
+
+    @pytest.mark.unit
+    def test_auto_execute_disabled_for_crisis(self):
+        for tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION"):
+            p = get_auto_execute_params("CRISIS", tier)
+            assert p.composite_offset == 999  # disabled sentinel
+
+    @pytest.mark.unit
+    def test_auto_execute_conviction_normal(self):
+        p = get_auto_execute_params("NORMAL", "CONVICTION")
+        assert p.composite_offset == 10
+        assert p.sentiment_min == 20
+        assert p.extra_unlock is None
+
+    @pytest.mark.unit
+    def test_auto_execute_conviction_capitulation_requires_pead(self):
+        p = get_auto_execute_params("CAPITULATION", "CONVICTION")
+        assert p.composite_offset == 20
+        assert p.sentiment_min == 30
+        assert p.extra_unlock == "PEAD_EXTENDED_WINDOW"
+
+    @pytest.mark.unit
+    def test_auto_execute_choppy_low_disabled(self):
+        p = get_auto_execute_params("CHOPPY", "LOW")
+        assert p.composite_offset == 999
+
+    @pytest.mark.unit
+    def test_auto_execute_opportunity_high_requires_sub_etf(self):
+        p = get_auto_execute_params("OPPORTUNITY", "HIGH")
+        assert p.composite_offset != 999
+        assert p.extra_unlock == "SUB_ETF_CONFIRM_03"
+
+    @pytest.mark.unit
+    def test_unknown_regime_falls_back_to_normal(self):
+        p = get_filter_params("UNKNOWN_REGIME", "MEDIUM")
+        normal_p = get_filter_params("NORMAL", "MEDIUM")
+        assert p.composite_min == normal_p.composite_min
