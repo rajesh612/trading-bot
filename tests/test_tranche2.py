@@ -35,7 +35,7 @@ def _t2_iv(**overrides):
 def _t2_pos(**overrides):
     """Open position dict that passes all T2 structural gates by default."""
     from datetime import timedelta
-    entry_time = (datetime.now(ET) - timedelta(minutes=65)).isoformat()
+    entry_time = (_t2_now() - timedelta(minutes=65)).isoformat()
     base = dict(
         tranche_2_triggered=False,
         tranche_1_entry=100.0,
@@ -705,7 +705,7 @@ class TestSimTranche2:
 
         pos = {
             "tranche_1_entry": 100.0,
-            "entry_time": (datetime.now(ET) - timedelta(minutes=65)).isoformat(),
+            "entry_time": (_t2_now(hour=11) - timedelta(minutes=65)).isoformat(),
             "tranche_2_triggered": False,
         }
         iv = _t2_iv(current_price=95.0, rsi=40.0, composite_score=50.0)
@@ -727,7 +727,7 @@ class TestSimTranche2:
 
         pos = {
             "tranche_1_entry": 100.0,
-            "entry_time": (datetime.now(ET) - timedelta(minutes=65)).isoformat(),
+            "entry_time": (_t2_now(hour=11) - timedelta(minutes=65)).isoformat(),
             "tranche_2_triggered": False,
         }
         iv = _t2_iv(current_price=92.0, rsi=40.0, composite_score=50.0)
