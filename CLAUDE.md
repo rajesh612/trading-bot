@@ -290,3 +290,20 @@ Only when the **why** is non-obvious. Never describe what the code does. Never r
 
 ### 24. Regime dispatch — always use utils/regime_params.py
 Never write inline `if regime == "CHOPPY": ...` dispatch chains in source modules. All regime × mode threshold dispatch belongs in `utils/regime_params.py`. Callers use `get_entry_params(regime)`, `get_swing_params(regime)`, or `get_t2_params(regime)`. Adding a new regime variant = update the table in `regime_params.py` only.
+
+### 25. Data staleness — always use get_staleness_guard()
+`get_staleness_guard()` in `utils/data_health.py` is the sole factory for `StalenessGuard`.
+No module evaluates staleness thresholds, computes composite penalties, or decides T2/auto-execute
+eligibility outside `utils/data_health.py`. Adding a new staleness consequence = update
+`config.DATA_*` sets and `get_staleness_guard()` only.
+
+### 26. Guard injection — once per scheduler entry point
+`StalenessGuard` is built exactly once per scheduler entry point (cycle, monitor tick, EOD)
+before any downstream stage. Never build mid-stage or share guards across scheduler boundaries.
+`CycleSnapshot.staleness_guard` carries it through the cycle; monitor and swing_manager build
+their own independently.
+
+### 27. Data resilience constants — all in config.py
+All retry schedules, staleness thresholds, composite penalties, and disable sets live under
+`# ── Data Resilience ──` in `config.py`. No magic numbers in `data_health.py`, agent files,
+or job functions.
