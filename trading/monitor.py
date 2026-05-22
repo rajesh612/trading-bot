@@ -123,6 +123,14 @@ def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> Non
         if pos.get("tranche_2_triggered"):
             continue
 
+        # Recover quality unlocks from position record (persisted at entry in executor.py)
+        pos_unlocks = frozenset(pos.get("quality_unlocks", []))
+
+        # In CHOPPY, T2 is gated off unless T2_CHOPPY unlock was earned at entry
+        if regime == "CHOPPY" and "T2_CHOPPY" not in pos_unlocks:
+            logger.debug("T2 skip %s — CHOPPY regime requires T2_CHOPPY unlock", symbol)
+            continue
+
         iv = _try_compute_iv(symbol, alpaca)
         if iv is None:
             continue

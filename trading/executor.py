@@ -14,6 +14,8 @@ from indicators.values import IndicatorValues
 from data.market_data import get_intraday_bars
 from utils.io_utils import load_json, save_json
 from signals.entry_gates import check_all_gates, effective_composite_gate
+from signals.tp_scaler import compute_tp_sl
+from utils.ticker_quality import TickerQuality
 from trading.journal import _POSITIONS_LOCK, append_trade
 from trading.modes import get_active_mode, get_sl_tp_for_mode_and_regime, _MODE_POSITION_LIMITS
 from trading.position_sizer import (
@@ -65,6 +67,7 @@ def execute_buy(
     suppress_notify: bool = False,
     major_event_today: bool = False,
     staleness_guard=None,
+    quality: TickerQuality | None = None,
 ) -> dict | None:
     """
     Validate and place a single BUY order.
@@ -161,6 +164,15 @@ def execute_buy(
     if iv.squeeze_setup and decision.get("confidence", 0) >= config.SQUEEZE_CONFIDENCE_GATE:
         sl_pct, tp_pct = config.SQUEEZE_SL_PCT, config.SQUEEZE_TP_PCT
 
+    # Apply time-aware + tier adjustment to TP/SL (Rule 30)
+    tp_pct, sl_pct = compute_tp_sl(
+        base_tp=tp_pct,
+        base_sl=sl_pct,
+        entry_time=now,
+        tier=quality.tier if quality else "MEDIUM",
+        regime=regime,
+    )
+
     # Concurrent guard: re-read disk inside lock immediately before placing order
     with _POSITIONS_LOCK:
         disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
@@ -208,6 +220,8 @@ def execute_buy(
         "tranche_1_qty":       qty,
         "tranche_1_entry":     iv.current_price,
         "stop_order_id":       None,
+        "quality_tier":        quality.tier    if quality else "MEDIUM",
+        "quality_unlocks":     list(quality.unlocks) if quality else [],
     }
     open_positions[symbol] = position_data
 

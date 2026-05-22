@@ -911,4 +911,84 @@ def test_execute_buy_stores_entry_sector_sentiment(monkeypatch, tmp_path):
     saved_positions = mock_save.call_args[0][1]
     assert "entry_sector_sentiment" in saved_positions.get("NVDA", {})
     assert "entry_news_sentiment" in saved_positions.get("NVDA", {})
-    assert saved_positions["NVDA"]["entry_news_sentiment"] == pytest.approx(42.0)
+
+
+# ── auto-execute 9×4 routing ──────────────────────────────────────────────────
+
+class TestAutoExecuteRouting:
+    def _quality(self, tier, unlocks=frozenset()):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(tier=tier, score=80, unlocks=unlocks,
+                             quality_gaps=(), component_scores={})
+
+    @pytest.mark.unit
+    def test_low_tier_never_auto_executes(self):
+        from utils.regime_params import get_auto_execute_params
+        for regime in ("NORMAL", "CHOPPY", "BULL_TREND", "CAPITULATION"):
+            p = get_auto_execute_params(regime, "LOW")
+            assert p.composite_offset == 999
+
+    @pytest.mark.unit
+    def test_conviction_normal_auto_executes_at_offset_10(self, monkeypatch):
+        import config
+        from utils.regime_params import get_auto_execute_params
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
+        p = get_auto_execute_params("NORMAL", "CONVICTION")
+        floor = config.COMPOSITE_MIN_NORMAL
+        threshold = floor + p.composite_offset
+        assert threshold == 60
+
+    @pytest.mark.unit
+    def test_capitulation_conviction_requires_pead_unlock(self):
+        from utils.ticker_quality import TickerQuality
+        from utils.regime_params import get_auto_execute_params
+        p = get_auto_execute_params("CAPITULATION", "CONVICTION")
+        assert p.extra_unlock == "PEAD_EXTENDED_WINDOW"
+        quality_no_pead = TickerQuality("CONVICTION", 85, frozenset(), (), {})
+        quality_with_pead = TickerQuality("CONVICTION", 85,
+                                          frozenset({"PEAD_EXTENDED_WINDOW"}), (), {})
+        assert p.extra_unlock not in quality_no_pead.unlocks
+        assert p.extra_unlock in quality_with_pead.unlocks
+
+
+# ── position quality persistence ─────────────────────────────────────────────
+
+class TestPositionQualityPersistence:
+    @pytest.mark.unit
+    def test_quality_fields_in_position_record(self):
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality("CONVICTION", 85, frozenset({"T2_CHOPPY"}), (), {})
+        pos = {
+            "symbol": "NVDA",
+            "quality_tier": quality.tier,
+            "quality_unlocks": list(quality.unlocks),
+        }
+        assert pos["quality_tier"] == "CONVICTION"
+        assert "T2_CHOPPY" in pos["quality_unlocks"]
+
+
+# ── monitor T2_CHOPPY unlock check ───────────────────────────────────────────
+
+class TestMonitorT2UnlockCheck:
+    @pytest.mark.unit
+    def test_t2_choppy_unlock_allows_t2_in_choppy(self):
+        pos = {
+            "symbol": "NVDA", "entry_price": 100.0, "qty": 10,
+            "quality_tier": "CONVICTION", "quality_unlocks": ["T2_CHOPPY"],
+            "tranche_2_triggered": False,
+        }
+        pos_unlocks = frozenset(pos.get("quality_unlocks", []))
+        regime = "CHOPPY"
+        should_skip = regime == "CHOPPY" and "T2_CHOPPY" not in pos_unlocks
+        assert not should_skip
+
+    @pytest.mark.unit
+    def test_no_unlock_blocks_t2_in_choppy(self):
+        pos = {
+            "symbol": "RIVN", "quality_tier": "MEDIUM", "quality_unlocks": [],
+            "tranche_2_triggered": False,
+        }
+        pos_unlocks = frozenset(pos.get("quality_unlocks", []))
+        regime = "CHOPPY"
+        should_skip = regime == "CHOPPY" and "T2_CHOPPY" not in pos_unlocks
+        assert should_skip

@@ -73,6 +73,8 @@ class CycleSnapshot:
     sector_today: dict = field(default_factory=dict)
     advance_decline_ratio: float = 1.0   # IWM/SPY breadth ratio; < 0.85 → narrow breadth
     major_event_today: bool = False       # True if FOMC/CPI/NFP/PCE/JOLTS scheduled today
+    sector_etf_cache: dict = field(default_factory=dict)
+    # Maps sub_etf symbol (e.g. "SOXX") → intraday % change float
 
 
 def build_cycle_snapshot(
