@@ -158,8 +158,16 @@ def notify_sector_flip(sector_etf: str, change_pct: float, affected_symbols: lis
     )
 
 
+_stale_research_alerted_date: str = ""
+
+
 def notify_stale_research(age_min: float) -> None:
-    """Alert when research report is stale."""
+    """Alert when research report is stale. Deduped: at most once per calendar day."""
+    global _stale_research_alerted_date
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+    if _stale_research_alerted_date == today:
+        return
+    _stale_research_alerted_date = today
     _send(
         f"<b>⏰ Stale research report ({age_min:.0f} min old)</b>\n"
         "Research job may have failed. Sentiment signals are degraded."
