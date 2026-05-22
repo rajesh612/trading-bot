@@ -40,7 +40,10 @@ def _yahoo_bars(symbol: str, interval: str, period: str) -> pd.DataFrame:
     if not result.get("timestamp") or not result.get("indicators"):
         return pd.DataFrame()
     timestamps = result["timestamp"]
-    q = result["indicators"]["quote"][0]
+    quote_list = result.get("indicators", {}).get("quote", [])
+    if not quote_list:
+        return pd.DataFrame()
+    q = quote_list[0]
     df = pd.DataFrame(
         {
             "open":   [float(v) if v is not None else float("nan") for v in q["open"]],

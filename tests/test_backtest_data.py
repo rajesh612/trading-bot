@@ -276,3 +276,53 @@ def test_cache_key_differs_for_different_symbols(tmp_path):
     path_b = _cache_path(["AAPL", "NVDA"], start, end, tmp_path)
 
     assert path_a != path_b
+
+
+class TestYahooParseGuard:
+    """Test guarding against empty/missing quote[] in Yahoo responses."""
+
+    @pytest.mark.unit
+    def test_empty_quote_list_returns_empty_df(self, monkeypatch):
+        """Empty quote[] list should return empty DataFrame, not crash."""
+        def mock_yahoo_get(url: str) -> dict:
+            return {
+                "chart": {
+                    "result": [
+                        {
+                            "timestamp": [1700000000],
+                            "indicators": {"quote": []},
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr("data.market_data.yahoo_get", mock_yahoo_get)
+
+        from data.market_data import _yahoo_bars
+
+        result = _yahoo_bars("NVDA", interval="5m", period="1d")
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty
+
+    @pytest.mark.unit
+    def test_missing_quote_key_returns_empty_df(self, monkeypatch):
+        """Missing quote key should return empty DataFrame, not crash."""
+        def mock_yahoo_get(url: str) -> dict:
+            return {
+                "chart": {
+                    "result": [
+                        {
+                            "timestamp": [1700000000],
+                            "indicators": {},
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr("data.market_data.yahoo_get", mock_yahoo_get)
+
+        from data.market_data import _yahoo_bars
+
+        result = _yahoo_bars("NVDA", interval="5m", period="1d")
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty
