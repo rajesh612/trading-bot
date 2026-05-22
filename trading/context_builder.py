@@ -11,72 +11,191 @@ import macro.economic_calendar as _ec_mod
 from indicators.values import IndicatorValues
 
 
-def build_stock_block(
-    symbol: str,
-    iv: IndicatorValues,
-    research: dict,
-    existing_pos: dict | None,
-    atr_suggested_tp_pct: float | None = None,
-    intraday_news: dict | None = None,
-) -> str:
-    """Compact per-symbol block sent to Claude."""
-    from calendars.earnings import detect_pead_setup
-    price           = iv.current_price
-    research_sym    = research.get(symbol, {})
-    sentiment_score = research_sym.get("sentiment_score", 0)
-    sentiment_label = research_sym.get("sentiment_label", "NEUTRAL")
-    risk_flag       = research_sym.get("risk_flag") or ""
-    catalyst        = research_sym.get("key_catalyst") or ""
-    news_summary    = (research_sym.get("summary") or "").strip()
+# ── helpers ──────────────────────────────────────────────────────────────────
 
-    pos_block = ""
-    if existing_pos:
-        pnl_pct = (price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
-        sl = existing_pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
-        tp = existing_pos.get("take_profit_pct", config.TAKE_PROFIT_PCT)
-        pos_block = (
-            f" POS:${existing_pos['entry_price']:.2f}×{existing_pos['qty']:.0f}"
-            f" P&L={pnl_pct:+.2f}% SL={sl:.1f}% TP={tp:.1f}%"
-        )
-
-    dvol = f"{iv.daily_volume_ratio:.2f}x"
-    if iv.daily_volume_ratio < 0.5:
-        dvol += "LOW"
-    elif iv.daily_volume_ratio > 3.0:
-        dvol += "HIGH"
-
-    pead_ok, pead_score = detect_pead_setup(symbol)
-    pead_line = f" PEAD={pead_score}/100" if pead_ok else ""
-
-    vwap_dir  = "↑" if price >= iv.vwap else "↓"
-    risk_str  = f" risk={risk_flag}" if risk_flag else ""
-    cat_str   = f' cat="{catalyst}"' if catalyst else ""
-    news_str  = f"\n  {news_summary}" if news_summary else ""
-
-    intraday    = intraday_news or {}
-    intra_shock = intraday.get("shock_score", 0)
-    intra_sent  = intraday.get("sentiment_score", sentiment_score)
-
-    atr_tp_line = (
-        f"\n  ATR-TP={atr_suggested_tp_pct:.1f}% (ATR-based). Override if catalyst justifies."
-        if atr_suggested_tp_pct is not None else ""
+def _pos_line(iv, existing_pos: dict | None) -> str:
+    if not existing_pos:
+        return ""
+    price = iv.current_price
+    pnl_pct = (price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
+    sl = existing_pos.get("stop_loss_pct", 4.0)
+    tp = existing_pos.get("take_profit_pct", 5.0)
+    return (
+        f" POS:${existing_pos['entry_price']:.2f}×{existing_pos['qty']:.0f}"
+        f" P&L={pnl_pct:+.2f}% SL={sl:.1f}% TP={tp:.1f}%"
     )
 
+
+# ── tier-specific private builders ───────────────────────────────────────────
+
+def _block_low(symbol, iv, snap, gate_result, quality, mode, entry_time,
+               existing_pos, atr_suggested_tp_pct, intraday_news) -> str:
+    if snap.regime == "CRISIS":
+        return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
+    price = iv.current_price
+    vwap_dir = "↑" if price >= iv.vwap else "↓"
+    gaps_str = " ".join(quality.quality_gaps) if quality.quality_gaps else "none"
+    flags_str = " ".join(gate_result.flags) if gate_result.flags else ""
+    pos_block = _pos_line(iv, existing_pos)
     return (
-        f'<stock symbol="{symbol}">\n'
+        f'<stock symbol="{symbol}" tier="LOW">\n'
+        f"  ⚠ CAUTION: low-quality setup — consider skipping\n"
+        f"  quality_gaps: {gaps_str}\n"
+        f"  composite={iv.composite_score:+.1f} RSI={iv.rsi:.1f} VWAP{vwap_dir}"
+        f" OR={iv.or_position}{pos_block}\n"
+        + (f"  flags: {flags_str}\n" if flags_str else "")
+        + f"</stock>"
+    )
+
+
+def _block_medium(symbol, iv, snap, gate_result, quality, mode, entry_time,
+                  existing_pos, atr_suggested_tp_pct, intraday_news) -> str:
+    if snap.regime == "CRISIS":
+        return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
+    price = iv.current_price
+    vwap_dir = "↑" if price >= iv.vwap else "↓"
+    research_sym = snap.research.get(symbol, {})
+    sentiment_score = research_sym.get("sentiment_score", 0)
+    sentiment_label = research_sym.get("sentiment_label", "NEUTRAL")
+    risk_flag = research_sym.get("risk_flag") or ""
+    catalyst = research_sym.get("key_catalyst") or ""
+    news_summary = (research_sym.get("summary") or "").strip()[:120]
+    intra = (intraday_news or snap.intraday_news.get(symbol, {}))
+    intra_shock = intra.get("shock_score", 0)
+    intra_sent = intra.get("sentiment_score", sentiment_score)
+    flags_str = " ".join(gate_result.flags) if gate_result.flags else ""
+    risk_str = f" risk={risk_flag}" if risk_flag else ""
+    cat_str = f' cat="{catalyst}"' if catalyst else ""
+    news_str = f"\n  {news_summary}" if news_summary else ""
+    atr_line = (f"\n  ATR-TP={atr_suggested_tp_pct:.1f}% (override if catalyst justifies)"
+                if atr_suggested_tp_pct is not None else "")
+    pos_block = _pos_line(iv, existing_pos)
+    return (
+        f'<stock symbol="{symbol}" tier="MEDIUM">\n'
         f"  composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
         f"  P=${price:.2f} VWAP{vwap_dir}({iv.vwap_slope:+.3f})"
-        f" RSI={iv.rsi:.1f}({iv.rsi_slope:+.1f})"
-        f" MACD={iv.macd_hist:+.4f} BB[{iv.bb_lower:.2f},{iv.bb_upper:.2f}]"
-        f" EMA9/21={iv.ema9:.2f}/{iv.ema21:.2f} Stoch={iv.stoch_k:.0f}/{iv.stoch_d:.0f}"
-        f" OR={iv.or_position} Vol={dvol}{pead_line}"
-        f"{atr_tp_line}\n"
+        f" RSI={iv.rsi:.1f} OR={iv.or_position}"
+        f" Stoch={iv.stoch_k:.0f}/{iv.stoch_d:.0f}"
+        f"{atr_line}\n"
         f"  SENT:{sentiment_label}({sentiment_score:+d})"
         f" intraday:shock={intra_shock} sent={intra_sent:+d}"
         f"{cat_str}{risk_str}"
-        f"{news_str}\n"
+        + (f"\n  flags: {flags_str}" if flags_str else "")
+        + f"{news_str}\n"
+        + f"</stock>"
+    )
+
+
+def _block_high(symbol, iv, snap, gate_result, quality, mode, entry_time,
+                existing_pos, atr_suggested_tp_pct, intraday_news) -> str:
+    if snap.regime == "CRISIS":
+        return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
+    from signals.tp_scaler import compute_tp_sl
+    price = iv.current_price
+    vwap_dir = "↑" if price >= iv.vwap else "↓"
+    research_sym = snap.research.get(symbol, {})
+    sentiment_score = research_sym.get("sentiment_score", 0)
+    sentiment_label = research_sym.get("sentiment_label", "NEUTRAL")
+    intra = (intraday_news or snap.intraday_news.get(symbol, {}))
+    intra_shock = intra.get("shock_score", 0)
+    intra_sent = intra.get("sentiment_score", sentiment_score)
+    # time-adjusted TP
+    base_tp = atr_suggested_tp_pct or 5.0
+    adj_tp, _ = compute_tp_sl(base_tp, 4.0, entry_time, quality.tier, snap.regime)
+    # sub-sector ETF
+    try:
+        from sectors import get_sub_sector_etf
+        sub_etf = get_sub_sector_etf(symbol)
+    except Exception:
+        sub_etf = ""
+    sub_etf_str = f" sub_etf={sub_etf}" if sub_etf else ""
+    # swing/T2 unlock hints
+    swing_ok = "SWING_SENTIMENT" in quality.unlocks or "SWING_CHOPPY" in quality.unlocks
+    t2_ok = "T2_CHOPPY" in quality.unlocks
+    eligibility = []
+    if swing_ok:
+        eligibility.append("swing=eligible")
+    if t2_ok:
+        eligibility.append("T2=eligible")
+    elig_str = " ".join(eligibility)
+    flags_str = " ".join(gate_result.flags) if gate_result.flags else ""
+    pos_block = _pos_line(iv, existing_pos)
+    return (
+        f'<stock symbol="{symbol}" tier="HIGH">\n'
+        f"  composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
+        f"  P=${price:.2f} VWAP{vwap_dir}({iv.vwap_slope:+.3f})"
+        f" RSI={iv.rsi:.1f} OR={iv.or_position}{sub_etf_str}\n"
+        f"  adj_tp={adj_tp:.1f}% SENT:{sentiment_label}({sentiment_score:+d})"
+        f" intraday:shock={intra_shock} sent={intra_sent:+d}"
+        + (f" {elig_str}" if elig_str else "")
+        + (f"\n  flags: {flags_str}" if flags_str else "")
+        + f"\n</stock>"
+    )
+
+
+def _block_conviction(symbol, iv, snap, gate_result, quality, mode, entry_time,
+                      existing_pos, atr_suggested_tp_pct, intraday_news) -> str:
+    if snap.regime == "CRISIS":
+        return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
+    from signals.tp_scaler import compute_tp_sl
+    price = iv.current_price
+    base_tp = atr_suggested_tp_pct or 5.0
+    adj_tp, _ = compute_tp_sl(base_tp, 4.0, entry_time, quality.tier, snap.regime)
+    # sub-sector ETF
+    try:
+        from sectors import get_sub_sector_etf
+        sub_etf = get_sub_sector_etf(symbol)
+    except Exception:
+        sub_etf = ""
+    sub_etf_str = f" sub_etf={sub_etf}" if sub_etf else ""
+    # unlocks
+    unlocks_str = ",".join(sorted(quality.unlocks)) if quality.unlocks else "none"
+    # pead
+    from calendars.earnings import detect_pead_setup
+    pead_ok, pead_score = detect_pead_setup(symbol)
+    pead_str = f" PEAD={pead_score}/100" if pead_ok else ""
+    # regime annotation
+    regime_note = ""
+    if snap.regime == "CAPITULATION":
+        pead_line = "PEAD=REQUIRED(unlock)" if "PEAD_EXTENDED_WINDOW" in quality.unlocks else "PEAD=MISSING⚠"
+        regime_note = f"\n  ⚠ CAPITULATION: entries restricted — CONVICTION+PEAD only. {pead_line}"
+    elif snap.regime == "CHOPPY":
+        regime_note = "\n  CHOPPY: auto-exec gated at +15 offset. T2/swing via unlock only."
+    pos_block = _pos_line(iv, existing_pos)
+    return (
+        f'<stock symbol="{symbol}" tier="CONVICTION" mode="{mode}">\n'
+        f"  composite={iv.composite_score:+.1f} signal={iv.signal}{pos_block}\n"
+        f"  P=${price:.2f} RSI={iv.rsi:.1f}{sub_etf_str}{pead_str}\n"
+        f"  unlocks={unlocks_str} adj_tp={adj_tp:.1f}%"
+        f"{regime_note}\n"
         f"</stock>"
     )
+
+
+# ── public API ────────────────────────────────────────────────────────────────
+
+def build_stock_block(
+    symbol: str,
+    iv,                            # IndicatorValues
+    snap,                          # CycleSnapshot
+    gate_result,                   # GateResult
+    quality,                       # TickerQuality
+    mode: str,                     # "DAY_TRADE" | "PEAD" | "SWING"
+    entry_time,                    # datetime
+    existing_pos: dict | None = None,
+    atr_suggested_tp_pct: float | None = None,
+    intraday_news: dict | None = None,
+) -> str:
+    """Compact per-symbol block sent to Claude, dispatched by tier."""
+    _dispatch = {
+        "LOW":        _block_low,
+        "MEDIUM":     _block_medium,
+        "HIGH":       _block_high,
+        "CONVICTION": _block_conviction,
+    }
+    builder = _dispatch.get(quality.tier, _block_medium)
+    return builder(symbol, iv, snap, gate_result, quality, mode, entry_time,
+                   existing_pos, atr_suggested_tp_pct, intraday_news)
 
 
 def build_exit_stock_block(

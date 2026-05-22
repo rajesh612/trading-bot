@@ -1001,3 +1001,92 @@ def test_clear_stale_removes_metadata(tmp_path):
     assert "_stale" not in data
     assert "_stale_since" not in data
     assert data["regime"] == "NORMAL"
+
+
+class TestTierContextBlocks:
+    def _make_iv(self, composite=55.0, rsi=62.0, stoch_k=70.0, stoch_d=68.0,
+                 current_price=100.0, vwap=99.0, vwap_slope=0.003,
+                 or_position="outside", relative_volume=1.4, atr=2.0):
+        from unittest.mock import MagicMock
+        iv = MagicMock()
+        iv.composite_score = composite
+        iv.rsi = rsi
+        iv.stoch_k = stoch_k
+        iv.stoch_d = stoch_d
+        iv.current_price = current_price
+        iv.vwap = vwap
+        iv.vwap_slope = vwap_slope
+        iv.or_position = or_position
+        iv.relative_volume = relative_volume
+        iv.atr = atr
+        iv.signal = "BUY"
+        return iv
+
+    def _snap(self, regime="NORMAL"):
+        from unittest.mock import MagicMock
+        snap = MagicMock()
+        snap.regime = regime
+        snap.research = {}
+        snap.intraday_news = {}
+        return snap
+
+    def _gate_result(self, flags=None):
+        from signals.entry_gates import GateResult
+        return GateResult(passed=True, reason="", flags=tuple(flags or []))
+
+    @pytest.mark.unit
+    def test_low_tier_contains_quality_gaps(self):
+        from trading.context_builder import build_stock_block
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality("LOW", 28, frozenset(),
+                                ("vol_weak(-12)", "sector_flat(-8)"), {})
+        gate = self._gate_result(["volume_weak"])
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        block = build_stock_block(
+            "RIVN", self._make_iv(composite=32.0), self._snap(),
+            gate, quality, "DAY_TRADE",
+            datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
+        )
+        assert "vol_weak" in block or "quality_gaps" in block
+        assert "caution" in block.lower()
+        assert "BB[" not in block
+        assert "EMA9" not in block
+        assert "MACD=" not in block
+
+    @pytest.mark.unit
+    def test_conviction_tier_contains_unlocks_not_quality_breakdown(self):
+        from trading.context_builder import build_stock_block
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality("CONVICTION", 85, frozenset({"T2_CHOPPY", "SWING_CHOPPY"}),
+                                (), {"composite": 25, "sentiment": 20})
+        gate = self._gate_result()
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        block = build_stock_block(
+            "NVDA", self._make_iv(composite=72.0), self._snap(),
+            gate, quality, "PEAD",
+            datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
+        )
+        assert "unlocks=" in block or "T2_CHOPPY" in block or "SWING_CHOPPY" in block
+        assert "composite(+25)" not in block
+        assert "caution" not in block.lower()
+        assert "BB[" not in block
+
+    @pytest.mark.unit
+    def test_medium_tier_shows_full_news(self):
+        from trading.context_builder import build_stock_block
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality("MEDIUM", 47, frozenset(), (), {})
+        gate = self._gate_result()
+        from unittest.mock import MagicMock
+        snap = self._snap()
+        snap.research = {"AAPL": {"sentiment_score": 35, "sentiment_label": "BULLISH",
+                                   "summary": "Strong pipeline into Q3"}}
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        block = build_stock_block(
+            "AAPL", self._make_iv(), snap, gate, quality, "DAY_TRADE",
+            datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
+        )
+        assert "Strong pipeline" in block

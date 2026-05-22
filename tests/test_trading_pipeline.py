@@ -530,6 +530,10 @@ def test_stock_block_is_under_150_tokens():
     """build_stock_block must stay compact to conserve Claude budget."""
     from trading.context_builder import build_stock_block
     from unittest.mock import MagicMock, patch
+    from signals.entry_gates import GateResult
+    from utils.ticker_quality import TickerQuality
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     iv = MagicMock()
     iv.composite_score = 42.5; iv.signal = "BUY"
@@ -541,20 +545,25 @@ def test_stock_block_is_under_150_tokens():
     iv.daily_volume_ratio = 1.2
     iv.vwap_slope = 0.023; iv.or_position = "outside"
 
-    research = {"TEST": {
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.research = {"TEST": {
         "sentiment_score": 35, "sentiment_label": "BULLISH",
         "key_catalyst": "AI chip demand", "risk_flag": None,
         "summary": "",
     }}
+    snap.intraday_news = {}
+    quality = TickerQuality("MEDIUM", 50, frozenset(), (), {})
+    gate = GateResult(passed=True, reason="", flags=())
+    entry_time = datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York"))
 
-    with patch("calendars.earnings.detect_pead_setup", return_value=(False, 0)):
-        block = build_stock_block("TEST", iv, research, None)
+    block = build_stock_block("TEST", iv, snap, gate, quality, "DAY_TRADE", entry_time)
 
     approx_tokens = len(block) / 4
     assert approx_tokens < 200, f"Stock block too large: ~{approx_tokens:.0f} tokens\n{block}"
     assert "ATR=" not in block, "ATR is not directional — remove from Claude block"
     assert "No summary" not in block, "Empty summary must be omitted"
-    assert '<stock symbol="TEST">' in block, "Stock block must use XML wrapper"
+    assert '<stock symbol="TEST"' in block, "Stock block must use XML wrapper"
     assert "OR=outside" in block, "Opening range position must be in block"
 
 
@@ -562,7 +571,11 @@ def test_stock_block_is_under_150_tokens():
 def test_stock_block_includes_sl_tp_for_existing_position():
     """build_stock_block pos_block must include SL/TP so Claude can assess whether to hold."""
     from trading.context_builder import build_stock_block
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
+    from signals.entry_gates import GateResult
+    from utils.ticker_quality import TickerQuality
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     iv = MagicMock()
     iv.composite_score = 30.0; iv.signal = "HOLD"
@@ -578,10 +591,16 @@ def test_stock_block_includes_sl_tp_for_existing_position():
         "entry_price": 100.0, "qty": 10,
         "stop_loss_pct": 3.5, "take_profit_pct": 6.0,
     }
-    research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL", "key_catalyst": None, "risk_flag": None, "summary": ""}}
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL", "key_catalyst": None, "risk_flag": None, "summary": ""}}
+    snap.intraday_news = {}
+    quality = TickerQuality("MEDIUM", 50, frozenset(), (), {})
+    gate = GateResult(passed=True, reason="", flags=())
+    entry_time = datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York"))
 
-    with patch("calendars.earnings.detect_pead_setup", return_value=(False, 0)):
-        block = build_stock_block("TEST", iv, research, existing_pos)
+    block = build_stock_block("TEST", iv, snap, gate, quality, "DAY_TRADE", entry_time,
+                              existing_pos=existing_pos)
 
     assert "SL=3.5%" in block, f"SL missing from pos_block: {block}"
     assert "TP=6.0%" in block, f"TP missing from pos_block: {block}"
@@ -797,7 +816,7 @@ def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
     iv.atr = 1.5
 
     monkeypatch.setattr("trading.claude_caller.build_stock_block",
-                        lambda sym, iv, research, pos, **kw: f"BLOCK {sym}")
+                        lambda sym, iv, snap, gate, quality, mode, entry_time, **kw: f"BLOCK {sym}")
     monkeypatch.setattr("trading.claude_caller.build_stable_system_context",
                         lambda *a: "STABLE CTX")
     monkeypatch.setattr("trading.claude_caller.build_dynamic_user_context",
@@ -841,7 +860,11 @@ def test_auto_execute_confidence_scales_with_composite(monkeypatch):
 def test_atr_tp_injected_into_claude_context():
     """build_stock_block emits ATR-TP line when atr_suggested_tp_pct is provided."""
     from trading.context_builder import build_stock_block
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
+    from signals.entry_gates import GateResult
+    from utils.ticker_quality import TickerQuality
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     iv = MagicMock()
     iv.composite_score = 42.5; iv.signal = "BUY"
@@ -852,11 +875,18 @@ def test_atr_tp_injected_into_claude_context():
     iv.stoch_k = 60.0; iv.stoch_d = 58.0
     iv.daily_volume_ratio = 1.2
     iv.vwap_slope = 0.0; iv.or_position = "unknown"
-    research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL",
-                         "key_catalyst": None, "risk_flag": None, "summary": ""}}
 
-    with patch("calendars.earnings.detect_pead_setup", return_value=(False, 0)):
-        block = build_stock_block("TEST", iv, research, None, atr_suggested_tp_pct=4.5)
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.research = {"TEST": {"sentiment_score": 10, "sentiment_label": "NEUTRAL",
+                              "key_catalyst": None, "risk_flag": None, "summary": ""}}
+    snap.intraday_news = {}
+    quality = TickerQuality("MEDIUM", 50, frozenset(), (), {})
+    gate = GateResult(passed=True, reason="", flags=())
+    entry_time = datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York"))
+
+    block = build_stock_block("TEST", iv, snap, gate, quality, "DAY_TRADE", entry_time,
+                              atr_suggested_tp_pct=4.5)
 
     assert "ATR-TP=4.5%" in block
 
@@ -873,7 +903,8 @@ def test_claude_caller_passes_atr_tp_to_stock_block(monkeypatch, tmp_path):
 
     captured = {}
 
-    def mock_build_stock_block(sym, iv, research, existing_pos, atr_suggested_tp_pct=None, **kw):
+    def mock_build_stock_block(sym, iv, snap, gate_result, quality, mode, entry_time,
+                               existing_pos=None, atr_suggested_tp_pct=None, **kw):
         captured["atr_suggested_tp_pct"] = atr_suggested_tp_pct
         return f"=={sym}=="
 
