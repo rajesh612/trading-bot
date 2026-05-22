@@ -10,6 +10,7 @@ ET = ZoneInfo("America/New_York")
 def _et(hour, minute=0):
     return datetime(2026, 5, 21, hour, minute, tzinfo=ET)
 
+@pytest.mark.unit
 class TestTimeMultiplier:
     def test_full_slot_before_noon(self):
         assert compute_time_multiplier(_et(10, 30)) == 1.00
@@ -23,6 +24,7 @@ class TestTimeMultiplier:
     def test_very_tight_after_1430(self):
         assert compute_time_multiplier(_et(14, 31)) == 0.50
 
+@pytest.mark.unit
 class TestComputeTpSl:
     def test_normal_medium_full_slot(self, monkeypatch):
         monkeypatch.setattr(config, "ATR_TP_FLOOR_PCT", 3.0)
