@@ -1052,3 +1052,49 @@ def test_watch_loader_no_duplicates(monkeypatch, tmp_path):
     result = load_watch_list()
 
     assert result.count("NVDA") == 1
+
+
+@pytest.mark.unit
+def test_position_monitor_skips_t2_when_guard_disallows(monkeypatch, tmp_path):
+    """run_position_monitor skips T2 check when guard.t2_allowed is False."""
+    import config
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import StalenessGuard
+
+    stale_guard = StalenessGuard(
+        composite_penalty=10, auto_execute_allowed=False,
+        t2_allowed=False, swing_fallback_regime="NORMAL",
+        can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+    )
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
+
+    # Non-empty positions so monitor doesn't early-return before reaching T2 logic
+    fake_positions = {
+        "AAPL": {
+            "qty": 10, "entry_price": 150.0,
+            "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+        }
+    }
+
+    t2_called = []
+
+    mock_alpaca = MagicMock()
+    mock_alpaca.get_positions.return_value = {"AAPL": {"qty": 10}}
+    mock_alpaca.get_latest_price.return_value = 152.0
+    mock_alpaca.get_portfolio_value.return_value = 100_000.0
+
+    with patch("trading.monitor.load_macro_regime",
+               return_value={"regime": "NORMAL", "_stale": True}), \
+         patch("utils.data_health.get_staleness_guard", return_value=stale_guard), \
+         patch("trading.monitor.load_open_positions", return_value=fake_positions), \
+         patch("trading.monitor._check_tranche2_triggers",
+               side_effect=lambda *a, **kw: t2_called.append(True)), \
+         patch("trading.monitor.flush_profit_lock_updates"), \
+         patch("trading.monitor._check_drawdown_alerts"), \
+         patch("trading.monitor.AlpacaClient", return_value=mock_alpaca):
+        from trading.monitor import run_position_monitor
+        run_position_monitor()
+
+    assert len(t2_called) == 0, f"T2 should not fire when guard.t2_allowed is False, called {len(t2_called)} times"

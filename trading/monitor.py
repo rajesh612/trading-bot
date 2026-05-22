@@ -297,6 +297,15 @@ def run_position_monitor():
         logger.warning("Swing position monitor failed: %s", exc)
 
     try:
-        _check_tranche2_triggers(open_positions, alpaca, now)
+        from utils.data_health import get_staleness_guard
+        regime_info = load_macro_regime()
+        guard       = get_staleness_guard(regime_info)
+        if guard.t2_allowed:
+            _check_tranche2_triggers(open_positions, alpaca, now)
+        else:
+            logger.debug(
+                "T2 blocked by staleness guard — stale: %s",
+                ", ".join(sorted(guard.stale_sources & config.DATA_DISABLE_T2)),
+            )
     except Exception as exc:
         logger.warning("T2 trigger check failed: %s", exc)
