@@ -9,6 +9,7 @@ from datetime import datetime
 import config
 import macro.economic_calendar as _ec_mod
 from indicators.values import IndicatorValues
+from signals.tp_scaler import compute_tp_sl
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -18,8 +19,8 @@ def _pos_line(iv, existing_pos: dict | None) -> str:
         return ""
     price = iv.current_price
     pnl_pct = (price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
-    sl = existing_pos.get("stop_loss_pct", 4.0)
-    tp = existing_pos.get("take_profit_pct", 5.0)
+    sl = existing_pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
+    tp = existing_pos.get("take_profit_pct", config.TAKE_PROFIT_PCT)
     return (
         f" POS:${existing_pos['entry_price']:.2f}×{existing_pos['qty']:.0f}"
         f" P&L={pnl_pct:+.2f}% SL={sl:.1f}% TP={tp:.1f}%"
@@ -90,7 +91,6 @@ def _block_high(symbol, iv, snap, gate_result, quality, mode, entry_time,
                 existing_pos, atr_suggested_tp_pct, intraday_news) -> str:
     if snap.regime == "CRISIS":
         return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
-    from signals.tp_scaler import compute_tp_sl
     price = iv.current_price
     vwap_dir = "↑" if price >= iv.vwap else "↓"
     research_sym = snap.research.get(symbol, {})
@@ -100,8 +100,8 @@ def _block_high(symbol, iv, snap, gate_result, quality, mode, entry_time,
     intra_shock = intra.get("shock_score", 0)
     intra_sent = intra.get("sentiment_score", sentiment_score)
     # time-adjusted TP
-    base_tp = atr_suggested_tp_pct or 5.0
-    adj_tp, _ = compute_tp_sl(base_tp, 4.0, entry_time, quality.tier, snap.regime)
+    base_tp = atr_suggested_tp_pct or config.TAKE_PROFIT_PCT
+    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime)
     # sub-sector ETF
     try:
         from sectors import get_sub_sector_etf
@@ -137,10 +137,9 @@ def _block_conviction(symbol, iv, snap, gate_result, quality, mode, entry_time,
                       existing_pos, atr_suggested_tp_pct, intraday_news) -> str:
     if snap.regime == "CRISIS":
         return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
-    from signals.tp_scaler import compute_tp_sl
     price = iv.current_price
-    base_tp = atr_suggested_tp_pct or 5.0
-    adj_tp, _ = compute_tp_sl(base_tp, 4.0, entry_time, quality.tier, snap.regime)
+    base_tp = atr_suggested_tp_pct or config.TAKE_PROFIT_PCT
+    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime)
     # sub-sector ETF
     try:
         from sectors import get_sub_sector_etf
@@ -150,9 +149,9 @@ def _block_conviction(symbol, iv, snap, gate_result, quality, mode, entry_time,
     sub_etf_str = f" sub_etf={sub_etf}" if sub_etf else ""
     # unlocks
     unlocks_str = ",".join(sorted(quality.unlocks)) if quality.unlocks else "none"
-    # pead
-    from calendars.earnings import detect_pead_setup
-    pead_ok, pead_score = detect_pead_setup(symbol)
+    # pead — derived from unlocks to preserve module purity (no disk I/O)
+    pead_ok = "PEAD_EXTENDED_WINDOW" in quality.unlocks
+    pead_score = quality.component_scores.get("pead", 0)
     pead_str = f" PEAD={pead_score}/100" if pead_ok else ""
     # regime annotation
     regime_note = ""

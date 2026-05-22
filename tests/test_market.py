@@ -1048,7 +1048,7 @@ class TestTierContextBlocks:
             gate, quality, "DAY_TRADE",
             datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
         )
-        assert "vol_weak" in block or "quality_gaps" in block
+        assert "vol_weak(-12)" in block
         assert "caution" in block.lower()
         assert "BB[" not in block
         assert "EMA9" not in block
@@ -1068,7 +1068,8 @@ class TestTierContextBlocks:
             gate, quality, "PEAD",
             datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
         )
-        assert "unlocks=" in block or "T2_CHOPPY" in block or "SWING_CHOPPY" in block
+        assert "unlocks=" in block
+        assert "T2_CHOPPY" in block
         assert "composite(+25)" not in block
         assert "caution" not in block.lower()
         assert "BB[" not in block
