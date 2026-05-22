@@ -103,167 +103,157 @@ class TestPreClaudeFilter:
 
     @pytest.mark.unit
     def test_skip_composite_below_minimum(self):
-        from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=15.0), self._snap())
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        result = apply_pre_claude_filter("TEST", self._iv(composite=15.0), self._snap())
         assert result.decision == "SKIP"
         assert "composite" in result.reason
 
     @pytest.mark.unit
     def test_skip_rsi_hard_veto(self):
-        from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=50.0, rsi=75.0), self._snap())
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        # composite=65 → MEDIUM tier → passes composite gate; rsi=75 > RSI_BUY_MAX=72 → SKIP
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0, rsi=75.0), self._snap())
         assert result.decision == "SKIP"
         assert "RSI" in result.reason
 
     @pytest.mark.unit
     def test_skip_macro_shock(self):
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(research_meta={"macro_shock_score": 60})
-        result = pre_claude_filter("TEST", self._iv(), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "SKIP"
         assert "shock" in result.reason
 
     @pytest.mark.unit
     def test_skip_macro_health_too_low(self):
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(regime_info={"regime": "NORMAL", "macro_health_score": -30})
-        result = pre_claude_filter("TEST", self._iv(), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "SKIP"
         assert "macro health" in result.reason
 
     @pytest.mark.unit
     def test_skip_bearish_sentiment_hard_block(self):
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(research={"TEST": {"sentiment_score": -20}})
-        result = pre_claude_filter("TEST", self._iv(), snap)
+        # composite=65 reaches NORMAL+LOW tier (negative sentiment), composite_min=60, 65>60 passes gate
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "SKIP"
         assert "sentiment" in result.reason
 
     @pytest.mark.unit
     def test_skip_negative_sentiment_weak_composite(self):
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(research={"TEST": {"sentiment_score": -5}})
         # composite=25 < SENTIMENT_WEAK_COMPOSITE_MIN=30, negative sentiment → SKIP
-        result = pre_claude_filter("TEST", self._iv(composite=25.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=25.0), snap)
         assert result.decision == "SKIP"
 
     @pytest.mark.unit
     def test_skip_intraday_shock(self):
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(intraday_news={"TEST": {"shock_score": 65, "sentiment_score": 10}})
-        result = pre_claude_filter("TEST", self._iv(), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "SKIP"
         assert "shock" in result.reason
 
     @pytest.mark.unit
-    def test_auto_execute_strong_signal(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 65)
-        from trading.pre_claude_filter import pre_claude_filter
-        # composite=66 (> raised threshold 65), sentiment=25 (> raised threshold 20)
+    def test_auto_execute_strong_signal(self):
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        # composite=72 > NORMAL+MEDIUM AE threshold (ep.min=50 + offset=20 = 70), intra_sent=25 > 20
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
-        result = pre_claude_filter("TEST", self._iv(composite=66.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=72.0), snap)
         assert result.decision == "AUTO_EXECUTE"
 
     @pytest.mark.unit
     def test_auto_execute_not_triggered_below_new_composite_threshold(self):
-        """composite=64 (below raised threshold 65) routes to CLAUDE, not AUTO_EXECUTE."""
-        from trading.pre_claude_filter import pre_claude_filter
+        """composite=70 (= AE threshold, not strictly >) routes to CLAUDE."""
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
-        result = pre_claude_filter("TEST", self._iv(composite=64.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=70.0), snap)
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
     def test_auto_execute_not_triggered_below_new_sentiment_threshold(self):
-        """sentiment=19 (below raised threshold 20) routes to CLAUDE even with strong composite."""
-        from trading.pre_claude_filter import pre_claude_filter
+        """composite=72 > AE threshold but intra_sent=19 < sentiment_min=20 → CLAUDE."""
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 19}})
-        result = pre_claude_filter("TEST", self._iv(composite=56.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=72.0), snap)
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
-    def test_claude_path_moderate_signal(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
-        from trading.pre_claude_filter import pre_claude_filter
-        # composite 42, sentiment 5 — passes all gates but not high enough for auto-execute
+    def test_claude_path_moderate_signal(self):
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        # composite=65 → MEDIUM tier, passes composite gate (50), below AE threshold (70) → CLAUDE
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 5}})
-        result = pre_claude_filter("TEST", self._iv(composite=42.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
-    def test_claude_path_no_intraday_cache(self, monkeypatch):
+    def test_claude_path_no_intraday_cache(self):
         """Falls back to research sentiment when intraday cache is empty."""
-        import config
-        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(
             research={"TEST": {"sentiment_score": 25}},
             intraday_news={},  # stale/missing
         )
-        result = pre_claude_filter("TEST", self._iv(composite=42.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
     def test_high_vol_regime_raises_composite_bar(self):
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(
             regime_info={"regime": "HIGH_VOL", "macro_health_score": 0},
             regime="HIGH_VOL",
         )
-        # composite=30 passes NORMAL (>=20) but fails HIGH_VOL (>=35)
-        result = pre_claude_filter("TEST", self._iv(composite=30.0), snap)
+        # composite=30 passes NORMAL (>=30) but fails HIGH_VOL (>=35)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=30.0), snap)
         assert result.decision == "SKIP"
 
     @pytest.mark.unit
-    def test_choppy_composite_gate_blocks_below_30(self):
-        """In CHOPPY regime, composite 25 < 30 should be SKIP."""
-        from trading.pre_claude_filter import pre_claude_filter
+    def test_choppy_composite_gate_blocks_below_gate(self):
+        """In CHOPPY regime, composite well below CHOPPY_COMPOSITE_GATE should be SKIP."""
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(
             regime_info={"regime": "CHOPPY", "macro_health_score": 0},
             regime="CHOPPY",
         )
-        result = pre_claude_filter("TEST", self._iv(composite=25.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=25.0), snap)
         assert result.decision == "SKIP"
         assert "composite" in result.reason
 
     @pytest.mark.unit
-    def test_choppy_composite_gate_passes_at_35(self, monkeypatch):
-        """In CHOPPY regime, composite 35 == gate should pass Layer 1."""
-        import config
-        monkeypatch.setattr(config, "CHOPPY_COMPOSITE_GATE", 35)
-        from trading.pre_claude_filter import pre_claude_filter
+    def test_choppy_composite_gate_passes_above_gate(self):
+        """In CHOPPY regime, composite well above gate reaches MEDIUM tier and passes Layer 1."""
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(
             regime_info={"regime": "CHOPPY", "macro_health_score": 0},
             regime="CHOPPY",
         )
-        result = pre_claude_filter("TEST", self._iv(composite=35.0), snap)
+        # composite=70 → MEDIUM tier in CHOPPY (ep.min=55, score earns enough pts), composite_min=55
+        result = apply_pre_claude_filter("TEST", self._iv(composite=70.0), snap)
         assert result.decision != "SKIP" or "composite" not in result.reason
 
     @pytest.mark.unit
-    def test_layer_2_5_blocks_vwap_slope_downtrend(self, monkeypatch):
+    def test_layer_2_5_blocks_vwap_slope_downtrend(self):
         """VWAP slope below minimum blocks before Claude."""
-        import config
-        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         from tests.test_signals import make_full_iv
         snap = self._snap()
-        # vwap_slope=-0.5 is below VWAP_SLOPE_MIN=-0.3; composite high enough to pass Layer 1+2
-        iv = make_full_iv(composite_score=40.0, rsi=55.0, stoch_d=50.0, vwap_slope=-0.5)
-        result = pre_claude_filter("TEST", iv, snap)
+        # composite=65 → MEDIUM tier → passes composite gate; vwap_slope=-0.5 < -0.3 → SKIP
+        iv = make_full_iv(composite_score=65.0, rsi=55.0, stoch_d=50.0, vwap_slope=-0.5)
+        result = apply_pre_claude_filter("TEST", iv, snap)
         assert result.decision == "SKIP"
         assert "VWAP slope" in result.reason
 
     @pytest.mark.unit
-    def test_layer_2_5_vwap_overextension_not_blocked_in_filter(self, monkeypatch):
+    def test_layer_2_5_vwap_overextension_not_blocked_in_filter(self):
         """Option A: price > VWAP+2σ is a safety gate, not a quality signal — must pass filter."""
-        import config
-        monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
-        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
-        from trading.pre_claude_filter import pre_claude_filter
+        from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap()
-        iv = self._iv(composite=40.0)
-        result = pre_claude_filter("TEST", iv, snap)
+        iv = self._iv(composite=65.0)
+        result = apply_pre_claude_filter("TEST", iv, snap)
         assert result.decision != "SKIP", (
             f"Option A violated: VWAP overextension blocked in pre_claude_filter: {result.reason}"
         )
@@ -837,35 +827,35 @@ class TestPreClaudeFilterDailyClosed:
     @pytest.mark.unit
     def test_layer0_skips_already_closed_symbol(self):
         """Symbol in daily_closed returns SKIP before any other layer."""
-        from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=80.0), self._snap(),
-                                   daily_closed={"TEST"})
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        result = apply_pre_claude_filter("TEST", self._iv(composite=80.0), self._snap(),
+                                         daily_closed={"TEST"})
         assert result.decision == "SKIP"
         assert "already closed" in result.reason
 
     @pytest.mark.unit
     def test_layer0_passes_symbol_not_in_closed(self):
         """Symbol absent from daily_closed is not blocked by Layer 0."""
-        from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap(),
-                                   daily_closed={"OTHER"})
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        result = apply_pre_claude_filter("TEST", self._iv(composite=50.0), self._snap(),
+                                         daily_closed={"OTHER"})
         # Must not be skipped due to "already closed"
         assert not (result.decision == "SKIP" and "already closed" in result.reason)
 
     @pytest.mark.unit
     def test_layer0_not_triggered_with_empty_set(self):
         """Passing an empty set never triggers Layer 0 SKIP."""
-        from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap(),
-                                   daily_closed=set())
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        result = apply_pre_claude_filter("TEST", self._iv(composite=50.0), self._snap(),
+                                         daily_closed=set())
         if result.decision == "SKIP":
             assert "already closed" not in result.reason
 
     @pytest.mark.unit
     def test_layer0_not_triggered_when_none(self):
         """daily_closed=None (default) skips Layer 0 entirely."""
-        from trading.pre_claude_filter import pre_claude_filter
-        result = pre_claude_filter("TEST", self._iv(composite=50.0), self._snap())
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        result = apply_pre_claude_filter("TEST", self._iv(composite=50.0), self._snap())
         if result.decision == "SKIP":
             assert "already closed" not in result.reason
 
@@ -905,11 +895,10 @@ class TestAutoExecuteWhenBudgetExhausted:
         """AUTO_EXECUTE candidates are collected and execute_buy is called even when entry budget exhausted."""
         from trading.pipeline import TradingPipeline
         from trading import risk_manager
-        import config
 
-        # Use thresholds that put this stock on the AUTO_EXECUTE path
-        composite = float(config.AUTO_EXECUTE_COMPOSITE_MIN + 5)
-        sentiment = config.AUTO_EXECUTE_SENTIMENT_MIN + 5
+        # composite=75, sentiment=25 → NORMAL+HIGH tier, AE threshold=45, sentiment_min=20 → AUTO_EXECUTE
+        composite = 75.0
+        sentiment = 25
         iv = self._make_iv("AUTO", composite=composite)
         snap = self._snap(
             research={"AUTO": {"sentiment_score": sentiment}},

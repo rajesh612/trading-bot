@@ -53,7 +53,6 @@ def _load_backtest_params() -> dict:
         "stoch_soft_threshold":     config.STOCH_SOFT_FLAG_THRESHOLD,
         "composite_min_normal":     config.COMPOSITE_MIN_NORMAL,
         "composite_min_high_vol":   config.COMPOSITE_MIN_HIGH_VOL,
-        "auto_execute_composite_min": config.AUTO_EXECUTE_COMPOSITE_MIN,
         "stop_loss_pct":            config.STOP_LOSS_PCT,
         "take_profit_pct":          config.TAKE_PROFIT_PCT,
         "max_position_pct":         config.MAX_POSITION_PCT,

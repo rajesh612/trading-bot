@@ -128,7 +128,6 @@ def _score_econ(event_active: bool) -> int:
 
 def _compute_unlocks(
     tier: str,
-    mode: str,
     pead_ok: bool,
     intra_sent: int,
     sentiment: int,
@@ -198,7 +197,7 @@ def compute_ticker_quality(
 
     gaps = tuple(g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap] if g)
     unlocks = _compute_unlocks(
-        tier, mode, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
+        tier, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
     )
 
     return TickerQuality(

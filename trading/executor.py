@@ -138,6 +138,7 @@ def execute_buy(
         swing_eligible=swing_eligible,
         major_event_today=major_event_today,
         regime=regime,
+        quality=quality,
     )
     if not gate.passed:
         logger.info("SKIP %s — gate: %s", symbol, gate.reason)

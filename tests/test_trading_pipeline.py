@@ -345,7 +345,7 @@ def test_pipeline_passes_correct_rsi_max_and_pos_mult_for_high_vol():
         return None
 
     with patch("trading.pipeline._fetch_symbol_data", return_value=("TEST", mock_iv, None, 0.0)), \
-         patch("trading.pipeline.pre_claude_filter", return_value=FilterResult("CLAUDE", "")), \
+         patch("trading.pipeline.apply_pre_claude_filter", return_value=FilterResult("CLAUDE", "")), \
          patch("trading.pipeline.risk_manager.is_entry_budget_exhausted", return_value=False), \
          patch("trading.pipeline._ask_claude_batch", return_value={"TEST": {"action": "BUY", "confidence": 80, "reasoning": "", "stop_loss_pct": 4.0, "take_profit_pct": 5.0}}), \
          patch("trading.pipeline._ask_claude_exit_batch", return_value={}), \
@@ -439,7 +439,7 @@ def test_pipeline_skips_claude_when_can_open_false(monkeypatch):
          patch("trading.pipeline.load_open_positions", return_value={}), \
          patch("trading.pipeline.load_daily_closed", return_value=set()), \
          patch("trading.pipeline._fetch_symbol_data", return_value=None), \
-         patch("trading.pipeline.pre_claude_filter"):
+         patch("trading.pipeline.apply_pre_claude_filter"):
         pipeline = TradingPipeline()
         pipeline.run(
             symbols=["AAPL"],
@@ -643,28 +643,24 @@ def _make_snap_pipeline(regime="NORMAL"):
 
 
 @pytest.mark.unit
-def test_pre_claude_filter_passes_stoch_95(monkeypatch):
-    """Option A: Stoch 95 must NOT cause SKIP in pre_claude_filter (only in check_all_gates)."""
-    import config
-    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
-    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
-    from trading.pre_claude_filter import pre_claude_filter
-    iv = _make_iv_pipeline(composite_score=35.0, stoch_d=95.0)
+def test_pre_claude_filter_passes_stoch_95():
+    """Option A: Stoch 95 must NOT cause SKIP in apply_pre_claude_filter (only in check_all_gates)."""
+    from trading.pre_claude_filter import apply_pre_claude_filter
+    # composite=65 → MEDIUM tier → passes composite gate; stoch should not block here
+    iv = _make_iv_pipeline(composite_score=65.0, stoch_d=95.0)
     snap = _make_snap_pipeline()
-    result = pre_claude_filter("AAPL", iv, snap, set())
+    result = apply_pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision != "SKIP", f"Option A violated: Stoch 95 caused SKIP: {result.reason}"
 
 
 @pytest.mark.unit
-def test_pre_claude_filter_passes_vwap_overextended(monkeypatch):
-    """Option A: price > VWAP+2σ must NOT cause SKIP in pre_claude_filter."""
-    import config
-    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
-    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
-    from trading.pre_claude_filter import pre_claude_filter
-    iv = _make_iv_pipeline(composite_score=35.0, current_price=104.0, vwap_std2_upper=101.5)
+def test_pre_claude_filter_passes_vwap_overextended():
+    """Option A: price > VWAP+2σ must NOT cause SKIP in apply_pre_claude_filter."""
+    from trading.pre_claude_filter import apply_pre_claude_filter
+    # composite=65 → MEDIUM tier → passes composite gate; VWAP overextension should not block here
+    iv = _make_iv_pipeline(composite_score=65.0, current_price=104.0, vwap_std2_upper=101.5)
     snap = _make_snap_pipeline()
-    result = pre_claude_filter("AAPL", iv, snap, set())
+    result = apply_pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision != "SKIP", f"Option A violated: VWAP overextension caused SKIP: {result.reason}"
 
 
@@ -1192,7 +1188,7 @@ def test_auto_execute_reads_symbol_intraday_sentiment_not_shock(monkeypatch):
     with patch("trading.pipeline._compute_auto_execute_confidence", side_effect=spy_confidence), \
          patch("trading.pipeline.execute_buy", return_value=None):
         _execute_auto_entries(
-            auto_execute=[("AAPL", iv)],
+            auto_execute=[("AAPL", iv, None)],
             snap=snap,
             alpaca=MagicMock(),
             open_positions={},

@@ -798,7 +798,8 @@ def test_auto_execute_uses_atr_tp(monkeypatch, tmp_path):
     monkeypatch.setattr("trading.pipeline.execute_buy", mock_execute_buy)
     monkeypatch.setattr("trading.pipeline.load_open_positions", lambda: {})
     monkeypatch.setattr("trading.pipeline.load_daily_closed", lambda: set())
-    monkeypatch.setattr("trading.pipeline.pre_claude_filter", lambda *a, **kw: type("F", (), {"decision": "AUTO_EXECUTE", "reason": "test"})())
+    from trading.pre_claude_filter import FilterResult
+    monkeypatch.setattr("trading.pipeline.apply_pre_claude_filter", lambda *a, **kw: FilterResult("AUTO_EXECUTE", "test"))
     monkeypatch.setattr("trading.pipeline.risk_manager.is_entry_budget_exhausted", lambda: False)
     monkeypatch.setattr("trading.pipeline.risk_manager.needs_exit_evaluation", lambda *a, **kw: False)
     monkeypatch.setattr("trading.pipeline.telegram_notify.notify_buy_batch", lambda *a, **kw: None)

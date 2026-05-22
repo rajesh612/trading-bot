@@ -12,6 +12,7 @@ import pandas as pd
 import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
+from signals.entry_gates import effective_composite_gate
 from utils.constants import ET
 from utils.regime_params import get_swing_params, get_entry_params, get_t2_params
 
@@ -33,7 +34,7 @@ SWING_SL_PCT        = config.SWING_OVERNIGHT_SL_PCT
 SWING_TP_PCT        = config.SWING_TP2_PCT
 # ── Live-bot params — single source of truth is config.py ────────────────────
 STOP_LOSS_PCT = config.STOP_LOSS_PCT
-MIN_COMPOSITE = config.COMPOSITE_MIN_NORMAL; MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
+MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
 RSI_BUY_MAX   = config.RSI_BUY_MAX;    RSI_BUY_MAX_HV   = config.RSI_BUY_MAX_HIGH_VOL
 VWAP_SLOPE_MIN = config.VWAP_SLOPE_MIN; ENTRY_START_H   = config.ENTRY_START_HOUR
 HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
@@ -391,7 +392,7 @@ def simulate_day(
             if sym in state.sl_blacklist: continue
             iv = precomp.get(sym, {}).get(ts)
             if iv is None: continue
-            if iv.composite_score > MIN_COMPOSITE and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
+            if iv.composite_score > effective_composite_gate(iv, regime, params=p) and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
                 if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
                     continue
                 pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr}

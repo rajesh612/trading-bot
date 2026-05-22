@@ -138,8 +138,7 @@ CHOPPY_COMPOSITE_GATE  = 55   # higher bar to enter in CHOPPY regime
 COMPOSITE_MIN_BULL_TREND = 45  # BULL_TREND: slightly relaxed, wider TP justifies it
 HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
 
-AUTO_EXECUTE_COMPOSITE_MIN   = 70  # raised from 55 — reserve auto-execute for high-conviction setups
-AUTO_EXECUTE_SENTIMENT_MIN   = 20  # intraday sentiment_score must exceed this
+AUTO_EXECUTE_COMPOSITE_MIN   = 70  # used by _compute_auto_execute_confidence for bonus delta
 AUTO_EXECUTE_CONFIDENCE      = 90  # confidence score assigned to auto-execute decisions (legacy fallback)
 AUTO_EXECUTE_CONFIDENCE_BASE = 75  # base confidence for dynamic auto-execute derivation
 SQUEEZE_COMPOSITE_MIN        = 12  # composite threshold when squeeze_setup is True

@@ -23,7 +23,8 @@ from trading.claude_caller import _ask_claude_batch, _ask_claude_exit_batch
 from trading import risk_manager
 from trading.closer import close_position
 from trading.executor import execute_buy
-from trading.pre_claude_filter import pre_claude_filter, FilterResult
+from trading.pre_claude_filter import apply_pre_claude_filter, FilterResult
+from utils.ticker_quality import TickerQuality
 from utils.constants import ET
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
         return 0, buying_power, []
     new_entries = 0
     batch: list[dict] = []
-    for symbol, iv in auto_execute:
+    for symbol, iv, quality in auto_execute:
         if not can_open or buying_power < config.MIN_BUYING_POWER:
             continue
         try:
@@ -177,7 +178,8 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
             kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
                                         pos_mult, spy_ret5d, rsi_max, now,
                                         entries_so_far + new_entries, daily_pnl_pct)
-            pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=0.0, **kwargs)
+            pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=0.0,
+                                   quality=quality, **kwargs)
             if pos_data is not None:
                 new_entries += 1
                 buying_power -= iv.current_price * pos_data["qty"]
@@ -194,11 +196,13 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
 
 def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
                             portfolio_value, buying_power, pos_mult, spy_ret5d, rsi_max,
-                            can_open, now, daily_pnl_pct, entries_so_far) -> tuple:
+                            can_open, now, daily_pnl_pct, entries_so_far,
+                            quality_map: dict | None = None) -> tuple:
     """Phase 4: Claude-decided BUYs and CLOSEs. Returns (entries, closes, buying_power, batch)."""
     new_entries = 0
     new_closes = 0
     batch: list[dict] = []
+    _quality_map = quality_map or {}
     for symbol, iv, existing_pos, symbol_ret5d in stock_data:
         try:
             decision = decisions.get(symbol)
@@ -210,7 +214,8 @@ def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
                                             pos_mult, spy_ret5d, rsi_max, now,
                                             entries_so_far + new_entries, daily_pnl_pct)
                 pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision,
-                                       symbol_ret5d=symbol_ret5d, **kwargs)
+                                       symbol_ret5d=symbol_ret5d,
+                                       quality=_quality_map.get(symbol), **kwargs)
                 if pos_data is not None:
                     new_entries += 1
                     buying_power -= iv.current_price * pos_data["qty"]
@@ -284,7 +289,8 @@ class TradingPipeline:
         # ── Phase 2: Pre-Claude filter ────────────────────────────────────────
         t_gates = time.monotonic()
         needs_claude: list[tuple[str, IndicatorValues, dict | None, FilterResult]] = []
-        auto_execute: list[tuple[str, IndicatorValues]] = []
+        auto_execute: list[tuple[str, IndicatorValues, TickerQuality | None]] = []
+        quality_map: dict[str, TickerQuality | None] = {}
         ts_str = now.isoformat()
         for symbol, iv, existing_pos, _ in stock_data:
             if existing_pos:
@@ -292,12 +298,13 @@ class TradingPipeline:
                 pnl_pct = (iv.current_price - _ep) / _ep * 100 if _ep > 0 else 0.0
                 logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
                 continue
-            filt = pre_claude_filter(symbol, iv, snap, daily_closed)
+            filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed)
+            quality_map[symbol] = filt.quality
             if filt.decision == "SKIP":
                 logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 _record_telemetry(ts_str, symbol, "SKIP", filt.reason, iv)
             elif filt.decision == "AUTO_EXECUTE":
-                auto_execute.append((symbol, iv))
+                auto_execute.append((symbol, iv, filt.quality))
                 logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 _record_telemetry(ts_str, symbol, "AUTO_EXECUTE", filt.reason, iv)
             elif not risk_manager.is_entry_budget_exhausted():
@@ -335,6 +342,7 @@ class TradingPipeline:
         claude_n, claude_c, buying_power, claude_batch = _execute_claude_entries(
             stock_data, decisions, snap, alpaca, open_positions, portfolio_value, buying_power,
             pos_mult, spy_ret5d, rsi_max, can_open, now, daily_pnl_pct, auto_n,
+            quality_map=quality_map,
         )
         result.entries += claude_n
         result.closes  += claude_c

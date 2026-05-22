@@ -304,14 +304,12 @@ def test_gap_skip_gate_exempts_pead_mode():
 @pytest.mark.unit
 def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
     """Filter Layer 2 must use snap.params rsi_buy_max, not config.RSI_BUY_MAX."""
-    from trading.pre_claude_filter import pre_claude_filter
+    from trading.pre_claude_filter import apply_pre_claude_filter
     from unittest.mock import MagicMock
     import config
 
     # Ensure config.RSI_BUY_MAX is 72 (default) so the test is meaningful
     monkeypatch.setattr(config, "RSI_BUY_MAX", 72)
-    # composite=40 must pass the composite gate so the RSI gate is reached
-    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 30)
 
     # Build a minimal snap with learned threshold = 60
     from utils.data_health import FRESH_GUARD
@@ -324,9 +322,9 @@ def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
     snap.params = {"rsi_buy_max": 60, "vwap_slope_min": -0.3}
     snap.staleness_guard = FRESH_GUARD
 
-    # Build minimal iv: RSI=62 (above learned 60, below config 72) — should SKIP
+    # composite=65 → MEDIUM tier → passes composite gate (50); RSI=62 > learned 60 → SKIP
     iv = MagicMock()
-    iv.composite_score = 40.0
+    iv.composite_score = 65.0
     iv.rsi = 62.0
     iv.stoch_d = 50.0
     iv.vwap_slope = 0.1
@@ -336,7 +334,7 @@ def test_pre_claude_filter_uses_learned_rsi_not_config(monkeypatch):
     iv.bot_herding_score = 0
     iv.vwap_std2_upper = 110.0
 
-    result = pre_claude_filter("TEST", iv, snap, set())
+    result = apply_pre_claude_filter("TEST", iv, snap, set())
     assert result.decision == "SKIP", (
         f"Expected SKIP (RSI 62 > learned 60) but got {result.decision}: {result.reason}"
     )

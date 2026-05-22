@@ -503,11 +503,10 @@ def test_choppy_regime_blocks_high_rsi_entries(monkeypatch):
     from unittest.mock import MagicMock
     monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
     monkeypatch.setattr(config, "CHOPPY_RSI_PULLBACK_MAX", 60)
-    monkeypatch.setattr(config, "AUTO_EXECUTE_COMPOSITE_MIN", 100)
-    from trading.pre_claude_filter import pre_claude_filter
+    from trading.pre_claude_filter import apply_pre_claude_filter
 
     iv = MagicMock()
-    iv.composite_score = 30.0
+    iv.composite_score = 70.0
     iv.rsi = 65.0
     iv.vwap_slope = 0.2
     iv.bot_herding_score = 0
@@ -525,7 +524,7 @@ def test_choppy_regime_blocks_high_rsi_entries(monkeypatch):
     snap.params = {"rsi_buy_max": 72, "rsi_buy_max_high_vol": 65, "choppy_rsi_max": 60, "vwap_slope_min": -0.3}
     snap.staleness_guard = FRESH_GUARD
 
-    result = pre_claude_filter("AAPL", iv, snap, set())
+    result = apply_pre_claude_filter("AAPL", iv, snap, set())
     assert result.decision == "SKIP"
     assert "choppy" in result.reason.lower() or "rsi" in result.reason.lower()
 
