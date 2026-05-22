@@ -23,7 +23,8 @@ from signals.vwap_guard import passes_vwap_guard
 from signals.volume_guard import is_volume_weak
 from calendars.earnings import is_earnings_imminent
 from utils import regimes
-from utils.regime_params import get_entry_params
+from utils.regime_params import get_entry_params, get_gate_params
+from utils.ticker_quality import TickerQuality
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ def check_all_gates(
     swing_eligible: bool = False,          # True when regime is in SWING_ELIGIBLE
     major_event_today: bool = False,       # True if FOMC/CPI/NFP scheduled today
     regime: str = "NORMAL",               # Current macro regime for hard cutoff lookup
+    quality: TickerQuality | None = None,
 ) -> GateResult:
     """
     Runs all entry gates in priority order. Returns on first hard-gate failure.
@@ -96,6 +98,7 @@ def check_all_gates(
     open_positions / daily_closed are caller-supplied snapshots; no disk I/O here.
     """
     flags: list[str] = []
+    gp = get_gate_params(regime, quality.tier if quality else "MEDIUM")
 
     # ── Hard gates ────────────────────────────────────────────────────────────
 
@@ -171,10 +174,10 @@ def check_all_gates(
     if mode != "PEAD" and iv.rsi > rsi_max:
         return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {rsi_max:.0f})")
 
-    # 11. Stochastic overbought — hard veto above STOCH_HARD_VETO_THRESHOLD, soft flag when elevated
-    if iv.stoch_d > config.STOCH_HARD_VETO_THRESHOLD:
-        return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {config.STOCH_HARD_VETO_THRESHOLD})")
-    if iv.stoch_d >= config.STOCH_SOFT_FLAG_THRESHOLD:
+    # 11. Stochastic overbought — hard veto above stoch_hard_veto, soft flag when elevated
+    if iv.stoch_d > gp.stoch_hard_veto:
+        return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {gp.stoch_hard_veto})")
+    if iv.stoch_d >= gp.stoch_soft_flag:
         flags.append(f"stoch_elevated(%D={iv.stoch_d:.1f})")
 
     # 12. Gap-up skip — exempted for PEAD (post-earnings drift stocks gap intentionally)
@@ -208,7 +211,7 @@ def check_all_gates(
             flags.append(f"sector_weak({symbol_sector_etf}={chg:+.1f}%)")
 
     # 17. Relative volume — thin tape increases false-positive rate
-    if is_volume_weak(iv.relative_volume):
+    if iv.relative_volume < gp.rel_volume_min:
         flags.append(f"rel_vol_low({iv.relative_volume:.2f}x)")
 
     # 18. Opening range position — entries inside OR carry reversal risk
@@ -216,7 +219,7 @@ def check_all_gates(
         flags.append("inside_opening_range")
 
     # 19. Market breadth — narrow IWM/SPY breadth signals possible bull trap
-    if advance_decline_ratio < config.BREADTH_WEAK_THRESHOLD:
+    if advance_decline_ratio < gp.breadth_weak_threshold:
         flags.append(f"breadth_weak(ad={advance_decline_ratio:.2f})")
 
     # 20. Sector sentiment soft flag — sector going negative signals headwind
@@ -228,3 +231,17 @@ def check_all_gates(
         flags.append(f"swing_news_weak({sentiment_score:.0f}<{config.SWING_NEWS_MIN_SCORE})")
 
     return GateResult(True, "", tuple(flags))
+
+
+def get_effective_profit_lock(regime: str, quality: TickerQuality | None) -> float:
+    """Return the effective profit-lock threshold for EOD swing promotion.
+
+    CONVICTION+SWING_CHOPPY in CHOPPY unlocks at 1.0% (vs 2.5% default).
+    HIGH/CONVICTION+SWING_SENTIMENT unlocks at 1.5%.
+    All others use config.SWING_PROFIT_LOCK_NORMAL.
+    """
+    if quality and "SWING_CHOPPY" in quality.unlocks and regime == "CHOPPY":
+        return 1.0
+    if quality and "SWING_SENTIMENT" in quality.unlocks:
+        return 1.5
+    return config.SWING_PROFIT_LOCK_NORMAL

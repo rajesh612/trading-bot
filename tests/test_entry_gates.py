@@ -858,3 +858,62 @@ def test_event_day_no_block_when_no_event(monkeypatch):
         swing_eligible=True, major_event_today=False,
     )
     assert "major economic event" not in result.reason
+
+
+# ── Task 8: dynamic GateParams per regime×tier + get_effective_profit_lock ────
+
+@pytest.mark.unit
+class TestDynamicGateParams:
+    def _conviction_quality(self, unlocks=None):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(
+            tier="CONVICTION", score=85,
+            unlocks=frozenset(unlocks or {"T2_CHOPPY", "SWING_CHOPPY"}),
+            quality_gaps=(), component_scores={},
+        )
+
+    @pytest.mark.unit
+    def test_gate_params_bull_trend_higher_stoch_soft(self):
+        # BULL_TREND uses higher stoch_soft_flag (88) vs NORMAL (82)
+        from utils.regime_params import get_gate_params
+        bull_gp = get_gate_params("BULL_TREND", "CONVICTION")
+        normal_gp = get_gate_params("NORMAL", "MEDIUM")
+        assert bull_gp.stoch_soft_flag > normal_gp.stoch_soft_flag
+
+    @pytest.mark.unit
+    def test_staleness_guard_composite_penalty_applied(self, monkeypatch):
+        from signals.entry_gates import effective_composite_gate
+        from unittest.mock import MagicMock
+        guard = MagicMock()
+        guard.composite_penalty = 10
+        iv = MagicMock()
+        iv.composite_score = 55.0
+        iv.squeeze_setup = False
+        iv.bot_herding_score = 0
+        monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", 50)
+        result = effective_composite_gate(iv, "NORMAL", staleness_guard=guard)
+        assert result == 50 + 10
+
+    @pytest.mark.unit
+    def test_swing_choppy_unlock_lowers_profit_lock(self):
+        from signals.entry_gates import get_effective_profit_lock
+        quality = self._conviction_quality(frozenset({"SWING_CHOPPY"}))
+        lock = get_effective_profit_lock("CHOPPY", quality)
+        assert lock == pytest.approx(1.0)
+
+    @pytest.mark.unit
+    def test_swing_sentiment_unlock_lowers_profit_lock(self):
+        from utils.ticker_quality import TickerQuality
+        from signals.entry_gates import get_effective_profit_lock
+        quality = TickerQuality("HIGH", 67, frozenset({"SWING_SENTIMENT"}), (), {})
+        lock = get_effective_profit_lock("NORMAL", quality)
+        assert lock == pytest.approx(1.5)
+
+    @pytest.mark.unit
+    def test_no_unlock_uses_default_profit_lock(self, monkeypatch):
+        from utils.ticker_quality import TickerQuality
+        from signals.entry_gates import get_effective_profit_lock
+        monkeypatch.setattr(config, "SWING_PROFIT_LOCK_NORMAL", 2.5)
+        quality = TickerQuality("HIGH", 67, frozenset(), (), {})
+        lock = get_effective_profit_lock("CHOPPY", quality)
+        assert lock == pytest.approx(config.SWING_PROFIT_LOCK_NORMAL)
