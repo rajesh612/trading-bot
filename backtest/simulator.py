@@ -12,9 +12,10 @@ import pandas as pd
 import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
-from signals.entry_gates import effective_composite_gate
+from signals.entry_gates import effective_composite_gate, get_effective_profit_lock
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_entry_params, get_t2_params
+from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
+from utils.ticker_quality import TickerQuality, compute_ticker_quality
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,36 @@ HIGH_VOL_MULT    = config.HIGH_VOL_POSITION_MULT
 MAX_POSITION_PCT = config.MAX_POSITION_PCT; RISK_PER_TRADE = config.RISK_PER_TRADE_PCT
 LOOKBACK_BARS = config.BARS_LOOKBACK;   SWING_MAX_POSITIONS = config.SWING_MAX_POSITIONS
 SWING_MAX_DAYS = config.BACKTEST_SWING_MAX_DAYS
+
+
+@dataclass(frozen=True)
+class _BacktestSnap:
+    """Minimal snap stub for compute_ticker_quality — no live research/news in backtest."""
+    regime: str
+    research: dict = None
+    intraday_news: dict = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "research", self.research if self.research is not None else {})
+        object.__setattr__(self, "intraday_news", self.intraday_news if self.intraday_news is not None else {})
+
+
+def _build_quality_map(
+    watch_list: list[str],
+    precomp: dict[str, dict],
+    snap: "_BacktestSnap",
+) -> dict[str, TickerQuality]:
+    """Compute TickerQuality for each watch-list symbol using its earliest precomputed iv."""
+    qmap: dict[str, TickerQuality] = {}
+    for sym in watch_list:
+        sym_bars = precomp.get(sym)
+        if not sym_bars:
+            continue
+        iv = next(iter(sym_bars.values()), None)
+        if iv is None:
+            continue
+        qmap[sym] = compute_ticker_quality(sym, iv, snap, "DAY_TRADE")
+    return qmap
 
 
 @dataclass
@@ -98,6 +129,8 @@ def _pos_value_at(state: SimState, day_bars: dict, ts) -> float:
 def _open_trade(
     state: SimState, symbol: str, ts: str, bar_open: float,
     atr: float, pos_mult: float = 1.0, composite: float = 0.0,
+    tier: str = "MEDIUM", regime: str = "NORMAL",
+    entry_time_et=None,
 ) -> None:
     portfolio_value = state.cash + sum(p["qty"] * p["entry"] for p in state.positions.values())
     entry = _entry_price(bar_open)
@@ -108,15 +141,20 @@ def _open_trade(
         cost = entry * qty
     if qty < 1 or cost > state.cash:
         return
-    sl = round(entry * (1 - STOP_LOSS_PCT / 100), 4)
-    tp_pct = compute_atr_tp_pct(atr, entry, state.atr_tp_multiplier)
+    base_tp_pct = compute_atr_tp_pct(atr, entry, state.atr_tp_multiplier)
+    from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
+    tp_pct, sl_pct = _compute_tp_sl(
+        base_tp_pct, STOP_LOSS_PCT, entry_time_et or datetime.now(ET), tier, regime
+    )
+    sl = round(entry * (1 - sl_pct / 100), 4)
     tp = round(entry * (1 + tp_pct / 100), 4)
     state.cash -= cost
     state.positions[symbol] = {
         "qty": qty, "entry": entry, "sl": sl, "tp": tp,
         "entry_ts": ts, "entry_time": ts, "composite": composite,
+        "quality_tier": tier,
     }
-    logger.debug(f"    OPEN  {symbol:5s} x{qty:.0f} @ ${entry:.2f}  SL=${sl:.2f} TP=${tp:.2f}")
+    logger.debug(f"    OPEN  {symbol:5s} x{qty:.0f} @ ${entry:.2f}  SL=${sl:.2f} TP=${tp:.2f}  [{tier}]")
 
 
 def _close_trade(
@@ -213,7 +251,8 @@ def _build_day_bars(
 
 
 def _execute_pending_signals(
-    state: SimState, pending: dict, day_bars: dict, ts, pos_mult: float
+    state: SimState, pending: dict, day_bars: dict, ts, pos_mult: float,
+    regime: str = "NORMAL", ts_et=None,
 ) -> None:
     n_open = len(state.positions)
     for sym, sig in list(pending.items()):
@@ -224,7 +263,10 @@ def _execute_pending_signals(
         df_sym = day_bars.get(sym)
         if df_sym is None or ts not in df_sym.index:
             continue
-        _open_trade(state, sym, str(ts), float(df_sym.loc[ts, "open"]), sig["atr"], pos_mult, sig["score"])
+        _open_trade(state, sym, str(ts), float(df_sym.loc[ts, "open"]),
+                    sig["atr"], pos_mult, sig["score"],
+                    tier=sig.get("tier", "MEDIUM"), regime=regime,
+                    entry_time_et=ts_et)
         n_open += 1
     pending.clear()
 
@@ -327,6 +369,10 @@ def simulate_day(
         if df_sym is not None and not df_sym.empty:
             precomp[sym] = precompute_indicators_for_day(sym, df_sym, day)
 
+    # Build quality map for the day (uses earliest iv per symbol)
+    _snap = _BacktestSnap(regime=regime)
+    quality_map: dict[str, TickerQuality] = _build_quality_map(watch_list, precomp, _snap)
+
     pending_signals: dict[str, dict] = {}
 
     for i, ts in enumerate(sorted_ts):
@@ -385,17 +431,25 @@ def simulate_day(
 
         in_entry_window = entry_start <= ts_et < entry_end
         if pending_signals and i > 0 and not halted and in_entry_window:
-            _execute_pending_signals(state, pending_signals, day_bars, ts, pos_mult)
+            _execute_pending_signals(state, pending_signals, day_bars, ts, pos_mult,
+                                     regime=regime, ts_et=ts_et)
 
         for sym in watch_list:
             if sym in state.positions or sym in state.daily_closed: continue
             if sym in state.sl_blacklist: continue
             iv = precomp.get(sym, {}).get(ts)
             if iv is None: continue
-            if iv.composite_score > effective_composite_gate(iv, regime, params=p) and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
+            quality = quality_map.get(sym)
+            tier = quality.tier if quality else "MEDIUM"
+            fp = get_filter_params(regime, tier)
+            composite_floor = max(
+                fp.composite_min,
+                effective_composite_gate(iv, regime, params=p),
+            )
+            if iv.composite_score > composite_floor and iv.signal == "BUY" and iv.rsi <= rsi_max and iv.vwap_slope >= VWAP_SLOPE_MIN:
                 if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
                     continue
-                pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr}
+                pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr, "tier": tier}
 
         equity = state.cash + _pos_value_at(state, day_bars, ts)
         state.equity_curve.append({"ts": str(ts), "equity": round(equity, 2)})

@@ -64,22 +64,26 @@ def test_compute_atr_tp_pct_multiplier_scaling_3x():
 
 @pytest.mark.unit
 def test_simulator_open_trade_uses_atr_tp():
-    """_open_trade uses ATR-based TP, not flat TAKE_PROFIT_PCT."""
+    """_open_trade uses ATR-based TP routed through compute_tp_sl (not flat TAKE_PROFIT_PCT)."""
     from backtest.simulator import _open_trade, SimState, SLIPPAGE_PCT
     from signals.atr_tp import compute_atr_tp_pct
+    from signals.tp_scaler import compute_tp_sl
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     state = SimState(atr_tp_multiplier=2.0)
     entry_bar_open = 50.0
     atr = 1.75
-    ts = datetime(2026, 5, 17, 10, 0, 0, tzinfo=ZoneInfo("America/New_York")).isoformat()
+    ts_et = datetime(2026, 5, 17, 10, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
-    _open_trade(state, "TEST", ts, entry_bar_open, atr, pos_mult=1.0, composite=25.0)
+    _open_trade(state, "TEST", ts_et.isoformat(), entry_bar_open, atr, pos_mult=1.0,
+                composite=25.0, tier="MEDIUM", regime="NORMAL", entry_time_et=ts_et)
 
     pos = state.positions["TEST"]
     entry = entry_bar_open * (1 + SLIPPAGE_PCT)
-    expected_tp_pct = compute_atr_tp_pct(atr=atr, price=entry, multiplier=2.0)
+    base_tp_pct = compute_atr_tp_pct(atr=atr, price=entry, multiplier=2.0)
+    import config as _cfg
+    expected_tp_pct, _ = compute_tp_sl(base_tp_pct, _cfg.STOP_LOSS_PCT, ts_et, "MEDIUM", "NORMAL")
     expected_tp = round(entry * (1 + expected_tp_pct / 100), 4)
     assert abs(pos["tp"] - expected_tp) < 0.01
 
