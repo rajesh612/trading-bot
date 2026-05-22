@@ -1134,3 +1134,33 @@ def test_evaluate_eod_holds_uses_normal_params_when_regime_stale(monkeypatch, tm
     assert "NORMAL" in captured_regime, (
         f"Expected NORMAL (fallback), got {captured_regime}"
     )
+
+
+# ── sectors: GICS sub-sector ETF lookup ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestSubSectorEtf:
+    def test_nvidia_returns_soxx(self):
+        import sectors
+        result = sectors.get_sub_sector_etf("NVDA")
+        assert result == "SOXX"
+
+    def test_crwd_returns_cibr(self):
+        import sectors
+        result = sectors.get_sub_sector_etf("CRWD")
+        assert result == "CIBR"
+
+    def test_unknown_symbol_falls_back_to_sector_etf(self):
+        import sectors
+        result = sectors.get_sub_sector_etf("ZZZZ_UNKNOWN")
+        assert result == "OTHER"
+
+    def test_symbol_without_sub_etf_falls_back_to_sector_etf(self):
+        import sectors
+        # JPM is XLF — no sub_etf, fallback to sector
+        result = sectors.get_sub_sector_etf("JPM")
+        assert result == sectors.get_sector_etf("JPM")
+
+    def test_existing_get_sector_etf_unchanged(self):
+        import sectors
+        assert sectors.get_sector_etf("NVDA") == "XLK"

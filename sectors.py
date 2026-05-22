@@ -20,13 +20,14 @@ def _build() -> tuple:
             "Screener will run with 0 tickers and send a Telegram alert.",
             config.TICKERS_FILE,
         )
-        return {}, frozenset(), {}, {}, [], []
+        return {}, frozenset(), {}, {}, [], [], {}
 
     symbol_to_etf: dict[str, str] = {}
     tier1_set: set[str] = set()
     symbol_to_theme: dict[str, str] = {}
     etf_to_symbols: dict[str, list[str]] = {}
     screener_symbols: list[str] = []
+    symbol_to_sub_etf: dict[str, str] = {}
 
     for etf_key, sector_data in data.items():
         if etf_key.startswith("_"):
@@ -39,19 +40,22 @@ def _build() -> tuple:
             if entry.get("tier1", False):
                 tier1_set.add(sym)
             symbol_to_theme[sym] = entry.get("theme", "")
+            if "sub_etf" in entry:
+                symbol_to_sub_etf[sym] = entry["sub_etf"]
             if entry.get("screener_eligible", True):
                 screener_symbols.append(sym)
                 etf_to_symbols[etf_key].append(sym)
 
     tier1_symbols = [s for s in screener_symbols if s in tier1_set]
-    return symbol_to_etf, frozenset(tier1_set), symbol_to_theme, etf_to_symbols, screener_symbols, tier1_symbols
+    return symbol_to_etf, frozenset(tier1_set), symbol_to_theme, etf_to_symbols, screener_symbols, tier1_symbols, symbol_to_sub_etf
 
 
-_sym_to_etf, TIER1_SET, _sym_to_theme, ETF_TO_SYMBOLS, SCREENER_SYMBOLS, TIER1_SYMBOLS = _build()
+_sym_to_etf, TIER1_SET, _sym_to_theme, ETF_TO_SYMBOLS, SCREENER_SYMBOLS, TIER1_SYMBOLS, _sym_to_sub_etf = _build()
 
 SYMBOL_TO_ETF    = _sym_to_etf
 SYMBOL_TO_SECTOR = _sym_to_etf   # alias for clarity in sector-aware callers
 SYMBOL_TO_THEME  = _sym_to_theme
+SYMBOL_TO_SUB_ETF = _sym_to_sub_etf
 
 
 def is_tier1(symbol: str) -> bool:
@@ -61,6 +65,11 @@ def is_tier1(symbol: str) -> bool:
 def get_sector_etf(symbol: str) -> str:
     """Returns the sector ETF key ('XLK', 'XLF', …) or 'OTHER' for unknown symbols."""
     return SYMBOL_TO_ETF.get(symbol.upper(), "OTHER")
+
+
+def get_sub_sector_etf(symbol: str) -> str:
+    """Returns sub_etf if defined in tickers.json, else falls back to get_sector_etf()."""
+    return SYMBOL_TO_SUB_ETF.get(symbol.upper(), get_sector_etf(symbol))
 
 
 def get_sector(symbol: str) -> str:
