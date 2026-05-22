@@ -1164,3 +1164,87 @@ class TestSubSectorEtf:
     def test_existing_get_sector_etf_unchanged(self):
         import sectors
         assert sectors.get_sector_etf("NVDA") == "XLK"
+
+
+# ── Tier-based swing promotion ────────────────────────────────────────────────
+
+class TestTierBasedSwingPromotion:
+    def _conviction_swing_choppy(self):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality("CONVICTION", 85, frozenset({"SWING_CHOPPY"}), (), {})
+
+    def _medium_quality(self):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality("MEDIUM", 45, frozenset(), (), {})
+
+    @pytest.mark.unit
+    def test_conviction_swing_choppy_uses_1pct_profit_lock(self):
+        from signals.entry_gates import get_effective_profit_lock
+        quality = self._conviction_swing_choppy()
+        lock = get_effective_profit_lock("CHOPPY", quality)
+        assert lock == pytest.approx(1.0)
+
+    @pytest.mark.unit
+    def test_medium_quality_choppy_uses_default_profit_lock(self, monkeypatch):
+        import config
+        from signals.entry_gates import get_effective_profit_lock
+        monkeypatch.setattr(config, "SWING_PROFIT_LOCK_NORMAL", 2.5)
+        quality = self._medium_quality()
+        lock = get_effective_profit_lock("CHOPPY", quality)
+        assert lock == pytest.approx(2.5)
+
+    @pytest.mark.unit
+    def test_regime_stale_blocks_swing(self):
+        from trading.eod_holds import qualifies_for_eod_hold
+        qualifies, reason = qualifies_for_eod_hold(
+            symbol="AAPL",
+            regime="NORMAL",
+            earnings_tomorrow=False,
+            current_pnl_pct=3.0,
+            entry_sector_sentiment=10,
+            current_sector_sentiment=5,
+            consecutive_red_days=0,
+            vix_trend="stable",
+            regime_stale=True,
+        )
+        assert not qualifies
+        assert "stale" in reason.lower()
+
+    @pytest.mark.unit
+    def test_conviction_swing_choppy_qualifies_at_1_3pct_pnl(self, monkeypatch):
+        import config
+        from trading.eod_holds import qualifies_for_eod_hold
+        quality = self._conviction_swing_choppy()
+        qualifies, reason = qualifies_for_eod_hold(
+            symbol="NVDA",
+            regime="CHOPPY",
+            earnings_tomorrow=False,
+            current_pnl_pct=1.3,
+            entry_sector_sentiment=10,
+            current_sector_sentiment=5,
+            consecutive_red_days=0,
+            vix_trend="stable",
+            quality=quality,
+        )
+        assert qualifies, f"Expected swing qualification, got: {reason}"
+
+
+class TestSwingManagerTierGapCheck:
+    @pytest.mark.unit
+    def test_conviction_tolerates_wider_gap(self):
+        pos_conviction = {"symbol": "NVDA", "quality_tier": "CONVICTION", "entry_price": 100.0}
+        pos_medium     = {"symbol": "RIVN", "quality_tier": "MEDIUM",     "entry_price": 100.0}
+        tier_c = pos_conviction.get("quality_tier", "MEDIUM")
+        tier_m = pos_medium.get("quality_tier", "MEDIUM")
+        thresh_c = -1.5 if tier_c == "CONVICTION" else -1.0
+        thresh_m = -1.5 if tier_m == "CONVICTION" else -1.0
+        assert thresh_c == -1.5
+        assert thresh_m == -1.0
+
+    @pytest.mark.unit
+    def test_gap_of_minus_1_2_closes_medium_not_conviction(self):
+        gap_pct = -1.2
+        for tier, expected_close in [("MEDIUM", True), ("CONVICTION", False)]:
+            threshold = -1.5 if tier == "CONVICTION" else -1.0
+            closes = gap_pct < threshold
+            assert closes == expected_close, f"tier={tier}"

@@ -42,13 +42,22 @@ def qualifies_for_eod_hold(
     current_sector_sentiment: float,
     consecutive_red_days: int,
     vix_trend: str,
+    quality=None,         # TickerQuality | None — enables tier-based profit lock
+    regime_stale: bool = False,
 ) -> tuple[bool, str]:
     """Return (True, '') if position qualifies for overnight swing hold, (False, reason) otherwise.
 
     Pure — no Alpaca calls, no file I/O.
     Asymmetric design: fail-fast on thesis-break signals only.
     """
+    # Stale regime data → block swing (unknown params)
+    if regime_stale:
+        return False, "regime data stale — swing promotion blocked"
+
     params = get_swing_params(regime)
+
+    from signals.entry_gates import get_effective_profit_lock
+    effective_lock = get_effective_profit_lock(regime, quality)
 
     # Universal veto 1: CRISIS — no overnight exposure under any circumstances
     if regime == "CRISIS":
@@ -59,8 +68,14 @@ def qualifies_for_eod_hold(
         return False, "earnings tomorrow — overnight binary risk"
 
     # Profit-lock bypass: strongly profitable positions qualify in any non-CRISIS regime
-    if current_pnl_pct >= params.profit_lock_pct:
+    if current_pnl_pct >= effective_lock:
         return True, ""
+
+    # SWING_CHOPPY unlock allows CONVICTION positions to swing in CHOPPY at lower threshold
+    if quality is not None and "SWING_CHOPPY" in quality.unlocks and regime == "CHOPPY":
+        if current_pnl_pct >= effective_lock:
+            return True, ""
+        return False, f"CHOPPY+SWING_CHOPPY unlock: P&L {current_pnl_pct:.1f}% < {effective_lock:.1f}% floor"
 
     # Any non-swing-eligible regime — block new swing promotions (CHOPPY, DEFENSIVE, HIGH_VOL)
     if not params.eligible:

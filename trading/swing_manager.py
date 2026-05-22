@@ -67,7 +67,13 @@ def _evaluate_gap_action(position: dict, current_price: float) -> str:
     gap_pct = (current_price - entry) / entry * 100
     sl_pct = position.get("stop_loss_pct", 7.0)
 
+    pos_tier = position.get("quality_tier", "MEDIUM")
+    gap_close_threshold = -1.5 if pos_tier == "CONVICTION" else -1.0
+
     if gap_pct <= -sl_pct:
+        return "CLOSE_GAP_DOWN"
+    elif config.SWING_GAP_TIGHTEN_THRESHOLD < gap_pct < gap_close_threshold:
+        # Moderate adverse gap below tier threshold but above tighten zone → close early
         return "CLOSE_GAP_DOWN"
     elif -sl_pct < gap_pct <= config.SWING_GAP_TIGHTEN_THRESHOLD:
         return "TIGHTEN_STOP"
