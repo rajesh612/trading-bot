@@ -13,6 +13,7 @@ import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
 from signals.entry_gates import effective_composite_gate
+from trading.tiered_tp import evaluate_tiered_tp_action
 from utils.constants import ET
 from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
 from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
@@ -32,8 +33,6 @@ SWING_EVAL_H        = config.EOD_HOLDS_EVAL_HOUR
 SWING_EVAL_M        = config.EOD_HOLDS_EVAL_MINUTE
 SWING_ENABLED       = True
 SWING_COMPOSITE_MIN = config.BACKTEST_SWING_COMPOSITE_MIN
-SWING_SL_PCT        = config.SWING_OVERNIGHT_SL_PCT
-SWING_TP_PCT        = config.SWING_TP2_PCT
 # ── Live-bot params — single source of truth is config.py ────────────────────
 STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
@@ -160,20 +159,51 @@ def _open_trade(
 def _close_trade(
     state: SimState, symbol: str, exit_ts: str,
     exit_raw: float, reason: str, date_str: str,
+    qty: int | None = None,
 ) -> None:
-    pos = state.positions.pop(symbol)
+    pos = state.positions[symbol]
+    close_qty = qty if qty is not None else int(pos["qty"])
     ep = _exit_price(exit_raw)
-    proceeds = ep * pos["qty"]
+    proceeds = ep * close_qty
     state.cash += proceeds
-    pnl = proceeds - pos["entry"] * pos["qty"]
+    pnl = proceeds - pos["entry"] * close_qty
     pnl_pct = (ep / pos["entry"] - 1) * 100
     state.trades.append(Trade(
         symbol=symbol, date=date_str, entry_ts=pos["entry_ts"], exit_ts=exit_ts,
-        entry_price=pos["entry"], exit_price=ep, qty=pos["qty"],
+        entry_price=pos["entry"], exit_price=ep, qty=close_qty,
         exit_reason=reason, pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 2),
     ))
-    state.daily_closed.add(symbol)
-    logger.debug(f"    CLOSE {symbol:5s} x{pos['qty']:.0f} @ ${ep:.2f}  PnL=${pnl:+.2f} ({pnl_pct:+.2f}%)  [{reason}]")
+    remaining = pos["qty"] - close_qty
+    if remaining > 0:
+        pos["qty"] = remaining
+    else:
+        del state.positions[symbol]
+        state.daily_closed.add(symbol)
+    logger.debug(
+        f"    CLOSE {symbol:5s} x{close_qty:.0f} @ ${ep:.2f}  "
+        f"PnL=${pnl:+.2f} ({pnl_pct:+.2f}%)  [{reason}]"
+    )
+
+
+def _init_tiered_swing_fields(pos: dict, regime: str) -> None:
+    """Initialise 40/30/30 tiered TP fields on a position being promoted to swing."""
+    from trading.tiered_tp import _compute_tier_quantities
+    sp = get_swing_params(regime)
+    total_qty = int(pos["qty"])
+    tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)
+    pos.update({
+        "tp1_qty":              tp1_qty,
+        "tp2_qty":              tp2_qty,
+        "trailing_qty":         trailing_qty,
+        "tp1_hit":              False,
+        "tp2_hit":              False,
+        "trailing_stop_active": False,
+        "trailing_high_water":  pos["entry"],
+        "entry_price":          pos["entry"],
+        "stop_loss_pct":        sp.sl_pct,
+        "tp1_pct":              sp.tp1_pct,
+        "tp2_pct":              sp.tp2_pct,
+    })
 
 
 def _evaluate_swing_promotion(
@@ -203,13 +233,13 @@ def _evaluate_swing_promotion(
         if profit_lock_bypass or standard_qualify:
             pos2["is_swing"] = True
             pos2["swing_days_remaining"] = SWING_MAX_DAYS
-            pos2["sl"] = round(pos2["entry"] * (1 - SWING_SL_PCT / 100), 4)
-            pos2["tp"] = round(pos2["entry"] * (1 + SWING_TP_PCT / 100), 4)
+            _init_tiered_swing_fields(pos2, regime)
+            pos2["sl"] = round(pos2["entry"] * (1 - pos2["stop_loss_pct"] / 100), 4)
             n_swings += 1
             tag = "PROFIT-LOCK" if profit_lock_bypass else "STANDARD"
             logger.info(
                 f"    SWING PROMOTE {sym2} [{tag}]: P&L={pnl_pct:+.2f}% composite={pos2['composite']:.0f}"
-                f" | SL={pos2['sl']:.2f} TP={pos2['tp']:.2f}"
+                f" | SL={pos2['sl']:.2f} TP1={pos2.get('tp1_pct', 0):.1f}% TP2={pos2.get('tp2_pct', 0):.1f}%"
             )
     return n_swings
 
@@ -427,33 +457,56 @@ def simulate_day(
                 continue
             bar = df_sym.loc[ts]
             pos = state.positions[sym]
-            reason = None
-            exit_price = None
             is_sw = pos.get("is_swing", False)
 
-            if bar["high"] >= pos["tp"]:
-                reason, exit_price = ("SWING_TP" if is_sw else "TP"), pos["tp"]
-            elif bar["low"] <= pos["sl"]:
-                reason, exit_price = ("SWING_SL" if is_sw else "SL"), pos["sl"]
-            elif is_force and not is_sw:
-                reason, exit_price = "FORCE_CLOSE", bar["close"]
-
-            if reason:
-                _close_trade(state, sym, str(ts), exit_price, reason, date_str)
-                if reason in ("SL", "SWING_SL"):
-                    state.sl_blacklist_pending.add(sym)
-            # T2 add-on check — use bar["low"] as worst intrabar price proxy
-            elif not pos.get("tranche_2_triggered") and not is_sw:
-                t1_entry = pos.get("tranche_1_entry", pos.get("entry", 0))
-                if t1_entry > 0:
-                    drop_pct = (t1_entry - float(bar["low"])) / t1_entry * 100
-                    iv_at_bar = precomp.get(sym, {}).get(ts)
-                    if iv_at_bar is None:
-                        iv_at_bar = type("_IV", (), {"rsi": 100, "composite_score": 0})()
-                    if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et):
-                        current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
-                        _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
-                        state.t2_fire_count += 1
+            if is_sw:
+                if pos.get("trailing_stop_active") and bar["high"] > pos.get("trailing_high_water", 0):
+                    pos["trailing_high_water"] = float(bar["high"])
+                result = evaluate_tiered_tp_action(pos, float(bar["close"]))
+                action = result["action"]
+                if action == "CLOSE_TP1":
+                    _close_trade(state, sym, str(ts), float(bar["close"]), "SWING_TP1", date_str,
+                                 qty=result["qty"])
+                    if sym in state.positions:
+                        pos["tp1_hit"] = True
+                elif action == "CLOSE_TP2":
+                    _close_trade(state, sym, str(ts), float(bar["close"]), "SWING_TP2", date_str,
+                                 qty=result["qty"])
+                    if sym in state.positions:
+                        pos["tp2_hit"] = True
+                        pos["trailing_stop_active"] = True
+                        pos["trailing_high_water"] = float(bar["close"])
+                elif action in ("CLOSE_TRAILING", "CLOSE_HARD_STOP"):
+                    exit_price_sw = pos["sl"] if action == "CLOSE_HARD_STOP" else float(bar["close"])
+                    reason_sw = "SWING_SL" if action == "CLOSE_HARD_STOP" else "SWING_TRAILING"
+                    _close_trade(state, sym, str(ts), exit_price_sw, reason_sw, date_str)
+                    if reason_sw == "SWING_SL":
+                        state.sl_blacklist_pending.add(sym)
+            else:
+                reason = None
+                exit_price = None
+                if bar["high"] >= pos["tp"]:
+                    reason, exit_price = "TP", pos["tp"]
+                elif bar["low"] <= pos["sl"]:
+                    reason, exit_price = "SL", pos["sl"]
+                elif is_force:
+                    reason, exit_price = "FORCE_CLOSE", bar["close"]
+                if reason:
+                    _close_trade(state, sym, str(ts), exit_price, reason, date_str)
+                    if reason == "SL":
+                        state.sl_blacklist_pending.add(sym)
+                # T2 add-on check — use bar["low"] as worst intrabar price proxy
+                elif not pos.get("tranche_2_triggered"):
+                    t1_entry = pos.get("tranche_1_entry", pos.get("entry", 0))
+                    if t1_entry > 0:
+                        drop_pct = (t1_entry - float(bar["low"])) / t1_entry * 100
+                        iv_at_bar = precomp.get(sym, {}).get(ts)
+                        if iv_at_bar is None:
+                            iv_at_bar = type("_IV", (), {"rsi": 100, "composite_score": 0})()
+                        if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et):
+                            current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
+                            _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
+                            state.t2_fire_count += 1
 
         if is_force:
             continue

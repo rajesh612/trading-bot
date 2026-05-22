@@ -146,3 +146,59 @@ class TestBacktestTPDecay:
         pos_med = self._open(10, 30, tier="MEDIUM", regime="NORMAL")
         pos_conv = self._open(10, 30, tier="CONVICTION", regime="NORMAL")
         assert pos_conv["sl"] > pos_med["sl"]
+
+
+@pytest.mark.unit
+class TestBacktestTieredSwingTP:
+    def _make_swing_pos(self, qty=10, entry=100.0, sl=97.0):
+        from trading.tiered_tp import _compute_tier_quantities
+        tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(qty)
+        return {
+            "qty": qty, "entry": entry, "entry_price": entry,
+            "sl": sl, "tp": round(entry * 1.10, 4),
+            "entry_ts": "2026-01-02 10:30:00", "entry_time": "2026-01-02 10:30:00",
+            "composite": 60.0, "quality_tier": "MEDIUM", "is_swing": True,
+            "swing_days_remaining": 3,
+            "tp1_qty": tp1_qty, "tp2_qty": tp2_qty, "trailing_qty": trailing_qty,
+            "tp1_hit": False, "tp2_hit": False,
+            "trailing_stop_active": False, "trailing_high_water": entry,
+            "stop_loss_pct": 3.0, "tp1_pct": 5.0, "tp2_pct": 10.0,
+        }
+
+    def test_swing_promotion_initializes_tiered_fields(self):
+        """After _init_tiered_swing_fields, position has tp1/tp2/trailing_qty summing to total."""
+        from backtest.simulator import SimState, _init_tiered_swing_fields
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = {
+            "qty": 10, "entry": 100.0, "sl": 96.0, "tp": 105.0,
+            "entry_ts": "2026-01-02 10:30:00", "entry_time": "2026-01-02 10:30:00",
+            "composite": 55.0, "quality_tier": "MEDIUM",
+        }
+        _init_tiered_swing_fields(state.positions["AAPL"], "NORMAL")
+        pos = state.positions["AAPL"]
+        assert "tp1_qty" in pos
+        assert "tp2_qty" in pos
+        assert "trailing_qty" in pos
+        assert pos["tp1_qty"] + pos["tp2_qty"] + pos["trailing_qty"] == 10
+        assert pos["tp1_hit"] is False
+
+    def test_partial_close_reduces_qty(self):
+        """_close_trade with qty < pos['qty'] reduces position size without removing it."""
+        from backtest.simulator import SimState, _close_trade
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = self._make_swing_pos(qty=10, entry=100.0)
+        _close_trade(state, "AAPL", "ts", 105.0, "SWING_TP1", "2026-01-02", qty=4)
+        assert "AAPL" in state.positions
+        assert state.positions["AAPL"]["qty"] == 6
+        assert len(state.trades) == 1
+        assert state.trades[0].qty == 4
+        assert "AAPL" not in state.daily_closed
+
+    def test_full_close_removes_position(self):
+        """_close_trade without qty closes entire position."""
+        from backtest.simulator import SimState, _close_trade
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = self._make_swing_pos(qty=10, entry=100.0)
+        _close_trade(state, "AAPL", "ts", 105.0, "SWING_TP2", "2026-01-02")
+        assert "AAPL" not in state.positions
+        assert "AAPL" in state.daily_closed
