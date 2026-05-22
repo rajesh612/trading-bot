@@ -307,3 +307,17 @@ their own independently.
 All retry schedules, staleness thresholds, composite penalties, and disable sets live under
 `# ── Data Resilience ──` in `config.py`. No magic numbers in `data_health.py`, agent files,
 or job functions.
+
+### 28. Ticker quality — always use compute_ticker_quality()
+`compute_ticker_quality()` in `utils/ticker_quality.py` is the sole factory for `TickerQuality`.
+No inline tier logic, quality scoring, or unlock evaluation outside this module.
+Adding a new signal component = update the scoring table in `utils/ticker_quality.py` only.
+
+### 29. Regime × tier dispatch — always use utils/regime_params.py
+`FilterParams`, `GateParams`, `AutoExecuteParams` follow the frozen-dataclass + table-function
+pattern of `EntryParams/SwingParams/T2Params`. No inline `if tier ==` or `if regime ==` dispatch
+chains outside `utils/regime_params.py`. Adding a new tier variant = update the table only.
+
+### 30. TP/SL computation — always use signals/tp_scaler.compute_tp_sl()
+All TP/SL assignments in executor, monitor, and swing_manager go through `compute_tp_sl()`.
+No direct `config.TAKE_PROFIT_PCT` / `config.STOP_LOSS_PCT` assignments at order-placement time.

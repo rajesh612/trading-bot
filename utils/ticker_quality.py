@@ -1,0 +1,228 @@
+"""
+TickerQuality scorer — Rule 28 SoT for tier assignment and unlock evaluation.
+Pure — no I/O. All inputs supplied by callers.
+"""
+from __future__ import annotations
+
+import datetime
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
+
+from calendars.earnings import detect_pead_setup
+from macro.economic_calendar import is_event_risk_window
+from utils.constants import ET
+from utils.regime_params import get_entry_params
+
+TIERS = ("LOW", "MEDIUM", "HIGH", "CONVICTION")
+
+
+@dataclass(frozen=True)
+class TickerQuality:
+    tier: str
+    score: int
+    unlocks: frozenset
+    quality_gaps: list
+    component_scores: dict
+
+
+def _score_to_tier(score: int) -> str:
+    if score >= 80:
+        return "CONVICTION"
+    if score >= 60:
+        return "HIGH"
+    if score >= 35:
+        return "MEDIUM"
+    return "LOW"
+
+
+def derive_mode(symbol: str, pead_ok: bool, existing_swing_pos: bool = False) -> str:
+    """Derive trading mode for a symbol at evaluation time.
+
+    SWING      — symbol already in open swing positions
+    PEAD       — post-earnings drift setup (PEAD score >= 80)
+    DAY_TRADE  — default intraday mode
+    """
+    if existing_swing_pos:
+        return "SWING"
+    if pead_ok:
+        return "PEAD"
+    return "DAY_TRADE"
+
+
+# ---------------------------------------------------------------------------
+# Component scorers (max points noted next to each)
+# ---------------------------------------------------------------------------
+
+def _score_composite(composite: float, floor: int) -> tuple[int, str | None]:
+    """Max 25 pts — composite signal strength above the regime floor."""
+    pts = int(min(25, max(0, (composite - floor) / 50 * 25)))
+    gap = f"composite_weak(-{25 - pts})" if pts < 10 else None
+    return pts, gap
+
+
+def _score_sentiment(sentiment: int) -> tuple[int, str | None]:
+    """Max 20 pts — research/pre-market sentiment score."""
+    if sentiment >= 60:
+        pts = 20
+    elif sentiment >= 30:
+        pts = 14
+    elif sentiment >= 0:
+        pts = 8
+    else:
+        pts = 0
+    gap = f"sentiment_weak(-{20 - pts})" if pts < 8 else None
+    return pts, gap
+
+
+def _score_intraday(intra_sent: int) -> tuple[int, str | None]:
+    """Max 15 pts — intraday headline sentiment score."""
+    if intra_sent >= 55:
+        pts = 15
+    elif intra_sent >= 25:
+        pts = 10
+    elif intra_sent >= 0:
+        pts = 5
+    else:
+        pts = 0
+    gap = f"intraday_weak(-{15 - pts})" if pts < 5 else None
+    return pts, gap
+
+
+def _score_sub_etf(sub_etf_chg: float) -> tuple[int, str | None]:
+    """Max 15 pts — sub-sector ETF intraday % change (tailwind)."""
+    if sub_etf_chg >= 2.0:
+        pts = 15
+    elif sub_etf_chg >= 1.0:
+        pts = 10
+    elif sub_etf_chg >= 0.0:
+        pts = 5
+    else:
+        pts = 0
+    gap = f"sector_weak(-{15 - pts})" if pts < 5 else None
+    return pts, gap
+
+
+def _score_pead(pead_ok: bool, pead_score: int) -> tuple[int, str | None]:
+    """Max 10 pts — PEAD qualification bonus."""
+    if not pead_ok:
+        return 0, None
+    pts = int(pead_score / 100 * 10)
+    return pts, None
+
+
+def _score_earnings(earnings_clear_days: int) -> tuple[int, str | None]:
+    """Max 10 pts — how far away the next earnings event is."""
+    if earnings_clear_days >= 30:
+        pts = 10
+    elif earnings_clear_days >= 21:
+        pts = 8
+    elif earnings_clear_days >= 14:
+        pts = 6
+    elif earnings_clear_days >= 7:
+        pts = 3
+    else:
+        pts = 0
+    gap = f"earnings_near(-{10 - pts})" if pts < 6 else None
+    return pts, gap
+
+
+def _score_econ(event_active: bool, event_medium: bool = False) -> int:
+    """Max 5 pts — economic calendar risk window."""
+    if event_active:
+        return 0
+    if event_medium:
+        return 2
+    return 5
+
+
+def _compute_unlocks(
+    tier: str,
+    mode: str,
+    pead_ok: bool,
+    intra_sent: int,
+    sentiment: int,
+    earnings_clear_days: int,
+    regime: str,
+) -> frozenset:
+    unlocks: set[str] = set()
+    if tier == "CONVICTION":
+        if pead_ok or intra_sent >= 60:
+            unlocks.add("T2_CHOPPY")
+        if intra_sent >= 50 and earnings_clear_days >= 14:
+            unlocks.add("SWING_CHOPPY")
+        if pead_ok and regime in ("CAPITULATION", "CHOPPY"):
+            unlocks.add("PEAD_EXTENDED_WINDOW")
+    if tier in ("HIGH", "CONVICTION") and sentiment >= 40:
+        unlocks.add("SWING_SENTIMENT")
+    return frozenset(unlocks)
+
+
+# ---------------------------------------------------------------------------
+# Public factory
+# ---------------------------------------------------------------------------
+
+def compute_ticker_quality(
+    symbol: str,
+    iv,
+    snap,
+    gate_flags: list,
+    mode: str,
+    sub_etf_chg: float = 0.0,
+    earnings_clear_days: int = 30,
+) -> TickerQuality:
+    """Compute a TickerQuality for *symbol* at the current evaluation instant.
+
+    Parameters
+    ----------
+    symbol:              Ticker being evaluated.
+    iv:                  IndicatorValues (or MagicMock in tests) for the symbol.
+    snap:                CycleSnapshot (regime, research, intraday_news).
+    gate_flags:          Soft-flag names raised by entry_gates (informational only).
+    mode:                "DAY_TRADE" | "PEAD" | "SWING" — use derive_mode() to obtain.
+    sub_etf_chg:         Sub-sector ETF intraday % change (from monitor batch fetch).
+    earnings_clear_days: Days until the next earnings event (≥0).
+    """
+    regime = snap.regime
+    ep = get_entry_params(regime)
+
+    research_sym = snap.research.get(symbol, {})
+    sentiment: int = research_sym.get("sentiment_score", 0)
+    intra_data = snap.intraday_news.get(symbol, {})
+    intra_sent: int = intra_data.get("sentiment_score", sentiment)
+
+    pead_ok, pead_score = detect_pead_setup(symbol)
+
+    now = datetime.datetime.now(ET)
+    event_active, _ = is_event_risk_window(now)
+
+    c_pts, c_gap = _score_composite(iv.composite_score, ep.composite_min)
+    s_pts, s_gap = _score_sentiment(sentiment)
+    i_pts, i_gap = _score_intraday(intra_sent)
+    e_pts, e_gap = _score_sub_etf(sub_etf_chg)
+    p_pts, _     = _score_pead(pead_ok, pead_score)
+    ec_pts, ec_gap = _score_earnings(earnings_clear_days)
+    ev_pts       = _score_econ(event_active)
+
+    score = max(0, min(100, c_pts + s_pts + i_pts + e_pts + p_pts + ec_pts + ev_pts))
+    tier = _score_to_tier(score)
+
+    gaps = [g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap] if g]
+    unlocks = _compute_unlocks(
+        tier, mode, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
+    )
+
+    return TickerQuality(
+        tier=tier,
+        score=score,
+        unlocks=unlocks,
+        quality_gaps=gaps,
+        component_scores={
+            "composite": c_pts,
+            "sentiment": s_pts,
+            "intraday": i_pts,
+            "sub_etf": e_pts,
+            "pead": p_pts,
+            "earnings": ec_pts,
+            "econ": ev_pts,
+        },
+    )
