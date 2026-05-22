@@ -615,3 +615,60 @@ class TestEntryHardCutoff:
         # No regime arg → defaults to NORMAL (cutoff=13)
         # 12:59 should be allowed
         assert is_entry_allowed(self._now(12, 59)) is True
+
+
+from signals.tranche2_gates import evaluate_t2_trigger
+
+
+class TestT2BugFixes:
+    def _base_position(self, entry_price=100.0, stop_loss_pct=3.0,
+                       timestamp="2026-05-21T10:00:00+00:00"):
+        return {
+            "entry_price": entry_price,
+            "stop_loss_pct": stop_loss_pct,
+            "timestamp": timestamp,
+            "tranche_2_triggered": False,
+            "qty": 100,
+        }
+
+    @pytest.mark.unit
+    def test_t2_blocked_when_t1_underwater(self):
+        pos = self._base_position(entry_price=100.0)
+        result = evaluate_t2_trigger(
+            symbol="AAPL", position=pos, current_price=97.5,
+            composite_score=40, sector_etf_chg=0.5,
+        )
+        assert not result.trigger
+        assert "underwater" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_t2_blocked_when_t2_drop_exceeds_t1_sl(self):
+        # T1 SL=2%, current_price=97 means drop=3% > SL=2%
+        pos = self._base_position(entry_price=100.0, stop_loss_pct=2.0)
+        result = evaluate_t2_trigger(
+            symbol="AAPL", position=pos, current_price=97.0,
+            composite_score=40, sector_etf_chg=0.5,
+        )
+        assert not result.trigger
+        assert "sl" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_corrupted_entry_time_returns_fail(self):
+        pos = self._base_position(timestamp="not-a-valid-timestamp")
+        result = evaluate_t2_trigger(
+            symbol="AAPL", position=pos, current_price=97.5,
+            composite_score=40, sector_etf_chg=0.5,
+        )
+        assert not result.trigger
+        assert "entry_time" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_sector_etf_fetch_failure_defaults_to_weak(self):
+        pos = self._base_position(entry_price=100.0)
+        # sector_etf_chg=None simulates a fetch failure; should treat as -2.0 (weak)
+        result = evaluate_t2_trigger(
+            symbol="AAPL", position=pos, current_price=100.5,
+            composite_score=40, sector_etf_chg=None,
+        )
+        # Should be blocked because sector assumed -2.0 (weak) when None
+        assert not result.trigger
