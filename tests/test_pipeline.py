@@ -1021,3 +1021,42 @@ class TestDynamicRegimeParams:
         p = get_filter_params("UNKNOWN_REGIME", "MEDIUM")
         normal_p = get_filter_params("NORMAL", "MEDIUM")
         assert p.composite_min == normal_p.composite_min
+
+
+# ─── TestDynamicPreClaudeFilter ──────────────────────────────────────────────
+
+class TestDynamicPreClaudeFilter:
+
+    def _make_snap(self, regime="NORMAL"):
+        from unittest.mock import MagicMock
+        snap = MagicMock()
+        snap.regime = regime
+        snap.research = {}
+        snap.intraday_news = {}
+        snap.params = {}
+        snap.staleness_guard = MagicMock(auto_execute_allowed=True, composite_penalty=0)
+        snap.regime_info = {"macro_health_score": 80}
+        snap.research_meta = {"macro_shock_score": 0}
+        return snap
+
+    @pytest.mark.unit
+    def test_filter_result_carries_quality(self):
+        from unittest.mock import MagicMock
+        from trading.pre_claude_filter import apply_pre_claude_filter
+        from utils.ticker_quality import TickerQuality
+        snap = self._make_snap("NORMAL")
+        iv = MagicMock()
+        iv.composite_score = 55.0
+        iv.rsi = 60.0
+        iv.relative_volume = 1.2
+        iv.vwap_slope = 0.01
+        result = apply_pre_claude_filter("AAPL", iv, snap)
+        assert hasattr(result, "quality")
+        assert isinstance(result.quality, TickerQuality)
+
+    @pytest.mark.unit
+    def test_defensive_regime_no_duplicate_gate(self):
+        import inspect
+        import trading.pre_claude_filter as pcf
+        src = inspect.getsource(pcf)
+        assert 'regime == "DEFENSIVE"' not in src or "Rule 23" in src
