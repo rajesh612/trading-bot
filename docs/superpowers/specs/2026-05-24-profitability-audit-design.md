@@ -26,11 +26,20 @@ of the day-trade drag.
 
 ## Architecture
 
-Five independent tracks with a single new data structure (`TPSLParams`) as the foundation.
-All tracks extend the existing frozen-dataclass + table-function pattern in `regime_params.py`.
+Six tracks with a unified mode taxonomy (Track 0) and `TPSLParams` (Track 1) as the shared
+foundation. All tracks extend the existing frozen-dataclass + table-function pattern in
+`regime_params.py`.
 
 ```
-Track 1 ── TPSLParams (108 entries: 9 regimes × 4 tiers × 3 modes)
+Track 0 ── Mode taxonomy unification (5-mode system replaces 2 competing taxonomies)
+           └─ Retires HYBRID/SHORT_TERM from trading/modes.py
+           └─ Adds CATALYST + SWING to unified derive_mode() in ticker_quality.py
+           └─ EntryParams gains max_position_pct (replaces _MODE_MAX_PCT)
+           └─ is_catalyst_active() pure gate — post-event macro direction confirmed
+           └─ pre_claude_filter.py gap fixed — derive_mode() called, not hardcoded
+
+Track 1 ── TPSLParams (144 entries: 9 regimes × 4 tiers × 4 modes)
+           └─ 4 modes: DAY_TRADE, PEAD, SWING, CATALYST
            └─ absorbs SwingParams fields (tp1/tp2/sl/max_days/profit_lock/min_pnl)
            └─ replaces ATR_TP_FLOOR/CEILING global constants
            └─ used by tp_scaler, executor, swing_manager, backtest — single SoT
@@ -50,6 +59,7 @@ Track 5 ── Backtest fidelity
            └─ regime sentiment priors in _BacktestSnap
            └─ per-bar quality (not per-day)
            └─ T2 CHOPPY unlock check
+           └─ PEAD/CATALYST known limitations documented
 ```
 
 ---
@@ -62,9 +72,301 @@ Track 5 ── Backtest fidelity
   `ATR_TP_CEILING_PCT`, `SWING_TP1_PCT`, `SWING_TP2_PCT`, `SWING_PROFIT_LOCK_*`,
   and `SWING_MIN_PNL_*` become documentation-only comments.
 
+- **Rule 32:** `derive_mode()` in `utils/ticker_quality.py` is the sole factory for the
+  5-mode taxonomy (`DAY_TRADE | PEAD | SWING | CATALYST | CASH`). No inline mode-selection
+  logic outside this function. `trading/modes.py::get_active_mode()` is retired — all
+  callers migrate to `derive_mode()` + regime-based `EntryParams.max_position_pct`.
+
+- **Rule 33:** `is_catalyst_active()` in `signals/entry_gates.py` is the sole gate for
+  CATALYST mode eligibility. It is pure — all I/O (post-event window, sector ETF change)
+  arrives pre-fetched via `CycleSnapshot.post_event_window` and `CycleSnapshot.sector_etf_cache`.
+  No caller computes post-event windows or ETF confirmation logic inline.
+
 ---
 
-## Track 1 — `TPSLParams`: 108-entry Regime × Tier × Mode Table
+## Track 0 — Mode Taxonomy Unification
+
+**Pre-requisite for Track 1.** Resolves the conflict between two competing mode systems
+(`trading/modes.py` 5-mode vs `derive_mode()` 3-mode) and adds `CATALYST` without
+duplication. Track 1's 144-entry table depends on this unified taxonomy being in place first.
+
+### 0.1 Unified 5-Mode System
+
+The two mode taxonomies are replaced by a single source of truth:
+
+| Mode | Trigger | Replaces | Scope | Position limit source |
+|------|---------|----------|-------|-----------------------|
+| `DAY_TRADE` | default | `DAY_TRADE` (both) | intraday | `EntryParams.max_position_pct` |
+| `PEAD` | `pead_ok=True` | `PEAD` (both) | intraday | `EntryParams.max_position_pct` |
+| `SWING` | `existing_swing_pos=True` | new (was lifecycle only) | overnight carry | `SWING_MAX_POSITIONS` |
+| `CATALYST` | post-event + sector confirm | new | intraday | `CATALYST_MAX_POSITIONS` |
+| `CASH` | CRISIS regime | `CASH` | no trade | — |
+
+`HYBRID` and `SHORT_TERM` are **retired**:
+- `HYBRID` (BULL_TREND/OPPORTUNITY) — wider TP/SL now captured by regime rows in `TPSLParams`.
+  Position sizing cap (3%) moves to `EntryParams.max_position_pct` for those regimes.
+- `SHORT_TERM` (CAPITULATION/CRASH_RECOVERY) — same migration. Sizing cap (2.5%) moves to
+  `EntryParams.max_position_pct`.
+
+`CASH` is not a `TPSLParams` key — CRISIS is detected earlier (pre-filter) and returns
+`FilterResult("SKIP", "CRISIS — CASH mode")` before any TPSLParams lookup.
+
+### 0.2 `EntryParams.max_position_pct` — Position Sizing by Regime
+
+Add `max_position_pct: float` to the existing `EntryParams` frozen dataclass:
+
+```python
+@dataclass(frozen=True)
+class EntryParams:
+    composite_min:    int
+    hard_close_hour:  int
+    max_position_pct: float = 0.05   # default 5% (config.MAX_POSITION_PCT)
+```
+
+Update the `_ENTRY_TABLE` dict values to include the third field:
+
+| Regime | max_position_pct | Rationale |
+|--------|-----------------|-----------|
+| `NORMAL` | 0.05 | default |
+| `BULL_TREND` | 0.03 | was HYBRID cap — bull volatility |
+| `OPPORTUNITY` | 0.03 | was HYBRID cap |
+| `CRASH_RECOVERY` | 0.025 | was SHORT_TERM cap |
+| `DEFENSIVE` | 0.04 | slightly tighter in caution regime |
+| `CHOPPY` | 0.04 | tighter — choppy entries are smaller |
+| `HIGH_VOL` | 0.03 | volatility-adjusted |
+| `CAPITULATION` | 0.025 | was SHORT_TERM cap — bounce plays only |
+| `CRISIS` | 0.0 | CASH — no entries |
+
+`trading/position_sizer.py::compute_position_size_for_mode()` replaces `_MODE_MAX_PCT.get(mode)`
+with `get_entry_params(regime).max_position_pct`. The `mode` parameter is removed from its
+signature (mode no longer drives sizing — regime does).
+
+### 0.3 `derive_mode()` — Extended to 5-Mode Taxonomy
+
+Replace the existing 3-mode `derive_mode()` in `utils/ticker_quality.py`:
+
+```python
+def derive_mode(
+    symbol: str,
+    pead_ok: bool,
+    existing_swing_pos: bool = False,
+    catalyst_active: bool = False,
+) -> str:
+    """Derive trading mode — single SoT (Rule 32). Priority: SWING > PEAD > CATALYST > DAY_TRADE.
+
+    SWING takes priority because it's a lifecycle state (already promoted), not a new entry.
+    PEAD before CATALYST: stock-level catalyst is more specific than macro-level catalyst.
+    CATALYST before DAY_TRADE: confirmed macro direction is a stronger signal than default.
+    """
+    if existing_swing_pos:
+        return "SWING"
+    if pead_ok:
+        return "PEAD"
+    if catalyst_active:
+        return "CATALYST"
+    return "DAY_TRADE"
+```
+
+`CASH` is NOT returned by `derive_mode()` — CRISIS is detected at regime level before mode
+derivation and short-circuits the pipeline. `derive_mode()` is never called for CRISIS symbols.
+
+### 0.4 `CycleSnapshot.post_event_window` — I/O Isolation for CATALYST Gate
+
+Add field to `trading/cycle_context.py`:
+
+```python
+@dataclass
+class CycleSnapshot:
+    ...
+    post_event_window: tuple | None = None
+    # (event_dict, elapsed_minutes: int) for the most recent HIGH-impact economic
+    # event that fired within the last CATALYST_WINDOW_MINUTES minutes, or None.
+    # Computed once per cycle in cycle.py; consumed by is_catalyst_active().
+```
+
+Populate in `trading/cycle.py` at cycle start (alongside existing `regime`, `params` fetch):
+
+```python
+from macro.economic_calendar import get_post_event_window
+snap = CycleSnapshot(
+    ...
+    post_event_window = get_post_event_window(now),
+)
+```
+
+Add `get_post_event_window()` to `macro/economic_calendar.py`:
+
+```python
+def get_post_event_window(
+    now: datetime,
+    lookback_minutes: int = 120,
+) -> tuple[dict, int] | None:
+    """Return (event, minutes_elapsed) for the most recent HIGH-impact economic
+    event that fired within the last `lookback_minutes` minutes, or None.
+
+    Separate from is_event_risk_window() — callers detect post-event CATALYST
+    opportunities, not just pre-event vetoes.
+    """
+    events = load_json(config.ECONOMIC_CALENDAR_FILE, {}).get("events", [])
+    now_et = now.astimezone(ET)
+    for event in sorted(events, key=lambda e: e.get("time", ""), reverse=True):
+        if event.get("impact") != "HIGH":
+            continue
+        try:
+            event_dt = datetime.fromisoformat(event["time"]).astimezone(ET)
+        except (KeyError, ValueError):
+            continue
+        elapsed = int((now_et - event_dt).total_seconds() / 60)
+        if 0 <= elapsed <= lookback_minutes:
+            return event, elapsed
+    return None
+```
+
+### 0.5 `is_catalyst_active()` — Pure CATALYST Gate
+
+Add to `signals/entry_gates.py` (pure — no I/O, Rule 15):
+
+```python
+def is_catalyst_active(symbol: str, snap: "CycleSnapshot") -> bool:
+    """True when all three hold:
+    1. A HIGH-impact event fired CATALYST_SETTLE_MINUTES–CATALYST_WINDOW_MINUTES ago
+       (settle floor: 30 min — slippage/volatility normalises first)
+    2. Symbol's sub-sector ETF moved ≥ CATALYST_ETF_MIN_MOVE_PCT (0.5%) since open
+       (direction confirmed by sustained sector momentum, not a spike)
+    3. Snap carries a valid post_event_window (populated by cycle.py each cycle)
+    """
+    window = snap.post_event_window
+    if window is None:
+        return False
+    _, elapsed_min = window
+    if elapsed_min < config.CATALYST_SETTLE_MINUTES:   # too soon — volatility spike
+        return False
+    from sectors import get_sub_sector_etf
+    sub_etf = get_sub_sector_etf(symbol)
+    etf_chg  = snap.sector_etf_cache.get(sub_etf, 0.0)
+    return abs(etf_chg) >= config.CATALYST_ETF_MIN_MOVE_PCT
+```
+
+**Why no upper bound on elapsed_min:** `CycleSnapshot.post_event_window` is rebuilt each
+cycle from a 120-min lookback window (`CATALYST_WINDOW_MINUTES`). Once the event falls
+outside that window, `post_event_window` becomes `None` and the gate returns False
+automatically — no second bound needed inside the function.
+
+**CATALYST position limit** — add to `config.py`:
+```python
+CATALYST_MAX_POSITIONS = 2   # max simultaneous CATALYST-mode open positions
+```
+
+Enforced in `executor.py` alongside the existing `SWING_MAX_POSITIONS` check:
+```python
+if mode == "CATALYST":
+    cat_count = sum(1 for p in open_positions.values()
+                    if p.get("mode_at_entry") == "CATALYST")
+    if cat_count >= config.CATALYST_MAX_POSITIONS:
+        return  # SKIP — CATALYST at limit
+```
+
+### 0.6 `_compute_unlocks()` — Add `mode` Back, Drive T2_CHOPPY for CATALYST
+
+The current `_compute_unlocks` dropped `mode` from its signature but `compute_ticker_quality`
+still accepts `mode` — it's dead code. Restore `mode` and use it:
+
+```python
+def _compute_unlocks(
+    tier: str,
+    mode: str,           # restored — drives T2_CHOPPY for CATALYST
+    pead_ok: bool,
+    intra_sent: int,
+    sentiment: int,
+    earnings_clear_days: int,
+    regime: str,
+) -> frozenset:
+    unlocks: set[str] = set()
+    if tier == "CONVICTION":
+        # T2_CHOPPY: confirmed macro direction or PEAD or strong intraday
+        if pead_ok or intra_sent >= 60 or mode == "CATALYST":
+            unlocks.add("T2_CHOPPY")
+        if intra_sent >= 50 and earnings_clear_days >= 14:
+            unlocks.add("SWING_CHOPPY")
+        if pead_ok and regime in ("CAPITULATION", "CHOPPY"):
+            unlocks.add("PEAD_EXTENDED_WINDOW")
+    if tier in ("HIGH", "CONVICTION") and sentiment >= 40:
+        unlocks.add("SWING_SENTIMENT")
+    return frozenset(unlocks)
+```
+
+`compute_ticker_quality()` must pass `mode` through to `_compute_unlocks`:
+```python
+unlocks = _compute_unlocks(
+    tier, mode, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
+)
+```
+
+### 0.7 `trading/pre_claude_filter.py` — Derive Mode, Not Hardcoded
+
+**Gap:** both `compute_ticker_quality` calls hardcode `"DAY_TRADE"` as the mode argument,
+so PEAD and CATALYST tiers are always computed under the wrong mode. `mode` is dead at
+the call site.
+
+**Fix:** add `catalyst_active: bool = False` parameter to `apply_pre_claude_filter` and
+call `derive_mode()` before `compute_ticker_quality`:
+
+```python
+def apply_pre_claude_filter(
+    symbol: str,
+    iv,
+    snap,
+    daily_closed: set[str] | None = None,
+    sub_etf_chg: float = 0.0,
+    earnings_clear_days: int = 30,
+    pead_ok: bool = False,
+    pead_score: int = 0,
+    event_active: bool = False,
+    catalyst_active: bool = False,   # NEW
+) -> FilterResult:
+    mode = derive_mode(symbol, pead_ok, existing_swing_pos=False,
+                       catalyst_active=catalyst_active)
+    # Layer 0 — Already closed today
+    if daily_closed and symbol in daily_closed:
+        quality = compute_ticker_quality(symbol, iv, snap, mode,
+                                         sub_etf_chg, earnings_clear_days,
+                                         pead_ok, pead_score, event_active)
+        return FilterResult("SKIP", "already closed today", quality)
+
+    quality = compute_ticker_quality(symbol, iv, snap, mode,
+                                     sub_etf_chg, earnings_clear_days,
+                                     pead_ok, pead_score, event_active)
+    ...
+```
+
+`existing_swing_pos=False` is always correct in filter context — symbols already in
+positions are not new entry candidates.
+
+The pipeline's call site in `trading/pipeline.py` must pass `catalyst_active`:
+```python
+catalyst_active = is_catalyst_active(symbol, snap)
+filt = apply_pre_claude_filter(
+    symbol, iv, snap, ..., pead_ok=pead_ok, catalyst_active=catalyst_active,
+)
+```
+
+### 0.8 `trading/modes.py` Retirement
+
+`trading/modes.py` is **deleted**. Its responsibilities migrate:
+
+| Old responsibility | New home |
+|-------------------|----------|
+| `get_active_mode()` → PEAD detection | `derive_mode()` in `utils/ticker_quality.py` (via `pead_ok` pre-computed by pipeline) |
+| `get_active_mode()` → HYBRID/SHORT_TERM | Retired — regime rows in `TPSLParams` cover TP/SL; `EntryParams.max_position_pct` covers sizing |
+| `get_sl_tp_for_mode_and_regime()` | `compute_tp_sl()` using `TPSLParams` (Track 1) |
+| `_MODE_POSITION_LIMITS` | `EntryParams.max_position_pct` + `CATALYST_MAX_POSITIONS` constant |
+| `_MODE_MAX_PCT` sizing | `EntryParams.max_position_pct` via `get_entry_params(regime)` |
+
+Callers updated: `trading/executor.py`, `trading/claude_caller.py`, `trading/position_sizer.py`.
+
+---
+
+## Track 1 — `TPSLParams`: 144-entry Regime × Tier × Mode Table
 
 ### 1.1 Dataclass
 
@@ -75,7 +377,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Mode   = Literal["DAY_TRADE", "PEAD", "SWING"]
+Mode   = Literal["DAY_TRADE", "PEAD", "SWING", "CATALYST"]
 Tier   = Literal["LOW", "MEDIUM", "HIGH", "CONVICTION"]
 
 # Re-exported so tests can parametrize without hardcoding string lists
@@ -84,7 +386,7 @@ REGIMES: tuple[str, ...] = (
     "DEFENSIVE", "CHOPPY", "HIGH_VOL", "CAPITULATION", "CRISIS",
 )
 TIERS: tuple[str, ...] = ("LOW", "MEDIUM", "HIGH", "CONVICTION")
-MODES: tuple[str, ...] = ("DAY_TRADE", "PEAD", "SWING")
+MODES: tuple[str, ...] = ("DAY_TRADE", "PEAD", "SWING", "CATALYST")
 
 
 @dataclass(frozen=True)
@@ -146,6 +448,11 @@ def _sw(tp1, tp2, sl_f, sl_c, atr, days, plock, minpnl) -> TPSLParams:
     """SWING entry — all fields required."""
     return TPSLParams(tp1, tp2, sl_f, sl_c, atr, days, plock, minpnl)
 
+def _cl(tp_f, tp_c, sl_f, sl_c, atr) -> TPSLParams:
+    """CATALYST entry — post-event macro play, intraday only (max_days=0).
+    TP floor higher than DAY_TRADE (direction confirmed); SL slightly tighter."""
+    return TPSLParams(tp_f, tp_c, sl_f, sl_c, atr)
+
 _TPSL_DISABLED = TPSLParams(0.0, 0.0, 0.0, 0.0, 0.0)  # is_disabled → True
 ```
 
@@ -155,21 +462,28 @@ Instead of repeating `_TPSL_DISABLED` across 20+ rows, declare the disabled spac
 
 ```python
 _DISABLED_COMBOS: frozenset[tuple[str, str, str]] = frozenset({
-    # CRISIS — all tiers, all modes
+    # CRISIS — all tiers, all modes (CASH mode — no entries)
     *(("CRISIS", t, m) for t in TIERS for m in MODES),
-    # CAPITULATION — LOW/MEDIUM, all modes
+    # CAPITULATION — LOW/MEDIUM, all modes (bounce plays HIGH/CONVICTION only)
     *(("CAPITULATION", t, m) for t in ("LOW", "MEDIUM") for m in MODES),
-    # CHOPPY SWING — LOW/MEDIUM only (HIGH/CONVICTION have unlock)
+    # CHOPPY SWING — LOW/MEDIUM only (HIGH/CONVICTION have SWING_CHOPPY unlock)
     ("CHOPPY", "LOW",    "SWING"),
     ("CHOPPY", "MEDIUM", "SWING"),
-    # HIGH_VOL SWING — LOW only
+    # CHOPPY CATALYST — LOW/MEDIUM/HIGH only (CONVICTION only — macro play in choppy market)
+    ("CHOPPY", "LOW",    "CATALYST"),
+    ("CHOPPY", "MEDIUM", "CATALYST"),
+    ("CHOPPY", "HIGH",   "CATALYST"),
+    # HIGH_VOL SWING/CATALYST — LOW only (volatility too high for low-quality entries)
     ("HIGH_VOL", "LOW", "SWING"),
+    ("HIGH_VOL", "LOW", "CATALYST"),
 })
 ```
 
 ### 1.4 Full 108-Entry Table
 
-Built as a single module-level dict (singleton — created once at import time):
+Built as a single module-level dict (singleton — created once at import time).
+144 entries: 9 regimes × 4 tiers × 4 modes (DAY_TRADE, PEAD, SWING, CATALYST).
+Disabled entries stamped from `_DISABLED_COMBOS` at the end — no per-row `D` repetition.
 
 ```python
 def _build_tpsl_table() -> dict[tuple[str, str, str], TPSLParams]:
@@ -312,6 +626,50 @@ def _build_tpsl_table() -> dict[tuple[str, str, str], TPSLParams]:
     # CAPITULATION SWING — LOW/MEDIUM disabled; V-bounce recovery needs long window
     t[("CAPITULATION",   "HIGH",       "SWING")] = _sw(6.0, 12.0,  4.0, 6.0, 3.5, 5, 3.0, -5.0)
     t[("CAPITULATION",   "CONVICTION", "SWING")] = _sw(8.0, 15.0,  4.0, 5.5, 4.0, 7, 2.0, -5.0)
+
+    # ── CATALYST ────────────────────────────────────────────────────────────────
+    # Format: _cl(tp_floor, tp_ceiling, sl_floor, sl_ceiling, atr_mult)
+    # Rationale: direction confirmed 30-120 min post-event → TP floor higher than
+    #            DAY_TRADE; SL slightly tighter (no noise from initial spike).
+    #            max_days=0 (intraday only — no CATALYST overnight promotes).
+    #            CHOPPY LOW/MEDIUM/HIGH and HIGH_VOL LOW disabled via _DISABLED_COMBOS.
+
+    t[("NORMAL",         "LOW",        "CATALYST")] = _cl(2.0, 3.5, 1.2, 1.8, 1.8)
+    t[("NORMAL",         "MEDIUM",     "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("NORMAL",         "HIGH",       "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.8, 2.2)
+    t[("NORMAL",         "CONVICTION", "CATALYST")] = _cl(3.5, 5.0, 1.0, 1.5, 2.5)
+
+    t[("BULL_TREND",     "LOW",        "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("BULL_TREND",     "MEDIUM",     "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.8, 2.2)
+    t[("BULL_TREND",     "HIGH",       "CATALYST")] = _cl(3.5, 5.0, 1.2, 1.8, 2.5)
+    t[("BULL_TREND",     "CONVICTION", "CATALYST")] = _cl(4.0, 6.0, 1.0, 1.5, 3.0)
+
+    t[("OPPORTUNITY",    "LOW",        "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("OPPORTUNITY",    "MEDIUM",     "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.8, 2.2)
+    t[("OPPORTUNITY",    "HIGH",       "CATALYST")] = _cl(3.5, 5.0, 1.2, 1.8, 2.5)
+    t[("OPPORTUNITY",    "CONVICTION", "CATALYST")] = _cl(4.0, 6.0, 1.0, 1.5, 3.0)
+
+    t[("CRASH_RECOVERY", "LOW",        "CATALYST")] = _cl(2.0, 4.0, 1.5, 2.5, 1.8)
+    t[("CRASH_RECOVERY", "MEDIUM",     "CATALYST")] = _cl(2.5, 4.5, 1.5, 2.0, 2.0)
+    t[("CRASH_RECOVERY", "HIGH",       "CATALYST")] = _cl(3.0, 5.0, 1.5, 2.0, 2.5)
+    t[("CRASH_RECOVERY", "CONVICTION", "CATALYST")] = _cl(3.5, 6.0, 1.5, 2.0, 2.8)
+
+    t[("DEFENSIVE",      "LOW",        "CATALYST")] = _cl(1.5, 3.0, 1.2, 2.0, 1.5)
+    t[("DEFENSIVE",      "MEDIUM",     "CATALYST")] = _cl(2.0, 3.5, 1.2, 1.8, 1.8)
+    t[("DEFENSIVE",      "HIGH",       "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("DEFENSIVE",      "CONVICTION", "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.5, 2.2)
+
+    # CHOPPY CATALYST — LOW/MEDIUM/HIGH disabled; CONVICTION only (macro direction confirmed)
+    t[("CHOPPY",         "CONVICTION", "CATALYST")] = _cl(2.5, 4.0, 1.5, 2.0, 2.0)
+
+    # HIGH_VOL CATALYST — LOW disabled; wider SL for residual post-event volatility
+    t[("HIGH_VOL",       "MEDIUM",     "CATALYST")] = _cl(2.0, 4.0, 2.0, 3.0, 1.8)
+    t[("HIGH_VOL",       "HIGH",       "CATALYST")] = _cl(2.5, 4.5, 2.0, 2.5, 2.0)
+    t[("HIGH_VOL",       "CONVICTION", "CATALYST")] = _cl(3.0, 5.0, 2.0, 2.5, 2.5)
+
+    # CAPITULATION CATALYST — LOW/MEDIUM disabled; HIGH/CONVICTION post-event bounce
+    t[("CAPITULATION",   "HIGH",       "CATALYST")] = _cl(3.0, 6.0, 2.5, 4.0, 2.5)
+    t[("CAPITULATION",   "CONVICTION", "CATALYST")] = _cl(4.0, 8.0, 2.5, 3.5, 3.0)
 
     # ── Stamp disabled entries from the declared set ───────────────────────────
     for key in _DISABLED_COMBOS:
@@ -657,8 +1015,9 @@ class _BacktestSnap:
 iv = precomp.get(sym, {}).get(ts)
 if iv is None:
     continue
+# pead_ok=False: see section 5.4 (PEAD/CATALYST backtest limitation)
 quality = compute_ticker_quality(
-    sym, iv, _snap, derive_mode(sym, pead_ok=False),
+    sym, iv, _snap, derive_mode(sym, pead_ok=False, catalyst_active=False),
 )
 tier = quality.tier
 if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max):
@@ -682,6 +1041,34 @@ def _sim_tranche2_gates_pass(pos, iv, drop_pct, regime, now, quality=None) -> bo
 
 `quality` is now available per-bar (Track 5.2), so this is a one-line guard on an
 existing function.
+
+### 5.4 PEAD and CATALYST Backtest Limitations (Known, Intentional)
+
+Both `pead_ok` and `catalyst_active` are hardcoded to `False` in the backtest. This is
+intentional and documented here to prevent future "fix" attempts that would introduce
+worse problems.
+
+**PEAD — why `pead_ok=False`:**
+`detect_pead_setup(symbol)` reads `data/state/earnings_calendar.json`, which reflects
+**today's** earnings data, not the historical date being simulated. Calling it during a
+30-day backtest would incorrectly mark symbols as PEAD based on future earnings — data
+leakage. Correct historical PEAD detection requires a point-in-time earnings database
+(not available). Consequence: all backtest entries use `DAY_TRADE` or `SWING` mode;
+PEAD entries are not simulated. The backtest result is therefore **conservative** on
+PEAD P&L — live performance should exceed backtest for symbols with valid PEAD setups.
+
+**CATALYST — why `catalyst_active=False`:**
+`get_post_event_window(now)` reads `data/state/economic_calendar.json`, which reflects
+**upcoming scheduled events**, not historical events that already fired. Historical
+economic event timestamps are not stored in the system. Backtest cannot replay a CPI
+release from 30 days ago and know that SOXX moved +1.2% afterwards. Consequence: all
+backtest entries use `DAY_TRADE`, `PEAD`, or `SWING`; CATALYST mode is not simulated.
+Live performance will capture CATALYST upside that the backtest cannot model.
+
+**Net effect on backtest validation targets:** Both omissions make the backtest
+*conservative* (lower simulated P&L, fewer PEAD/CATALYST entries). The validation
+targets in the Backtest Validation Target section account for this — they are lower
+bounds, not ceilings.
 
 ---
 
@@ -784,7 +1171,13 @@ Existing test files extended (no new files except `test_tpsl_params.py`):
 Under `# ── Plan: Profitability Audit ──` in `config.py`:
 
 ```python
-# New constant
+# New constants — Track 0 (CATALYST mode)
+CATALYST_SETTLE_MINUTES   = 30     # min after event before CATALYST entries open
+CATALYST_WINDOW_MINUTES   = 120    # post_event_window lookback; CATALYST expires after this
+CATALYST_ETF_MIN_MOVE_PCT = 0.5    # sub-sector ETF must move ≥ this % to confirm direction
+CATALYST_MAX_POSITIONS    = 2      # max simultaneous CATALYST-mode open positions
+
+# New constants — Track 4 (intraday staleness)
 INTRADAY_NEWS_STALE_MINUTES = 45
 
 # Retired — documentation only; replaced by TPSLParams table in regime_params.py
@@ -795,6 +1188,9 @@ INTRADAY_NEWS_STALE_MINUTES = 45
 # SWING_PROFIT_LOCK_* → per (regime, tier) profit_lock_pct in SWING rows
 # SWING_MIN_PNL_*     → per (regime, tier) min_pnl_pct in SWING rows
 # BACKTEST_SWING_MAX_DAYS → per (regime, tier) max_days in SWING rows
+
+# Retired — replaced by EntryParams.max_position_pct in regime_params.py
+# (was HYBRID=3%, SHORT_TERM=2.5% in trading/modes.py::_MODE_MAX_PCT)
 ```
 
 ---
@@ -803,23 +1199,33 @@ INTRADAY_NEWS_STALE_MINUTES = 45
 
 | File | Change |
 |------|--------|
-| `utils/regime_params.py` | Add `TPSLParams`, `_dt/_pd/_sw`, `_DISABLED_COMBOS`, `_TPSL_TABLE`, `get_tp_sl_params()`. Export `REGIMES/TIERS/MODES`. Strip `SwingParams` to `eligible` only. Delete `get_effective_profit_lock()`. |
+| `utils/regime_params.py` | Add `TPSLParams`, `_dt/_pd/_sw/_cl`, `_DISABLED_COMBOS` (updated), `_TPSL_TABLE` (144 entries), `get_tp_sl_params()`. Export `REGIMES/TIERS/MODES`. Add `max_position_pct` to `EntryParams`. Strip `SwingParams` to `eligible` only. Delete `get_effective_profit_lock()`. |
+| `utils/ticker_quality.py` | Extend `derive_mode()` to 5-mode taxonomy (`catalyst_active` param). Restore `mode` param in `_compute_unlocks()`. Add `_is_fresh()` helper + intraday staleness guard. |
+| `signals/entry_gates.py` | Add `is_catalyst_active(symbol, snap)` pure gate (Rule 33). |
 | `signals/tp_scaler.py` | Add `mode` param to `compute_tp_sl()`. Remove global floor/ceiling clamp. Use `TPSLParams.clamp_tp/clamp_sl`. |
+| `trading/cycle_context.py` | Add `post_event_window: tuple \| None` field to `CycleSnapshot`. |
+| `trading/cycle.py` | Populate `snap.post_event_window` from `get_post_event_window(now)` each cycle. |
+| `trading/pre_claude_filter.py` | Add `catalyst_active` param. Call `derive_mode()` instead of hardcoding `"DAY_TRADE"`. Pass derived mode to `compute_ticker_quality()`. |
+| `trading/pipeline.py` | Compute `catalyst_active = is_catalyst_active(symbol, snap)` per symbol. Pass to `apply_pre_claude_filter()`. |
+| `trading/executor.py` | Replace `get_active_mode()` with `derive_mode()`. Add CATALYST position limit check. Write `mode` + `atr_pct` to position on open. Remove `get_sl_tp_for_mode_and_regime()` call — replaced by `compute_tp_sl()`. |
+| `trading/position_sizer.py` | Replace `_MODE_MAX_PCT.get(mode)` with `get_entry_params(regime).max_position_pct`. Remove `mode` from `compute_position_size_for_mode()` signature. |
+| `trading/claude_caller.py` | Replace `get_active_mode()` call with `derive_mode()`. |
 | `trading/swing_manager.py` | Replace `get_swing_params()` + unlock logic with `get_tp_sl_params()`. Use `p.max_days` at promotion. |
-| `trading/executor.py` | Write `mode` + `atr_pct` to position on open. |
 | `trading/journal.py` | Propagate `mode` + `atr_pct` to `daily_closed.json` on close. |
 | `trading/context_builder.py` | Add concentration, entry countdown, flash-crash to `build_dynamic_user_context`. |
+| `trading/modes.py` | **DELETE** — all responsibilities migrated (see Track 0.8). |
+| `macro/economic_calendar.py` | Add `get_post_event_window(now, lookback_minutes)` function. |
 | `learning/trade_analysis.py` | Add `_aggregate_by_tier()`. Replace `weekday % 3` with `_most_constrained_param()`. |
 | `learning/agent.py` | Pass `tier_agg` + `force_close_rate` to Step 1 prompt. |
 | `research/agent.py` | Add `_fetch_daily_bars_for_cap_check()` + `_score_capitulation_candidate()`. |
-| `utils/ticker_quality.py` | Add `_is_fresh()` helper + intraday staleness guard in `compute_ticker_quality()`. |
-| `backtest/simulator.py` | `_BacktestSnap` with `cached_property` sentiment priors. Delete `_build_quality_map()`. Per-bar quality in entry loop. T2 CHOPPY unlock check. |
-| `config.py` | Add `INTRADAY_NEWS_STALE_MINUTES`. Retire global TP/SL/swing constants to doc comments. |
-| `tests/test_tpsl_params.py` | CREATE — 108-entry parametrised smoke tests using `REGIMES/TIERS/MODES` as single SoT. |
+| `backtest/simulator.py` | `_BacktestSnap` with `cached_property` sentiment priors. Delete `_build_quality_map()`. Per-bar quality with `pead_ok=False, catalyst_active=False` (see 5.4). T2 CHOPPY unlock check. |
+| `config.py` | Add `CATALYST_*` constants, `INTRADAY_NEWS_STALE_MINUTES`. Retire global TP/SL/swing/mode constants to doc comments. |
+| `tests/test_tpsl_params.py` | CREATE — 144-entry parametrised smoke tests using `REGIMES/TIERS/MODES` as single SoT. |
+| `tests/test_catalyst.py` | CREATE — `is_catalyst_active()`, `derive_mode()` 5-mode, `get_post_event_window()`, CATALYST TPSLParams disabled combos. |
 | `tests/test_backtest_simulator.py` | Extend — per-bar quality, dynamic max_days, T2 unlock. |
 | `tests/test_swing.py` | Extend — profit_lock/min_pnl from table. |
 | `tests/test_learning.py` | Extend — tier aggregation, constrained param selection. |
-| `tests/test_pipeline.py` | Extend — `compute_tp_sl` mode param, context builder additions. |
+| `tests/test_pipeline.py` | Extend — `compute_tp_sl` mode param, context builder additions, CATALYST filter path. |
 
 ---
 
