@@ -431,14 +431,12 @@ class TestSwingManagerOrchestration:
         assert ok is True
 
     @pytest.mark.unit
-    def test_eod_hold_min_pnl_uses_swing_params(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 1.0)  # stricter than default 0.5
+    def test_eod_hold_min_pnl_uses_swing_params(self):
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", regime="NORMAL",
             earnings_tomorrow=False,
-            current_pnl_pct=0.5,   # below patched 1.0 threshold
+            current_pnl_pct=0.3,   # below default 0.5 threshold
             entry_sector_sentiment=20.0,
             current_sector_sentiment=15.0,
             consecutive_red_days=0,

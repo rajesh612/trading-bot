@@ -71,14 +71,14 @@ _CRISIS_SWING = SwingParams(False, _SENTINEL, _SENTINEL, 0.0, 0.0, 0.0)
 
 def _swing_table() -> dict[str, SwingParams]:
     return {
-        "NORMAL":         SwingParams(True,  config.SWING_MIN_PNL_NORMAL,           config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
-        "BULL_TREND":     SwingParams(True,  config.SWING_MIN_PNL_BULL,             config.SWING_PROFIT_LOCK_BULL,      config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
-        "OPPORTUNITY":    SwingParams(True,  config.SWING_MIN_PNL_NORMAL,           config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
-        "CRASH_RECOVERY": SwingParams(True,  config.SWING_MIN_PNL_CRASH,            config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
-        "CAPITULATION":   SwingParams(True,  config.SWING_MIN_PNL_PCT_CAPITULATION, _SENTINEL,                          config.SWING_TP1_PCT_CAPITULATION, config.SWING_TP2_PCT_CAPITULATION, config.SWING_SL_PCT_CAPITULATION),
-        "CHOPPY":         SwingParams(False, config.SWING_MIN_PNL_NORMAL,           config.SWING_PROFIT_LOCK_NORMAL,    config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
-        "DEFENSIVE":      SwingParams(False, config.SWING_MIN_PNL_NORMAL,           config.SWING_PROFIT_LOCK_DEFENSIVE, config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
-        "HIGH_VOL":       SwingParams(False, config.SWING_MIN_PNL_NORMAL,           config.SWING_PROFIT_LOCK_DEFENSIVE, config.SWING_TP1_PCT,             config.SWING_TP2_PCT,             config.SWING_OVERNIGHT_SL_PCT),
+        "NORMAL":         SwingParams(True,  0.5,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "BULL_TREND":     SwingParams(True,  0.3,  2.0, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "OPPORTUNITY":    SwingParams(True,  0.5,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "CRASH_RECOVERY": SwingParams(True,  1.0,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "CAPITULATION":   SwingParams(True,  -5.0, _SENTINEL, 10.0, 20.0, config.SWING_SL_PCT_CAPITULATION),
+        "CHOPPY":         SwingParams(False, 0.5,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "DEFENSIVE":      SwingParams(False, 0.5,  3.0, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "HIGH_VOL":       SwingParams(False, 0.5,  3.0, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
         "CRISIS":         _CRISIS_SWING,
     }
 

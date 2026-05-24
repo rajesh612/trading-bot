@@ -12,18 +12,16 @@ def test_compute_atr_tp_pct_normal():
 
 
 @pytest.mark.unit
-def test_compute_atr_tp_pct_floor(monkeypatch):
-    """Very low ATR → clamped to ATR_TP_FLOOR_PCT."""
-    monkeypatch.setattr(config, "ATR_TP_FLOOR_PCT", 1.5)
+def test_compute_atr_tp_pct_floor():
+    """Very low ATR → clamped to hardcoded floor of 3.0."""
     from signals.atr_tp import compute_atr_tp_pct
     result = compute_atr_tp_pct(atr=0.05, price=100.0, multiplier=2.0)
-    assert result == 1.5
+    assert result == 3.0
 
 
 @pytest.mark.unit
-def test_compute_atr_tp_pct_ceiling(monkeypatch):
-    """Very high ATR → clamped to ATR_TP_CEILING_PCT."""
-    monkeypatch.setattr(config, "ATR_TP_CEILING_PCT", 12.0)
+def test_compute_atr_tp_pct_ceiling():
+    """Very high ATR → clamped to hardcoded ceiling of 12.0."""
     from signals.atr_tp import compute_atr_tp_pct
     result = compute_atr_tp_pct(atr=10.0, price=50.0, multiplier=2.0)
     assert result == 12.0
@@ -31,10 +29,10 @@ def test_compute_atr_tp_pct_ceiling(monkeypatch):
 
 @pytest.mark.unit
 def test_compute_atr_tp_pct_zero_price():
-    """Zero price must not raise ZeroDivisionError — returns floor."""
+    """Zero price must not raise ZeroDivisionError — returns floor (3.0)."""
     from signals.atr_tp import compute_atr_tp_pct
     result = compute_atr_tp_pct(atr=1.0, price=0.0, multiplier=2.0)
-    assert result == config.ATR_TP_FLOOR_PCT
+    assert result == 3.0
 
 
 @pytest.mark.unit

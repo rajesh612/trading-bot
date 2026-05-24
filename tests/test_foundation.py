@@ -719,17 +719,13 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert "DEFENSIVE" in reason
 
     @pytest.mark.unit
-    def test_normal_min_pnl_gate_blocks_below_threshold(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 0.5)
+    def test_normal_min_pnl_gate_blocks_below_threshold(self):
         ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.3)
         assert not ok
         assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
-    def test_normal_passes_at_min_pnl_threshold(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_NORMAL", 0.5)
+    def test_normal_passes_at_min_pnl_threshold(self):
         ok, _ = self._call(regime="NORMAL", current_pnl_pct=0.5)
         assert ok
 
@@ -751,9 +747,7 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert ok
 
     @pytest.mark.unit
-    def test_bull_trend_relaxed_min_pnl_threshold(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_BULL", 0.3)
+    def test_bull_trend_relaxed_min_pnl_threshold(self):
         ok_at_0_3, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.3)
         ok_at_0_2, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.2)
         assert ok_at_0_3
@@ -775,9 +769,7 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert ok
 
     @pytest.mark.unit
-    def test_capitulation_wider_ptj_threshold(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "SWING_MIN_PNL_PCT_CAPITULATION", -5.0)
+    def test_capitulation_wider_ptj_threshold(self):
         ok_at_minus_4_9, _ = self._call(regime="CAPITULATION", current_pnl_pct=-4.9)
         ok_at_minus_5_1, _ = self._call(regime="CAPITULATION", current_pnl_pct=-5.1)
         assert ok_at_minus_4_9
@@ -1184,10 +1176,8 @@ class TestTierBasedSwingPromotion:
         assert lock == pytest.approx(1.0)
 
     @pytest.mark.unit
-    def test_medium_quality_choppy_uses_default_profit_lock(self, monkeypatch):
-        import config
+    def test_medium_quality_choppy_uses_default_profit_lock(self):
         from signals.entry_gates import get_effective_profit_lock
-        monkeypatch.setattr(config, "SWING_PROFIT_LOCK_NORMAL", 2.5)
         quality = self._medium_quality()
         lock = get_effective_profit_lock("CHOPPY", quality)
         assert lock == pytest.approx(2.5)

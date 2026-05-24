@@ -46,7 +46,7 @@ def compute_tp_sl(
     Compute final TP and SL percentages adjusted for time of day and ticker tier.
 
     Tier multipliers are only applied in safe (non-defensive) regimes.
-    TP is clamped to [ATR_TP_FLOOR_PCT, ATR_TP_CEILING_PCT].
+    TP is clamped to [3.0, 12.0].
     SL is clamped to [2.0, 5.0].
     """
     time_mult = compute_time_multiplier(entry_time)
@@ -56,6 +56,6 @@ def compute_tp_sl(
     tp = base_tp * time_mult * tier_tp
     sl = base_sl * tier_sl
 
-    tp = max(config.ATR_TP_FLOOR_PCT, min(config.ATR_TP_CEILING_PCT, tp))
+    tp = max(3.0, min(12.0, tp))
     sl = max(2.0, min(5.0, sl))
     return round(tp, 2), round(sl, 2)

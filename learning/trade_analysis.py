@@ -195,8 +195,7 @@ def _tune_atr_tp_multiplier(trades: list[dict]) -> float | None:
     for mult in _ATR_TP_GRID:
         pnl_series = []
         for t in annotated:
-            sim_tp = max(config.ATR_TP_FLOOR_PCT,
-                         min(config.ATR_TP_CEILING_PCT, t["atr_pct"] * mult))
+            sim_tp = max(3.0, min(12.0, t["atr_pct"] * mult))
             actual = t["pnl_pct"]
             pnl_series.append(sim_tp if actual >= sim_tp else actual)
 

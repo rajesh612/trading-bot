@@ -910,10 +910,9 @@ class TestDynamicGateParams:
         assert lock == pytest.approx(1.5)
 
     @pytest.mark.unit
-    def test_no_unlock_uses_default_profit_lock(self, monkeypatch):
+    def test_no_unlock_uses_default_profit_lock(self):
         from utils.ticker_quality import TickerQuality
         from signals.entry_gates import get_effective_profit_lock
-        monkeypatch.setattr(config, "SWING_PROFIT_LOCK_NORMAL", 2.5)
         quality = TickerQuality("HIGH", 67, frozenset(), (), {})
         lock = get_effective_profit_lock("CHOPPY", quality)
-        assert lock == pytest.approx(config.SWING_PROFIT_LOCK_NORMAL)
+        assert lock == pytest.approx(2.5)

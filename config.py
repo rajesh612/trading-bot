@@ -94,12 +94,8 @@ HIGH_VOL_POSITION_MULT   = 0.75  # Raised from 0.5 — capture recovery moves in
 
 SWING_MAX_POSITIONS        = 6    # max concurrent swing positions
 SHORT_TERM_MAX_POSITIONS   = 2    # max concurrent short-term positions
-SWING_TP1_PCT              = 5.0  # first TP tier % for normal swing holds
-SWING_TP2_PCT              = 10.0 # second TP tier % for normal swing holds
 SWING_SL_DEFAULT_PCT       = 7.0  # fallback SL % when position has no recorded stop
 SWING_OVERNIGHT_SL_PCT     = 3.0  # tighter SL for overnight gap risk
-SWING_TP1_PCT_CAPITULATION = 10.0 # first TP tier % in CAPITULATION regime
-SWING_TP2_PCT_CAPITULATION = 20.0 # second TP tier % in CAPITULATION regime
 SWING_SL_PCT_CAPITULATION  = 12.0 # stop-loss % in CAPITULATION regime
 
 # ── ENTRY GATES & TIMING ──────────────────────────────────────────────────────
@@ -218,15 +214,6 @@ EOD_FORCE_CLOSE_MINUTE = 55  # minute at which force_close_all() runs (ET)
 EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
 EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
-SWING_MIN_PNL_PCT_CAPITULATION = -5.0   # CAPITULATION: widest PTJ rule (SL is 12%)
-
-# ── Swing per-regime promotion thresholds ──────────────────────────────────
-SWING_MIN_PNL_NORMAL        = 0.5    # minimum EOD P&L to promote to swing in NORMAL/standard regimes
-SWING_MIN_PNL_BULL          = 0.3    # relaxed floor in BULL_TREND (uptrend provides cushion)
-SWING_MIN_PNL_CRASH         = 1.0    # tighter floor in CRASH_RECOVERY (fragile recovery)
-SWING_PROFIT_LOCK_NORMAL    = 2.5    # profit-lock bypass: promote in any non-CRISIS regime at this P&L
-SWING_PROFIT_LOCK_BULL      = 2.0    # relaxed bypass in BULL_TREND
-SWING_PROFIT_LOCK_DEFENSIVE = 3.0    # stricter bypass in HIGH_VOL/DEFENSIVE
 PROFIT_LOCK_SWING_PCT    = 2.5       # default/documentation anchor for profit-lock bypass threshold
 SWING_PROMOTE_MIN_PNL_PCT = 0.5     # default/documentation anchor for standard promotion min P&L
 SWING_SENTIMENT_MIN_NORMAL  = -20    # symbol sentiment floor for NORMAL swing promotion
@@ -274,8 +261,6 @@ CORRUPT_BACKUP_MAX_DAYS      = 3   # .corrupt.json backups useless after 3 days
 ATR_TP_MULT_DEFAULT = 2.5  # TP = ATR% × this multiplier; raised from 2.0 (avg win was ~1.7% vs 4% SL)
 ATR_TP_MULT_MIN     = 1.0  # learning agent lower bound
 ATR_TP_MULT_MAX     = 4.0  # learning agent upper bound
-ATR_TP_FLOOR_PCT    = 3.0  # TP never below 3.0% — matches new SL=3.0% for minimum 1:1 R:R
-ATR_TP_CEILING_PCT  = 12.0 # TP never above 12%
 
 METRICS_KEEP_LINES = 2000  # max lines kept in metrics.jsonl (≈ 55 trading days at ~36 cycles/day)
 
@@ -369,7 +354,6 @@ BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in si
 BACKTEST_SWING_COMPOSITE_MIN = 50.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
 BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
 BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY
-BACKTEST_SWING_MAX_DAYS          = 3     # conservative swing duration cap for backtests
 
 # ── Data Resilience ──────────────────────────────────────────────────────────
 DATA_RETRY_MAX                       = 3
@@ -401,3 +385,29 @@ DATA_WATCH_LIST_HEALTH_FILE          = STATE_DIR / "watch_list_health.json"
 # ── Dynamic Regime × Tier System ──────────────────────────────────────────────
 SUB_ETF_CONFIRM_MIN_03 = 0.3   # sub-sector ETF % floor for OPPORTUNITY/HIGH auto-execute
 SUB_ETF_CONFIRM_MIN_05 = 0.5   # sub-sector ETF % floor for OPPORTUNITY/CONVICTION auto-execute
+
+# ── Plan: Profitability Audit ──────────────────────────────────────────────────
+
+# Track 0 — CATALYST mode
+CATALYST_SETTLE_MINUTES     = 30     # min after event before CATALYST entries open
+CATALYST_WINDOW_MINUTES     = 120    # post_event_window lookback; expires after this
+CATALYST_ETF_MIN_MOVE_PCT   = 0.5   # sub-sector ETF must move >= this % to confirm
+CATALYST_MAX_POSITIONS      = 2     # max simultaneous CATALYST-mode open positions
+CATALYST_MIN_SURPRISE_SCORE = -0.1  # FRED surprise gate; negative still passes
+
+# Track 4 — intraday staleness
+INTRADAY_NEWS_STALE_MINUTES = 45
+
+# Track 6 — FRED signal enrichment
+FRED_CPI_TARGET_PCT              = 2.0    # Fed inflation target
+FRED_CPI_OBS_LOOKBACK            = 13     # CPIAUCSL observations for 12-month YoY
+FRED_YIELD_CURVE_SERIES          = "T10Y2Y"
+FRED_CREDIT_SPREAD_SERIES        = "BAMLH0A0HYM2"
+FRED_BREAKEVEN_SERIES            = "T10YIE"
+FRED_CLAIMS_SERIES               = "ICSA"
+FRED_YIELD_CURVE_INVERSION_THRESHOLD = 0.0   # T10Y2Y < 0 → inverted → DEFENSIVE
+FRED_CREDIT_SPREAD_RISK_OFF      = 500    # bps >= this → risk-off modifier -5
+FRED_BREAKEVEN_HIGH_THRESHOLD    = 3.0   # % breakeven > this → modifier -2
+FRED_CLAIMS_SPIKE_THRESHOLD      = 30000 # WoW initial claims increase >= this
+FRED_MODIFIER_MIN                = -15   # expanded clamp (was effectively ±8)
+FRED_MODIFIER_MAX                = 15

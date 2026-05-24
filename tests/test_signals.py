@@ -422,15 +422,13 @@ class TestSLTPRatio:
 
     @pytest.mark.unit
     def test_atr_tp_floor_is_3(self):
-        """ATR_TP_FLOOR_PCT must be >= STOP_LOSS_PCT to ensure positive R:R."""
-        assert config.ATR_TP_FLOOR_PCT >= config.STOP_LOSS_PCT
+        """ATR TP floor is hardcoded to 3.0 to ensure positive R:R vs STOP_LOSS_PCT."""
+        assert 3.0 >= config.STOP_LOSS_PCT
 
     @pytest.mark.unit
-    def test_compute_atr_tp_pct_respects_new_floor(self, monkeypatch):
-        """compute_atr_tp_pct never returns less than 3.0% with updated floor."""
+    def test_compute_atr_tp_pct_respects_new_floor(self):
+        """compute_atr_tp_pct never returns less than 3.0% (hardcoded floor)."""
         from signals.atr_tp import compute_atr_tp_pct
-        monkeypatch.setattr(config, "ATR_TP_FLOOR_PCT", 3.0)
-        monkeypatch.setattr(config, "ATR_TP_CEILING_PCT", 12.0)
         result = compute_atr_tp_pct(atr=0.01, price=100.0, multiplier=2.5)
         assert result == 3.0
 
@@ -571,13 +569,15 @@ class TestSLBlacklist:
 class TestBacktestSwingMaxDays:
     @pytest.mark.unit
     def test_backtest_swing_max_days_exists(self):
-        """BACKTEST_SWING_MAX_DAYS constant must exist and be 3."""
-        assert config.BACKTEST_SWING_MAX_DAYS == 3
+        """Backtest SWING_MAX_DAYS is 3 (hardcoded in simulator.py)."""
+        from backtest.simulator import SWING_MAX_DAYS
+        assert SWING_MAX_DAYS == 3
 
     @pytest.mark.unit
     def test_backtest_swing_max_days_shorter_than_live(self):
         """Backtest swing cap must be shorter than live SWING_MAX_DAYS."""
-        assert config.BACKTEST_SWING_MAX_DAYS < config.SWING_MAX_DAYS
+        from backtest.simulator import SWING_MAX_DAYS
+        assert SWING_MAX_DAYS < config.SWING_MAX_DAYS
 
 
 @pytest.mark.unit

@@ -13,4 +13,4 @@ def compute_atr_tp_pct(atr: float, price: float, multiplier: float) -> float:
     """
     atr_pct = (atr / price) * 100 if price > 0 else 0.0
     raw = atr_pct * multiplier
-    return max(config.ATR_TP_FLOOR_PCT, min(config.ATR_TP_CEILING_PCT, raw))
+    return max(3.0, min(12.0, raw))
