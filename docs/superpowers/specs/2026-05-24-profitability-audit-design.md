@@ -8,7 +8,7 @@
 ## Problem Statement
 
 Post-implementation audit of the regime×tier system (2026-05-21) against 30d backtest data
-reveals five structural gaps that suppress P&L regardless of signal quality:
+reveals six structural gaps that suppress P&L regardless of signal quality:
 
 | # | Gap | Measured cost |
 |---|-----|--------------|
@@ -17,6 +17,7 @@ reveals five structural gaps that suppress P&L regardless of signal quality:
 | P2 | `build_dynamic_user_context` missing spec-2.7 items | Claude decides TP/SL without knowing entry countdown, concentration, breadth |
 | P3 | Learning agent blind to tier/mode; ATR-TP tuning never activates | `atr_pct` field never written to journal; tier_agg never sent to Claude |
 | P4 | `_BacktestSnap` empty sentiment → all tiers biased LOW/MEDIUM | Quality scores miss 35/100 pts every bar; tier distribution unrepresentative |
+| P5 | `fred_cache` fetches 3 of 7 relevant series; CPI trend logic wrong; `requests.get()` violates Rule 4 | Regime mis-classified (inverted yield curve ignored); CATALYST surprise detection blind; sector headwinds miss ±5 quality pts |
 
 **Core finding:** Day trades are net −$1,240 across 95 trades; swing trades produce +$2,361
 across 42 trades. The P0 SL over-width (3% fixed vs practical 1.5–2%) alone explains most
@@ -26,7 +27,7 @@ of the day-trade drag.
 
 ## Architecture
 
-Six tracks with a unified mode taxonomy (Track 0) and `TPSLParams` (Track 1) as the shared
+Seven tracks with a unified mode taxonomy (Track 0) and `TPSLParams` (Track 1) as the shared
 foundation. All tracks extend the existing frozen-dataclass + table-function pattern in
 `regime_params.py`.
 
@@ -60,6 +61,16 @@ Track 5 ── Backtest fidelity
            └─ per-bar quality (not per-day)
            └─ T2 CHOPPY unlock check
            └─ PEAD/CATALYST known limitations documented
+
+Track 6 ── FRED signal enrichment (macro depth + CATALYST surprise detection)
+           └─ Expands fred_cache from 3 → 7 FRED series (yield curve, credit spread,
+              breakeven inflation, weekly claims)
+           └─ Fixes CPI trend logic to true 12-month YoY vs Fed 2% target
+           └─ Fixes requests.get() → module-level Session (Rule 4)
+           └─ Yield curve inversion (T10Y2Y < 0) → hard DEFENSIVE override in regime
+           └─ Credit spread (BAMLH0A0HYM2) added to macro health modifier
+           └─ FRED actual-vs-prior surprise score feeds CATALYST eligibility gate
+           └─ Rate-sensitive sector headwind/tailwind weights in quality scoring
 ```
 
 ---
@@ -1072,6 +1083,292 @@ bounds, not ceilings.
 
 ---
 
+## Track 6 — FRED Signal Enrichment
+
+**Problem:** `macro/fred_cache.py` fetches only 3 FRED series (DFF, CPIAUCSL, UNRATE) and
+collapses them into a ±8 scalar modifier. Three structural bugs suppress its value:
+1. `requests.get()` used directly — violates Rule 4/5 (no session, no backoff).
+2. CPI trend compares `cpi[0] > cpi[2] * 1.01` (2-month delta, `limit=3`) instead of
+   12-month YoY vs the Fed's 2% target — mislabels "stable" as "rising" after one hot month.
+3. Four macro signals that directly affect regime and CATALYST eligibility are absent:
+   T10Y2Y (yield curve), BAMLH0A0HYM2 (HY credit spread), T10YIE (breakeven inflation),
+   ICSA (weekly jobless claims).
+
+### 6.1 Expanded FRED Series
+
+`refresh_fred_cache()` fetches 7 series (was 3):
+
+| Series | Meaning | Key threshold |
+|--------|---------|--------------|
+| `DFF` | Fed funds rate | cutting / paused / hiking (existing) |
+| `CPIAUCSL` | CPI all-items | 12-month YoY vs 2% Fed target (fixed) |
+| `UNRATE` | Unemployment rate | MoM ≥ +0.3% → rising (existing) |
+| `T10Y2Y` | 10y−2y yield spread | < 0 → inverted → hard DEFENSIVE override |
+| `BAMLH0A0HYM2` | HY credit spread (bps) | ≥ 500 → risk-off → health modifier −5 |
+| `T10YIE` | 10y breakeven inflation | > 3.0% → real rate pressure → modifier −2 |
+| `ICSA` | Weekly initial jobless claims | WoW spike ≥ 30k → labor weakening → modifier −2 |
+
+`fred_cache.json` gains new top-level keys:
+
+```python
+{
+  "fed_funds_rate":         float | None,
+  "fed_direction":          "cutting" | "hiking" | "paused" | "unknown",
+  "cpi_yoy_pct":            float | None,   # NEW — true 12-month YoY
+  "cpi_vs_target":          "above" | "at" | "below",   # NEW — vs 2% Fed target
+  "unemployment_rising":    bool,
+  "yield_curve_inverted":   bool,            # NEW — T10Y2Y < 0
+  "yield_curve_spread":     float | None,    # NEW — raw spread in %
+  "credit_spread_bps":      float | None,    # NEW — BAMLH0A0HYM2 in bps
+  "credit_spread_risk_off": bool,            # NEW — ≥ FRED_CREDIT_SPREAD_RISK_OFF bps
+  "breakeven_inflation":    float | None,    # NEW — T10YIE
+  "claims_spike":           bool,            # NEW — WoW increase ≥ FRED_CLAIMS_SPIKE_THRESHOLD
+  "fred_modifier":          int,             # expanded range ±15 (was ±8)
+  "updated_at":             str,
+}
+```
+
+### 6.2 Fixed CPI Trend (12-Month YoY)
+
+Current bug:
+```python
+# Wrong — only 2-month delta with limit=3
+cpi = _fetch("CPIAUCSL")   # returns 3 observations
+if cpi[0] > cpi[2] * 1.01:  # compares month-0 vs month-2
+    cpi_trend = "rising"
+```
+
+Fix — fetch 13 observations (12-month comparison):
+```python
+def _fetch_n(series_id: str, n: int) -> list[float]:
+    ...params_common..., "limit": str(n), ...
+
+cpi = _fetch_n("CPIAUCSL", 13)   # monthly; index 0 = most recent, index 12 = 12 months ago
+if len(cpi) >= 13:
+    cpi_yoy_pct = (cpi[0] / cpi[12] - 1) * 100
+    if cpi_yoy_pct > config.FRED_CPI_TARGET_PCT + 0.5:   # > 2.5% → above
+        cpi_vs_target = "above"
+    elif cpi_yoy_pct < config.FRED_CPI_TARGET_PCT - 0.5: # < 1.5% → below
+        cpi_vs_target = "below"
+    else:
+        cpi_vs_target = "at"
+```
+
+### 6.3 Rule 4 Compliance — Module-Level Session
+
+Current violation: `requests.get(base, ...)` called inside the function body each time.
+
+Fix: replace with a module-level `requests.Session` and retry logic consistent with Rule 5:
+
+```python
+_FRED_SESSION: requests.Session | None = None
+
+def _get_fred_session() -> requests.Session:
+    global _FRED_SESSION
+    if _FRED_SESSION is None:
+        _FRED_SESSION = requests.Session()
+        _FRED_SESSION.headers["Accept"] = "application/json"
+    return _FRED_SESSION
+
+def _fetch_n(series_id: str, n: int) -> list[float]:
+    sess = _get_fred_session()
+    for attempt in range(3):
+        try:
+            resp = sess.get(base, params={...}, timeout=10)
+            resp.raise_for_status()
+            ...
+        except requests.HTTPError as exc:
+            if exc.response.status_code == 429 and attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            logger.warning(f"FRED fetch {series_id}: {exc}")
+            return []
+    return []
+```
+
+### 6.4 Expanded `fred_modifier` Computation
+
+The modifier feeds directly into `macro/regime.py` health scoring. Expanded range ±15:
+
+| Signal | Condition | Modifier |
+|--------|-----------|---------|
+| Fed direction | cutting | +5 |
+| Fed direction | hiking | −5 |
+| CPI vs target | above (>2.5% YoY) | −3 (was folded into hiking) |
+| CPI vs target | below (<1.5% YoY) | +2 (deflation risk) |
+| Yield curve | inverted (T10Y2Y < 0) | −4 |
+| Credit spread | risk-off (≥500 bps) | −5 |
+| Breakeven inflation | > 3.0% | −2 |
+| Unemployment | rising (MoM ≥ +0.3%) | −3 |
+| Jobless claims | spike (WoW ≥ 30k) | −2 |
+
+Modifier is clamped to [−15, +15]. `load_fred_modifier()` API is unchanged — callers
+get the same `int`, now wider range.
+
+### 6.5 Yield Curve Hard Override in Regime Classification
+
+When `yield_curve_inverted=True`, `macro/regime.py` must emit DEFENSIVE (or escalate
+DEFENSIVE → CRISIS if VIX ≥ 30 simultaneously). This is a hard override — not a soft
+modifier — because an inverted yield curve historically precedes recession with >80%
+accuracy over 12–18 months. Entering BULL_TREND positions while yield curve is inverted
+is a structural contradiction.
+
+Implementation in `macro/regime.py`:
+
+```python
+def _apply_fred_overrides(regime: str, fred_cache: dict) -> str:
+    """Apply hard regime overrides from FRED signals."""
+    if fred_cache.get("yield_curve_inverted") and regime not in ("CRISIS", "CAPITULATION"):
+        # Inverted curve → at minimum DEFENSIVE; if VIX is also high → CRISIS
+        if regime in ("BULL_TREND", "OPPORTUNITY"):
+            return "DEFENSIVE"
+        # Already in CHOPPY/DEFENSIVE/CRASH_RECOVERY — hold, don't downgrade further
+    return regime
+```
+
+`fetch_macro_regime()` calls `_apply_fred_overrides(raw_regime, load_fred_cache())` after
+computing the primary regime from VIX/SPY/SOXX/QQQ/WTI/TNX/Gold/DXY signals.
+
+`load_fred_cache()` is a new helper (parallel to `load_fred_modifier()`):
+
+```python
+def load_fred_cache() -> dict:
+    return load_json(config.FRED_CACHE_FILE, {})
+```
+
+### 6.6 CATALYST Surprise Detection
+
+CATALYST entries are strongest when an economic event **surprised** the market (actual vs
+consensus). The `fred_cache.json` contains actual prints for CPI, unemployment, and jobless
+claims. The economic calendar already stores the scheduled event type.
+
+New helper in `macro/economic_calendar.py`:
+
+```python
+def get_catalyst_surprise_score(event_type: str) -> float:
+    """Return −1.0 to +1.0 surprise magnitude from FRED actual vs prior.
+
+    > 0 = bullish surprise (lower CPI, lower claims, lower unemployment)
+    < 0 = bearish surprise
+    0   = no data or neutral
+    """
+    cache = load_fred_cache()
+    if event_type == "CPI":
+        yoy = cache.get("cpi_yoy_pct")
+        if yoy is None: return 0.0
+        # > 2.5% is a bearish surprise (hotter than expected); < 1.5% is bullish
+        if yoy > config.FRED_CPI_TARGET_PCT + 0.5: return -min(1.0, (yoy - 2.5) / 2.0)
+        if yoy < config.FRED_CPI_TARGET_PCT - 0.5: return min(1.0, (1.5 - yoy) / 1.5)
+    if event_type in ("NFP", "JOBS"):
+        return -0.5 if cache.get("unemployment_rising") else 0.3
+    if event_type == "JOBLESS_CLAIMS":
+        return -0.5 if cache.get("claims_spike") else 0.2
+    return 0.0
+```
+
+`is_catalyst_active()` (Rule 33) gains an optional `min_surprise` check:
+
+```python
+def is_catalyst_active(symbol: str, snap: "CycleSnapshot") -> bool:
+    window = snap.post_event_window
+    if window is None: return False
+    event_dict, elapsed_min = window
+    if elapsed_min < config.CATALYST_SETTLE_MINUTES: return False
+    sub_etf = get_sub_sector_etf(symbol)
+    etf_chg = snap.sector_etf_cache.get(sub_etf, 0.0)
+    if abs(etf_chg) < config.CATALYST_ETF_MIN_MOVE_PCT: return False
+    # Optional: strengthen gating with FRED surprise score (non-blocking — 0.0 passes)
+    surprise = snap.catalyst_surprise_score   # pre-fetched on CycleSnapshot
+    if surprise < config.CATALYST_MIN_SURPRISE_SCORE: return False
+    return True
+```
+
+`CycleSnapshot` gains `catalyst_surprise_score: float = 0.0`. `cycle.py` fetches it once:
+```python
+snap.catalyst_surprise_score = get_catalyst_surprise_score(
+    event_dict.get("type", "") if snap.post_event_window else ""
+)
+```
+
+`CATALYST_MIN_SURPRISE_SCORE = -0.1` (default) — negative values still pass; this blocks
+only the "soft CATALYST" case where the event was genuinely in-line with expectations and
+the sector ETF move was noise-driven.
+
+### 6.7 Rate-Sensitive Sector Headwind/Tailwind in Quality Scoring
+
+Some sectors systematically benefit or suffer from the current FRED regime:
+
+| Sector ETF | Rate regime | Effect on quality | Logic |
+|-----------|------------|------------------|-------|
+| XLF (banks) | hiking | +3 pts | Net interest margin expands |
+| XLU (utilities) | hiking | −4 pts | Dividend yield uncompetitive vs bonds |
+| XLRE (real estate) | hiking | −4 pts | Mortgage cost + cap rate compression |
+| XLP (staples) | cutting | +2 pts | Defensive rotation into rate cuts |
+| XLK (tech) | cutting | +3 pts | Duration assets benefit from lower discount rate |
+| XLY (consumer disc) | cutting | +2 pts | Consumer credit loosens |
+| XLE (energy) | above-CPI | +3 pts | Commodity inflation tailwind |
+| GLD-proxy | inverted curve | +3 pts | Safe-haven demand |
+
+Implementation in `utils/ticker_quality.py`:
+
+```python
+def _score_sector_fred(sub_etf: str, fred_cache: dict) -> tuple[int, str | None]:
+    """Max 5 pts — FRED macro headwind/tailwind for sub-sector ETF."""
+    if not sub_etf or not fred_cache:
+        return 0, None
+
+    direction = fred_cache.get("fed_direction", "unknown")
+    inverted   = fred_cache.get("yield_curve_inverted", False)
+    cpi_above  = fred_cache.get("cpi_vs_target") == "above"
+
+    TAILWINDS: dict[str, int] = {
+        "XLF": 3 if direction == "hiking" else 0,
+        "XLU": -4 if direction == "hiking" else 0,
+        "XLRE": -4 if direction == "hiking" else 0,
+        "XLP": 2 if direction == "cutting" else 0,
+        "XLK": 3 if direction == "cutting" else 0,
+        "XLY": 2 if direction == "cutting" else 0,
+        "XLE": 3 if cpi_above else 0,
+    }
+    pts_raw = TAILWINDS.get(sub_etf, 2 if inverted and sub_etf in ("GLD",) else 0)
+    pts = max(0, min(5, pts_raw))   # clamp negative signals to 0; cap at 5
+    gap = f"sector_fred_headwind({pts_raw})" if pts_raw < -1 else None
+    return pts, gap
+```
+
+`compute_ticker_quality()` gains a `fred_cache: dict = {}` parameter and calls
+`_score_sector_fred(sub_etf, fred_cache)`. Max points contribution: **5 pts** (additive,
+does not replace existing `_score_sub_etf` which scores intraday ETF movement).
+
+Total quality score max remains 100 (composite 25 + sentiment 20 + intraday 15 + sub_etf 15
++ pead 10 + earnings 10 + econ 5 → 100; sector_fred 5 pts replace the existing econ 5
+which was permanently hard-coded to `5 if not event_active else 0`).
+
+**Structural change:** rename `_score_econ(event_active)` → `_score_econ_and_fred()` which
+returns up to 5 pts from the combined signal:
+- `event_active=True` → 0 pts (existing)
+- `event_active=False` → sector_fred component (0–5 pts)
+
+This preserves the 100-pt ceiling and avoids score inflation.
+
+### 6.8 `load_fred_cache()` — Caller-Injected (Rule 15 Purity)
+
+`compute_ticker_quality()` must remain pure (no file I/O, Rule 15). `fred_cache` dict is
+fetched once per cycle by the caller and passed in:
+
+```python
+# In trading/cycle.py — once per cycle, before pipeline
+fred_cache = load_fred_cache()   # macro/fred_cache.py
+snap = CycleSnapshot(..., fred_cache=fred_cache)
+```
+
+`CycleSnapshot` gains `fred_cache: dict = field(default_factory=dict)`.
+
+`apply_pre_claude_filter()` passes `snap.fred_cache` to `compute_ticker_quality()`.
+`backtest/simulator.py` passes `{}` (no FRED data in historical simulation).
+
+---
+
 ## Python Design Principles Applied
 
 | Principle | Implementation |
@@ -1180,6 +1477,21 @@ CATALYST_MAX_POSITIONS    = 2      # max simultaneous CATALYST-mode open positio
 # New constants — Track 4 (intraday staleness)
 INTRADAY_NEWS_STALE_MINUTES = 45
 
+# New constants — Track 6 (FRED signal enrichment)
+FRED_CPI_TARGET_PCT             = 2.0    # Fed inflation target; YoY above/below threshold
+FRED_CPI_OBS_LOOKBACK           = 13     # CPIAUCSL observations for 12-month YoY
+FRED_YIELD_CURVE_SERIES         = "T10Y2Y"
+FRED_CREDIT_SPREAD_SERIES       = "BAMLH0A0HYM2"
+FRED_BREAKEVEN_SERIES           = "T10YIE"
+FRED_CLAIMS_SERIES              = "ICSA"
+FRED_YIELD_CURVE_INVERSION_THRESHOLD  = 0.0   # T10Y2Y < 0 → inverted → DEFENSIVE override
+FRED_CREDIT_SPREAD_RISK_OFF     = 500    # bps; ≥ this → risk-off modifier −5
+FRED_BREAKEVEN_HIGH_THRESHOLD   = 3.0   # % breakeven > this → real rate pressure modifier −2
+FRED_CLAIMS_SPIKE_THRESHOLD     = 30000 # WoW initial claims increase ≥ this → labor weakening
+FRED_MODIFIER_MIN               = -15   # expanded clamp (was effectively ±8)
+FRED_MODIFIER_MAX               = 15
+CATALYST_MIN_SURPRISE_SCORE     = -0.1  # FRED surprise gate; negative still passes
+
 # Retired — documentation only; replaced by TPSLParams table in regime_params.py
 # ATR_TP_FLOOR_PCT    = 3.0   → per (regime, tier, mode) tp_floor_pct
 # ATR_TP_CEILING_PCT  = 12.0  → per (regime, tier, mode) tp_ceiling_pct
@@ -1226,6 +1538,14 @@ INTRADAY_NEWS_STALE_MINUTES = 45
 | `tests/test_swing.py` | Extend — profit_lock/min_pnl from table. |
 | `tests/test_learning.py` | Extend — tier aggregation, constrained param selection. |
 | `tests/test_pipeline.py` | Extend — `compute_tp_sl` mode param, context builder additions, CATALYST filter path. |
+| `macro/fred_cache.py` | Expand to 7 series. Fix CPI 12-month YoY. Fix `requests.get()` → module-level `Session` (Rule 4). Add `load_fred_cache()` helper. Expand `fred_modifier` ±15. |
+| `macro/regime.py` | Add `_apply_fred_overrides()` — yield curve inversion hard DEFENSIVE override. Call after primary regime computation. |
+| `macro/economic_calendar.py` | Add `get_catalyst_surprise_score(event_type)` — FRED actual-vs-prior magnitude. |
+| `trading/cycle_context.py` | Add `fred_cache: dict` and `catalyst_surprise_score: float` fields to `CycleSnapshot`. |
+| `trading/cycle.py` | Fetch `fred_cache` once per cycle. Populate `snap.fred_cache` + `snap.catalyst_surprise_score`. |
+| `utils/ticker_quality.py` | Add `fred_cache` param to `compute_ticker_quality()`. Rename `_score_econ()` → `_score_econ_and_fred()`. Add `_score_sector_fred()`. |
+| `signals/entry_gates.py` | Add `CATALYST_MIN_SURPRISE_SCORE` check to `is_catalyst_active()` via `snap.catalyst_surprise_score`. |
+| `tests/test_fred.py` | CREATE — CPI YoY fix, yield curve inversion override, modifier range, surprise score, sector headwind/tailwind. |
 
 ---
 
