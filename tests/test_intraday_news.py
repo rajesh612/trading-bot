@@ -12,7 +12,7 @@ class TestLoadIntradayNews:
         from research.intraday import load_intraday_news
         with patch("research.intraday.config") as mc:
             mc.INTRADAY_NEWS_CACHE_FILE = tmp_path / "missing.json"
-            mc.INTRADAY_NEWS_STALE_MIN = 45
+            mc.INTRADAY_NEWS_STALE_MINUTES = 45
             result = load_intraday_news()
         assert result == {}
 
@@ -25,7 +25,7 @@ class TestLoadIntradayNews:
         cache_file.write_text(json.dumps(cache))
         with patch("research.intraday.config") as mc:
             mc.INTRADAY_NEWS_CACHE_FILE = cache_file
-            mc.INTRADAY_NEWS_STALE_MIN = 45
+            mc.INTRADAY_NEWS_STALE_MINUTES = 45
             result = load_intraday_news()
         assert result == {}
 
@@ -41,7 +41,7 @@ class TestLoadIntradayNews:
         cache_file.write_text(json.dumps(cache))
         with patch("research.intraday.config") as mc:
             mc.INTRADAY_NEWS_CACHE_FILE = cache_file
-            mc.INTRADAY_NEWS_STALE_MIN = 45
+            mc.INTRADAY_NEWS_STALE_MINUTES = 45
             result = load_intraday_news()
         assert result["NVDA"]["sentiment_score"] == 22
         assert "__updated_at" not in result  # meta key stripped

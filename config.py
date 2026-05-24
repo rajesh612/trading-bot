@@ -301,7 +301,6 @@ ECONOMIC_CALENDAR_HOUR   = 8
 ECONOMIC_CALENDAR_MINUTE = 20    # moved from 8:30 → 8:20 to avoid race with startup
 
 INTRADAY_NEWS_SHOCK_BLOCK = 60   # shock_score >= this → hard-block entry
-INTRADAY_NEWS_STALE_MIN   = 45   # cache older than this → treat as missing
 
 WATCH_LIST_RSI_FILTER       = 70 # exclude if RSI > this at 9 AM snapshot
 WATCH_LIST_STOCH_FILTER     = 80 # exclude if Stochastic %D > this at 9 AM snapshot

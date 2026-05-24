@@ -55,7 +55,7 @@ def load_intraday_news() -> dict:
             if updated.tzinfo is None:
                 updated = updated.replace(tzinfo=timezone.utc)
             age_min = (datetime.now(timezone.utc) - updated).total_seconds() / 60
-            if age_min > config.INTRADAY_NEWS_STALE_MIN:
+            if age_min > config.INTRADAY_NEWS_STALE_MINUTES:
                 logger.debug("Intraday news cache stale (%.0f min) — treating as missing.", age_min)
                 return {}
         except Exception:
