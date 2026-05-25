@@ -1,9 +1,8 @@
 # tests/test_tp_scaler.py
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
-import config
-from signals.tp_scaler import compute_tp_sl, compute_time_multiplier, TimeSlot
+from signals.tp_scaler import compute_tp_sl, compute_time_multiplier
 
 ET = ZoneInfo("America/New_York")
 
@@ -26,24 +25,28 @@ class TestTimeMultiplier:
 
 @pytest.mark.unit
 class TestComputeTpSl:
-    def test_normal_medium_full_slot(self):
-        tp, sl = compute_tp_sl(5.0, 3.0, _et(10, 30), "MEDIUM", "NORMAL")
-        assert tp == pytest.approx(5.0)   # no tier mult for MEDIUM
-        assert sl == pytest.approx(3.0)
-
-    def test_conviction_normal_full_slot_widens_tp(self):
-        tp, sl = compute_tp_sl(5.0, 3.0, _et(10, 30), "CONVICTION", "NORMAL")
-        assert tp == pytest.approx(5.0 * 1.20)
-        assert sl == pytest.approx(3.0 * 0.90)
+    def test_normal_medium_returns_clamped_tp(self):
+        tp, sl = compute_tp_sl(2.0, 1.5, _et(10, 30), "MEDIUM", "NORMAL")
+        # NORMAL/MEDIUM/DAY_TRADE: tp_floor=2.0, tp_ceiling=3.5, sl_floor=1.5, sl_ceiling=2.0, atr_mult=1.8
+        assert 2.0 <= tp <= 3.5
+        assert 1.5 <= sl <= 2.0
 
     def test_late_entry_tightens_tp(self):
-        tp, sl = compute_tp_sl(5.0, 3.0, _et(13, 0), "MEDIUM", "NORMAL")
-        assert tp == pytest.approx(5.0 * 0.80)
+        tp_early, _ = compute_tp_sl(2.5, 1.5, _et(10, 30), "MEDIUM", "NORMAL")
+        tp_late, _  = compute_tp_sl(2.5, 1.5, _et(14, 31), "MEDIUM", "NORMAL")
+        assert tp_late <= tp_early
 
-    def test_tp_clamped_to_floor(self):
-        tp, sl = compute_tp_sl(3.5, 3.0, _et(14, 31), "LOW", "CHOPPY")
-        assert tp == pytest.approx(3.0)   # 3.5 * 0.50 = 1.75 -> clamped to floor
+    def test_conviction_widens_tp_ceiling(self):
+        p_med = compute_tp_sl(3.0, 1.5, _et(10, 30), "MEDIUM", "NORMAL")
+        p_con = compute_tp_sl(3.0, 1.5, _et(10, 30), "CONVICTION", "NORMAL")
+        # CONVICTION allows higher ceiling (4.5) vs MEDIUM (3.5)
+        assert p_con[0] >= p_med[0]
 
-    def test_tier_mult_not_applied_in_choppy(self):
-        tp, sl = compute_tp_sl(5.0, 3.0, _et(10, 30), "CONVICTION", "CHOPPY")
-        assert tp == pytest.approx(5.0)   # no tier mult in CHOPPY
+    def test_crisis_raises(self):
+        with pytest.raises(ValueError):
+            compute_tp_sl(2.0, 1.5, _et(10, 30), "LOW", "CRISIS")
+
+    def test_sl_clamped_to_floor(self):
+        _, sl = compute_tp_sl(2.0, 0.1, _et(10, 30), "MEDIUM", "NORMAL")
+        # sl_floor for NORMAL/MEDIUM is 1.5
+        assert sl >= 1.5

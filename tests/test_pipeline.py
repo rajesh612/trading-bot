@@ -1076,3 +1076,43 @@ class TestDeriveMode:
     def test_pead_before_catalyst(self):
         from utils.ticker_quality import derive_mode
         assert derive_mode("AAPL", pead_ok=True, catalyst_active=True) == "PEAD"
+
+
+class TestComputeTpSlWithMode:
+    @pytest.mark.unit
+    def test_mode_param_accepted(self):
+        from signals.tp_scaler import compute_tp_sl
+        from datetime import datetime
+        from utils.constants import ET
+        tp, sl = compute_tp_sl(
+            base_tp=2.0, base_sl=1.5,
+            entry_time=datetime(2026, 5, 24, 10, 30, tzinfo=ET),
+            tier="MEDIUM", regime="NORMAL", mode="DAY_TRADE",
+        )
+        assert 1.5 <= tp <= 4.0   # within NORMAL/MEDIUM/DAY_TRADE TPSLParams bounds
+        assert 1.5 <= sl <= 2.0
+
+    @pytest.mark.unit
+    def test_swing_mode_uses_swing_table(self):
+        from signals.tp_scaler import compute_tp_sl
+        from datetime import datetime
+        from utils.constants import ET
+        tp, sl = compute_tp_sl(
+            base_tp=5.0, base_sl=2.0,
+            entry_time=datetime(2026, 5, 24, 10, 0, tzinfo=ET),
+            tier="CONVICTION", regime="BULL_TREND", mode="SWING",
+        )
+        # BULL_TREND/CONVICTION/SWING: tp_floor=7.0, tp_ceiling=12.0
+        assert 7.0 <= tp <= 12.0
+
+    @pytest.mark.unit
+    def test_disabled_combo_raises(self):
+        from signals.tp_scaler import compute_tp_sl
+        from datetime import datetime
+        from utils.constants import ET
+        with pytest.raises(ValueError):
+            compute_tp_sl(
+                base_tp=2.0, base_sl=1.5,
+                entry_time=datetime(2026, 5, 24, 10, 0, tzinfo=ET),
+                tier="LOW", regime="CRISIS", mode="DAY_TRADE",
+            )

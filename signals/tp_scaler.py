@@ -1,31 +1,17 @@
 """
-Time-aware + tier-adjusted TP/SL scaler — Rule 30 SoT for all TP/SL computation.
-Pure — no I/O.
+Time-aware TP/SL scaler — Rule 30 SoT for all TP/SL computation.
+Uses TPSLParams from regime_params. Pure — no I/O.
 """
 from __future__ import annotations
 from datetime import datetime
-from enum import Enum
 
 import config
-
-_SAFE_REGIMES = frozenset({"NORMAL", "BULL_TREND", "OPPORTUNITY", "CRASH_RECOVERY"})
-
-_TIER_TP_MULT = {"LOW": 1.00, "MEDIUM": 1.00, "HIGH": 1.10, "CONVICTION": 1.20}
-_TIER_SL_MULT = {"LOW": 1.00, "MEDIUM": 1.00, "HIGH": 0.95, "CONVICTION": 0.90}
-
-
-class TimeSlot(Enum):
-    FULL       = "FULL"
-    LATE       = "LATE"
-    TIGHT      = "TIGHT"
-    VERY_TIGHT = "VERY_TIGHT"
+from utils.regime_params import get_tp_sl_params
 
 
 def compute_time_multiplier(entry_time: datetime) -> float:
-    """Return a TP multiplier based on time of day (ET). Later entries get tighter targets."""
-    hour = entry_time.hour
-    minute = entry_time.minute
-    total_min = hour * 60 + minute
+    """Return a TP multiplier based on time of day (ET). Later = tighter."""
+    total_min = entry_time.hour * 60 + entry_time.minute
     if total_min < 12 * 60:
         return 1.00
     if total_min < 13 * 60 + 30:
@@ -41,21 +27,20 @@ def compute_tp_sl(
     entry_time: datetime,
     tier: str,
     regime: str,
+    mode: str = "DAY_TRADE",
 ) -> tuple[float, float]:
     """
-    Compute final TP and SL percentages adjusted for time of day and ticker tier.
+    Compute final TP% and SL% for an entry.
 
-    Tier multipliers are only applied in safe (non-defensive) regimes.
-    TP is clamped to [3.0, 12.0].
-    SL is clamped to [2.0, 5.0].
+    base_tp is the ATR-derived suggestion. The table's atr_mult replaces
+    the global ATR_TP_MULT_DEFAULT. Time-decay is applied after ATR scaling;
+    result is clamped to regime×tier×mode floor/ceiling, not global constants.
     """
+    p = get_tp_sl_params(regime, tier, mode)
+    if p.is_disabled:
+        raise ValueError(
+            f"compute_tp_sl called for disabled combo ({regime}, {tier}, {mode})"
+        )
     time_mult = compute_time_multiplier(entry_time)
-    tier_tp = _TIER_TP_MULT.get(tier, 1.0) if regime in _SAFE_REGIMES else 1.0
-    tier_sl = _TIER_SL_MULT.get(tier, 1.0) if regime in _SAFE_REGIMES else 1.0
-
-    tp = base_tp * time_mult * tier_tp
-    sl = base_sl * tier_sl
-
-    tp = max(3.0, min(12.0, tp))
-    sl = max(2.0, min(5.0, sl))
-    return round(tp, 2), round(sl, 2)
+    raw_tp    = base_tp * p.atr_mult * time_mult
+    return round(p.clamp_tp(raw_tp), 2), round(p.clamp_sl(base_sl), 2)

@@ -101,7 +101,7 @@ def _block_high(symbol, iv, snap, gate_result, quality, mode, entry_time,
     intra_sent = intra.get("sentiment_score", sentiment_score)
     # time-adjusted TP
     base_tp = atr_suggested_tp_pct or config.TAKE_PROFIT_PCT
-    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime)
+    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime, mode="DAY_TRADE")
     # sub-sector ETF
     try:
         from sectors import get_sub_sector_etf
@@ -139,7 +139,7 @@ def _block_conviction(symbol, iv, snap, gate_result, quality, mode, entry_time,
         return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
     price = iv.current_price
     base_tp = atr_suggested_tp_pct or config.TAKE_PROFIT_PCT
-    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime)
+    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime, mode="DAY_TRADE")
     # sub-sector ETF
     try:
         from sectors import get_sub_sector_etf
