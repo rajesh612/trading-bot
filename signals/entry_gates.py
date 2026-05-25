@@ -23,6 +23,7 @@ from signals.vwap_guard import passes_vwap_guard
 from signals.volume_guard import is_volume_weak
 from calendars.earnings import is_earnings_imminent
 from utils import regimes
+from sectors import get_sub_sector_etf
 from utils.regime_params import get_entry_params, get_gate_params
 from utils.ticker_quality import TickerQuality
 
@@ -231,6 +232,24 @@ def check_all_gates(
         flags.append(f"swing_news_weak({sentiment_score:.0f}<{config.SWING_NEWS_MIN_SCORE})")
 
     return GateResult(True, "", tuple(flags))
+
+
+def is_catalyst_active(symbol: str, snap) -> bool:
+    """Pure CATALYST gate (Rule 33). Returns True when event settled, sector confirms, surprise passes."""
+    window = snap.post_event_window
+    if window is None:
+        return False
+    event_dict, elapsed_min = window
+    if elapsed_min < config.CATALYST_SETTLE_MINUTES:
+        return False
+    sub_etf = get_sub_sector_etf(symbol)
+    etf_chg = snap.sector_etf_cache.get(sub_etf, 0.0)
+    if abs(etf_chg) < config.CATALYST_ETF_MIN_MOVE_PCT:
+        return False
+    surprise = getattr(snap, "catalyst_surprise_score", 0.0)
+    if surprise < config.CATALYST_MIN_SURPRISE_SCORE:
+        return False
+    return True
 
 
 def get_effective_profit_lock(regime: str, quality: TickerQuality | None) -> float:

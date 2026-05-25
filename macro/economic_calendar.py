@@ -200,6 +200,34 @@ def is_event_risk_window(now: datetime) -> tuple[bool, str]:
     return False, ""
 
 
+def get_post_event_window(
+    now: datetime,
+    lookback_minutes: int = 120,
+) -> tuple[dict, int] | None:
+    """Return (event, minutes_elapsed) for the most recent HIGH-impact event
+    that fired within the last lookback_minutes minutes, or None."""
+    from utils.io_utils import load_json
+    events = load_json(config.ECONOMIC_CALENDAR_FILE, {}).get("events", [])
+    now_et = now.astimezone(ET)
+    for event in sorted(events, key=lambda e: e.get("time", ""), reverse=True):
+        if event.get("impact") != "HIGH":
+            continue
+        try:
+            event_dt = datetime.fromisoformat(event["time"]).astimezone(ET)
+        except (KeyError, ValueError):
+            continue
+        elapsed = int((now_et - event_dt).total_seconds() / 60)
+        if 0 <= elapsed <= lookback_minutes:
+            return event, elapsed
+    return None
+
+
+def get_catalyst_surprise_score(event_type: str) -> float:
+    """Return -1.0 to +1.0 surprise magnitude. >0 = bullish, <0 = bearish, 0 = neutral/no data.
+    Stub — replaced by real implementation in Task 12."""
+    return 0.0
+
+
 if __name__ == "__main__":
     import logging as _l
     _l.basicConfig(level=_l.INFO)

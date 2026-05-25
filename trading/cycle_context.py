@@ -75,6 +75,11 @@ class CycleSnapshot:
     major_event_today: bool = False       # True if FOMC/CPI/NFP/PCE/JOLTS scheduled today
     sector_etf_cache: dict = field(default_factory=dict)
     # Maps sub_etf symbol (e.g. "SOXX") → intraday % change float
+    post_event_window: tuple | None = None
+    # (event_dict, elapsed_minutes) for most recent HIGH-impact event within
+    # CATALYST_WINDOW_MINUTES, or None. Populated once per cycle by cycle.py.
+    catalyst_surprise_score: float = 0.0
+    # Pre-fetched from get_catalyst_surprise_score(); 0.0 = no data or neutral.
 
 
 def build_cycle_snapshot(
@@ -133,6 +138,17 @@ def build_cycle_snapshot(
     except Exception:
         pass
 
+    _post_event_window = None
+    _catalyst_surprise = 0.0
+    try:
+        from macro.economic_calendar import get_post_event_window, get_catalyst_surprise_score
+        _post_event_window = get_post_event_window(datetime.now(ET))
+        if _post_event_window:
+            _event_dict, _ = _post_event_window
+            _catalyst_surprise = get_catalyst_surprise_score(_event_dict.get("type", ""))
+    except Exception:
+        pass
+
     return CycleSnapshot(
         regime_info=regime_info,
         regime=regime_info.get("regime", "NORMAL"),
@@ -148,4 +164,6 @@ def build_cycle_snapshot(
         sector_today=sector_today,
         advance_decline_ratio=advance_decline_ratio,
         major_event_today=major_event_today,
+        post_event_window=_post_event_window,
+        catalyst_surprise_score=_catalyst_surprise,
     )
