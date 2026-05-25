@@ -24,6 +24,7 @@ from trading import risk_manager
 from trading.closer import close_position
 from trading.executor import execute_buy
 from trading.pre_claude_filter import apply_pre_claude_filter, FilterResult
+from signals.entry_gates import is_catalyst_active
 from utils.ticker_quality import TickerQuality
 from utils.constants import ET
 
@@ -298,7 +299,9 @@ class TradingPipeline:
                 pnl_pct = (iv.current_price - _ep) / _ep * 100 if _ep > 0 else 0.0
                 logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
                 continue
-            filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed)
+            _catalyst_active = is_catalyst_active(symbol, snap)
+            filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed,
+                                           catalyst_active=_catalyst_active)
             quality_map[symbol] = filt.quality
             if filt.decision == "SKIP":
                 logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)

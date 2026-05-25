@@ -16,7 +16,7 @@ from indicators.values import IndicatorValues
 from trading.cycle_context import CycleSnapshot
 from signals.entry_gates import effective_composite_gate, GateResult
 from utils import regimes
-from utils.ticker_quality import TickerQuality, compute_ticker_quality
+from utils.ticker_quality import TickerQuality, compute_ticker_quality, derive_mode
 from utils.regime_params import get_filter_params, get_auto_execute_params, get_entry_params
 
 
@@ -38,20 +38,23 @@ def apply_pre_claude_filter(
     pead_ok: bool = False,
     pead_score: int = 0,
     event_active: bool = False,
+    catalyst_active: bool = False,
 ) -> FilterResult:
     """Pre-Claude filter with dynamic FilterParams per regime×tier and quality scoring.
 
     Computes TickerQuality first, then uses tier-adjusted thresholds via get_filter_params().
     """
+    mode = derive_mode(symbol, pead_ok, existing_swing_pos=False, catalyst_active=catalyst_active)
+
     # Layer 0 — Already closed today
     if daily_closed and symbol in daily_closed:
-        quality = compute_ticker_quality(symbol, iv, snap, "DAY_TRADE",
+        quality = compute_ticker_quality(symbol, iv, snap, mode,
                                          sub_etf_chg, earnings_clear_days,
                                          pead_ok, pead_score, event_active)
         return FilterResult("SKIP", "already closed today", quality)
 
     # Compute quality first — tier drives all subsequent thresholds
-    quality = compute_ticker_quality(symbol, iv, snap, "DAY_TRADE",
+    quality = compute_ticker_quality(symbol, iv, snap, mode,
                                      sub_etf_chg, earnings_clear_days,
                                      pead_ok, pead_score, event_active)
     fp = get_filter_params(snap.regime, quality.tier)

@@ -9,16 +9,9 @@ import logging
 import config
 from signals.sentiment_sizer import sentiment_size_multiplier
 from trading.journal import count_todays_losses
+from utils.regime_params import get_entry_params
 
 logger = logging.getLogger(__name__)
-
-# Mode-level max portfolio-fraction caps (mirrors _MODE_MAX_PCT in trading_agent)
-_MODE_MAX_PCT: dict[str, float] = {
-    "DAY_TRADE":  0.05,
-    "HYBRID":     0.03,
-    "SHORT_TERM": 0.025,
-    "PEAD":       0.025,
-}
 
 
 def _progressive_loss_multiplier(loss_count: int) -> float:
@@ -31,12 +24,12 @@ def compute_position_size_for_mode(
     portfolio_value: float,
     price: float,
     atr: float,
-    mode: str,
     bot_herding_score: int,
     squeeze_setup: bool,
+    regime: str = "NORMAL",
 ) -> int:
     """
-    Risk-based sizing capped by mode's max % of portfolio.
+    Risk-based sizing capped by regime's max_position_pct from EntryParams.
 
     Applies three successive multipliers:
     1. Bot-herding reduction (when herding is elevated but not a squeeze)
@@ -45,7 +38,7 @@ def compute_position_size_for_mode(
     """
     risk_amount    = portfolio_value * config.RISK_PER_TRADE_PCT
     shares_by_risk = risk_amount / (atr if atr > 0 else price * config.ATR_FALLBACK_PROXY_PCT)
-    max_pct        = _MODE_MAX_PCT.get(mode, config.MAX_POSITION_PCT)
+    max_pct        = get_entry_params(regime).max_position_pct
     shares_by_pct  = (portfolio_value * max_pct) / price
     qty = max(1.0, round(min(shares_by_risk, shares_by_pct)))
 

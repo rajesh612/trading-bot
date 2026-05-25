@@ -361,12 +361,11 @@ class TestAutoExecuteSoftFlagGuard:
         with patch("trading.executor.check_all_gates", return_value=soft_flag_gate), \
              patch("trading.executor.get_intraday_bars", return_value=None), \
              patch("trading.executor.load_json", return_value={}), \
-             patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
-             patch("trading.executor._MODE_POSITION_LIMITS", {}), \
+             patch("trading.executor.derive_mode", return_value="DAY_TRADE"), \
              patch("trading.executor.compute_position_size_for_mode", return_value=10), \
              patch("trading.executor.apply_regime_multiplier", return_value=10), \
              patch("trading.executor.apply_sentiment_multiplier", return_value=10), \
-             patch("trading.executor.get_sl_tp_for_mode_and_regime", return_value=(4.0, 5.0)), \
+             patch("signals.tp_scaler.compute_tp_sl", return_value=(5.0, 2.0)), \
              patch("trading.executor.append_trade"), \
              patch("trading.executor.save_json"), \
              patch("trading.executor.risk_manager.correct_bracket_after_fill", return_value=None), \
@@ -415,12 +414,11 @@ def test_auto_execute_not_blocked_by_mtf_unavailable():
     with patch("trading.executor.check_all_gates", return_value=gate), \
          patch("trading.executor.get_intraday_bars", return_value=None), \
          patch("trading.executor.load_json", return_value={}), \
-         patch("trading.executor.get_active_mode", return_value="DAY_TRADE"), \
-         patch("trading.executor._MODE_POSITION_LIMITS", {}), \
+         patch("trading.executor.derive_mode", return_value="DAY_TRADE"), \
          patch("trading.executor.compute_position_size_for_mode", return_value=10), \
          patch("trading.executor.apply_regime_multiplier", return_value=10), \
          patch("trading.executor.apply_sentiment_multiplier", return_value=10), \
-         patch("trading.executor.get_sl_tp_for_mode_and_regime", return_value=(4.0, 5.0)), \
+         patch("signals.tp_scaler.compute_tp_sl", return_value=(5.0, 2.0)), \
          patch("trading.executor.append_trade"), \
          patch("trading.executor.save_json"), \
          patch("trading.executor.risk_manager.correct_bracket_after_fill", return_value=None), \

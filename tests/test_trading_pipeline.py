@@ -389,7 +389,7 @@ def test_execute_buy_blocked_by_high_vol_composite_gate():
     with patch("trading.executor.get_intraday_bars", return_value=None), \
          patch("trading.executor.load_json", return_value=[]), \
          patch("trading.executor.check_all_gates", return_value=GateResult(passed=True)), \
-         patch("trading.executor.get_active_mode", return_value="DAY_TRADE"):
+         patch("trading.executor.derive_mode", return_value="DAY_TRADE"):
         result = execute_buy(
             symbol="TEST", iv=iv,
             decision={"action": "BUY", "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
@@ -979,8 +979,8 @@ def test_journal_stores_atr_pct(monkeypatch, tmp_path):
     monkeypatch.setattr("trading.executor.check_all_gates", lambda **kwargs: type("G", (), {"passed": True, "reason": "", "flags": []})())
     monkeypatch.setattr("trading.executor.effective_composite_gate", lambda iv, regime, params=None: 0)
     monkeypatch.setattr("trading.executor.get_intraday_bars", lambda *a, **kw: None)
-    monkeypatch.setattr("trading.executor.get_active_mode", lambda regime, sym: "DAY_TRADE")
-    monkeypatch.setattr("trading.executor.get_sl_tp_for_mode_and_regime", lambda mode, regime: (4.0, 5.0))
+    monkeypatch.setattr("trading.executor.derive_mode", lambda sym, pead_ok=False, existing_swing_pos=False, catalyst_active=False: "DAY_TRADE")
+    monkeypatch.setattr("signals.tp_scaler.compute_tp_sl", lambda **kw: (5.0, 2.0))
     monkeypatch.setattr("trading.executor.compute_position_size_for_mode", lambda *a, **kw: 10)
     monkeypatch.setattr("trading.executor.apply_regime_multiplier", lambda qty, mult: qty)
     monkeypatch.setattr("trading.executor.apply_sentiment_multiplier", lambda qty, sent: qty)

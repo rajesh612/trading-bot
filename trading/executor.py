@@ -17,7 +17,8 @@ from signals.entry_gates import check_all_gates, effective_composite_gate
 from signals.tp_scaler import compute_tp_sl
 from utils.ticker_quality import TickerQuality
 from trading.journal import _POSITIONS_LOCK, append_trade
-from trading.modes import get_active_mode, get_sl_tp_for_mode_and_regime, _MODE_POSITION_LIMITS
+from utils.ticker_quality import derive_mode
+from signals.entry_gates import is_catalyst_active
 from trading.position_sizer import (
     compute_position_size_for_mode,
     apply_regime_multiplier,
@@ -68,6 +69,8 @@ def execute_buy(
     major_event_today: bool = False,
     staleness_guard=None,
     quality: TickerQuality | None = None,
+    pead_ok: bool = False,
+    snap=None,
 ) -> dict | None:
     """
     Validate and place a single BUY order.
@@ -79,10 +82,12 @@ def execute_buy(
         logger.info("SKIP %s — VWAP slope %.3f%% < %.3f%% (downtrend).", symbol, iv.vwap_slope, vwap_slope_min)
         return None
 
-    mode = get_active_mode(regime, symbol)
-    if mode == "CASH":
-        logger.info("SKIP %s — CASH mode (CRISIS regime).", symbol)
+    if regime == "CRISIS":
+        logger.info("SKIP %s — CRISIS regime, no entries.", symbol)
         return None
+
+    _catalyst_active = is_catalyst_active(symbol, snap) if snap is not None else False
+    mode = derive_mode(symbol, pead_ok=pead_ok, existing_swing_pos=False, catalyst_active=_catalyst_active)
 
     # Per-fill daily-loss circuit breaker
     loss_warn_pct = -(config.DAILY_LOSS_WARN_PCT * 100)
@@ -96,10 +101,10 @@ def execute_buy(
     if daily_pnl_pct <= loss_warn_pct:
         telegram_notify.notify_daily_loss_warning(daily_pnl_pct, config.MAX_DAILY_LOSS_PCT * 100)
 
-    if mode in _MODE_POSITION_LIMITS:
-        count = sum(1 for p in open_positions.values() if p.get("mode_at_entry") == mode)
-        if count >= _MODE_POSITION_LIMITS[mode]:
-            logger.info("SKIP %s — %s at position limit (%d/%d)", symbol, mode, count, _MODE_POSITION_LIMITS[mode])
+    if mode == "CATALYST":
+        cat_count = sum(1 for p in open_positions.values() if p.get("mode_at_entry") == "CATALYST")
+        if cat_count >= config.CATALYST_MAX_POSITIONS:
+            logger.info("SKIP %s — CATALYST at position limit (%d/%d)", symbol, cat_count, config.CATALYST_MAX_POSITIONS)
             return None
 
     symbol_sentiment = research.get(symbol, {}).get("sentiment_score", 0)
@@ -151,13 +156,14 @@ def execute_buy(
         logger.info("SKIP %s — composite=%+.1f below effective gate %d (regime=%s)", symbol, iv.composite_score, eff_gate, regime)
         return None
 
-    qty = compute_position_size_for_mode(portfolio_value, iv.current_price, iv.atr, mode, iv.bot_herding_score, iv.squeeze_setup)
+    qty = compute_position_size_for_mode(portfolio_value, iv.current_price, iv.atr, iv.bot_herding_score, iv.squeeze_setup, regime=regime)
     qty = apply_regime_multiplier(qty, pos_mult)
     if isinstance(symbol_sentiment, (int, float)):
         qty = apply_sentiment_multiplier(qty, int(symbol_sentiment))
     qty = max(1, int(qty * config.TRANCHE1_SIZE_PCT))  # T1 = 60% of full size
 
-    sl_pct, tp_pct = get_sl_tp_for_mode_and_regime(mode, regime)
+    sl_pct = config.STOP_LOSS_PCT
+    tp_pct = config.TAKE_PROFIT_PCT
     if decision.get("stop_loss_pct"):
         sl_pct = float(decision["stop_loss_pct"])
     if decision.get("take_profit_pct"):
@@ -304,8 +310,7 @@ def execute_tranche2_addon(
     atr_pct = pos.get("atr_pct") or 0
     current_atr = current_price * atr_pct / 100 if atr_pct > 0 else current_price * config.ATR_FALLBACK_PROXY_PCT
     full_qty = compute_position_size_for_mode(
-        portfolio_value, current_price, current_atr,
-        pos.get("mode_at_entry", "DAY_TRADE"), 0, False,
+        portfolio_value, current_price, current_atr, 0, False, regime=regime,
     )
     full_qty = apply_regime_multiplier(full_qty, 1.0)
     t2_qty = max(1, int(full_qty * config.TRANCHE2_SIZE_PCT))

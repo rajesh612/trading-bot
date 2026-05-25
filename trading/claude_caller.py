@@ -21,7 +21,7 @@ from trading.context_builder import build_stable_system_context, build_dynamic_u
 from signals.atr_tp import compute_atr_tp_pct
 from signals.entry_gates import GateResult
 from utils.ticker_quality import TickerQuality
-from trading.modes import get_active_mode
+from utils.ticker_quality import derive_mode
 from trading.pre_claude_filter import FilterResult
 
 from utils.constants import ET
@@ -116,7 +116,7 @@ def _ask_claude_batch(
             sym, iv, snap,
             gate_result=fr.gate_result or _default_gate,
             quality=fr.quality or _default_quality,
-            mode=get_active_mode(snap.regime, sym),
+            mode=derive_mode(sym, pead_ok=False),
             entry_time=now,
             existing_pos=existing_pos,
             atr_suggested_tp_pct=compute_atr_tp_pct(iv.atr, iv.current_price, _atr_mult),
