@@ -1,10 +1,237 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 import config
 
 _SENTINEL = 999  # sentinel value for disabled/CRISIS rows — callers must check eligible/cutoff_hour first
+
+Mode = Literal["DAY_TRADE", "PEAD", "SWING", "CATALYST"]
+Tier = Literal["LOW", "MEDIUM", "HIGH", "CONVICTION"]
+
+REGIMES: tuple[str, ...] = (
+    "NORMAL", "BULL_TREND", "OPPORTUNITY", "CRASH_RECOVERY",
+    "DEFENSIVE", "CHOPPY", "HIGH_VOL", "CAPITULATION", "CRISIS",
+)
+TIERS:  tuple[str, ...] = ("LOW", "MEDIUM", "HIGH", "CONVICTION")
+MODES:  tuple[str, ...] = ("DAY_TRADE", "PEAD", "SWING", "CATALYST")
+
+
+@dataclass(frozen=True)
+class TPSLParams:
+    tp_floor_pct:    float
+    tp_ceiling_pct:  float
+    sl_floor_pct:    float
+    sl_ceiling_pct:  float
+    atr_mult:        float
+    max_days:        int   = 0
+    profit_lock_pct: float = 0.0
+    min_pnl_pct:     float = 0.0
+
+    @property
+    def is_disabled(self) -> bool:
+        return self.atr_mult == 0.0
+
+    def clamp_tp(self, raw_tp: float) -> float:
+        return max(self.tp_floor_pct, min(self.tp_ceiling_pct, raw_tp))
+
+    def clamp_sl(self, raw_sl: float) -> float:
+        return max(self.sl_floor_pct, min(self.sl_ceiling_pct, raw_sl))
+
+
+def _dt(tp_f, tp_c, sl_f, sl_c, atr) -> TPSLParams:
+    return TPSLParams(tp_f, tp_c, sl_f, sl_c, atr)
+
+def _pd(tp_f, tp_c, sl_f, sl_c, atr) -> TPSLParams:
+    return TPSLParams(tp_f, tp_c, sl_f, sl_c, atr)
+
+def _sw(tp1, tp2, sl_f, sl_c, atr, days, plock, minpnl) -> TPSLParams:
+    return TPSLParams(tp1, tp2, sl_f, sl_c, atr, days, plock, minpnl)
+
+def _cl(tp_f, tp_c, sl_f, sl_c, atr) -> TPSLParams:
+    return TPSLParams(tp_f, tp_c, sl_f, sl_c, atr)
+
+_TPSL_DISABLED = TPSLParams(0.0, 0.0, 0.0, 0.0, 0.0)
+
+_DISABLED_COMBOS: frozenset[tuple[str, str, str]] = frozenset({
+    *(("CRISIS", t, m) for t in TIERS for m in MODES),
+    *(("CAPITULATION", t, m) for t in ("LOW", "MEDIUM") for m in MODES),
+    ("CHOPPY", "LOW",    "SWING"),
+    ("CHOPPY", "MEDIUM", "SWING"),
+    ("CHOPPY", "LOW",    "CATALYST"),
+    ("CHOPPY", "MEDIUM", "CATALYST"),
+    ("CHOPPY", "HIGH",   "CATALYST"),
+    ("HIGH_VOL", "LOW", "SWING"),
+    ("HIGH_VOL", "LOW", "CATALYST"),
+})
+
+
+def _build_tpsl_table() -> dict[tuple[str, str, str], TPSLParams]:
+    t: dict[tuple[str, str, str], TPSLParams] = {}
+
+    # ── DAY_TRADE ──────────────────────────────────────────────────────────────
+    t[("NORMAL",         "LOW",        "DAY_TRADE")] = _dt(1.5, 3.0, 1.5, 2.0, 1.5)
+    t[("NORMAL",         "MEDIUM",     "DAY_TRADE")] = _dt(2.0, 3.5, 1.5, 2.0, 1.8)
+    t[("NORMAL",         "HIGH",       "DAY_TRADE")] = _dt(2.0, 4.0, 1.5, 1.8, 2.0)
+    t[("NORMAL",         "CONVICTION", "DAY_TRADE")] = _dt(2.5, 4.5, 1.2, 1.8, 2.0)
+
+    t[("BULL_TREND",     "LOW",        "DAY_TRADE")] = _dt(1.5, 3.5, 1.5, 2.0, 1.8)
+    t[("BULL_TREND",     "MEDIUM",     "DAY_TRADE")] = _dt(2.0, 4.0, 1.5, 2.0, 2.0)
+    t[("BULL_TREND",     "HIGH",       "DAY_TRADE")] = _dt(2.5, 4.5, 1.5, 1.8, 2.0)
+    t[("BULL_TREND",     "CONVICTION", "DAY_TRADE")] = _dt(3.0, 5.0, 1.2, 1.8, 2.2)
+
+    t[("OPPORTUNITY",    "LOW",        "DAY_TRADE")] = _dt(1.5, 3.5, 1.5, 2.0, 1.8)
+    t[("OPPORTUNITY",    "MEDIUM",     "DAY_TRADE")] = _dt(2.0, 4.0, 1.5, 2.0, 2.0)
+    t[("OPPORTUNITY",    "HIGH",       "DAY_TRADE")] = _dt(2.0, 4.5, 1.5, 1.8, 2.0)
+    t[("OPPORTUNITY",    "CONVICTION", "DAY_TRADE")] = _dt(2.5, 5.0, 1.2, 1.8, 2.2)
+
+    t[("CRASH_RECOVERY", "LOW",        "DAY_TRADE")] = _dt(1.5, 3.0, 1.5, 2.0, 1.5)
+    t[("CRASH_RECOVERY", "MEDIUM",     "DAY_TRADE")] = _dt(1.5, 3.5, 1.5, 2.0, 1.8)
+    t[("CRASH_RECOVERY", "HIGH",       "DAY_TRADE")] = _dt(2.0, 4.0, 1.5, 2.0, 2.0)
+    t[("CRASH_RECOVERY", "CONVICTION", "DAY_TRADE")] = _dt(2.5, 4.5, 1.5, 1.8, 2.0)
+
+    t[("DEFENSIVE",      "LOW",        "DAY_TRADE")] = _dt(1.5, 2.5, 1.2, 2.0, 1.3)
+    t[("DEFENSIVE",      "MEDIUM",     "DAY_TRADE")] = _dt(1.5, 3.0, 1.2, 1.8, 1.5)
+    t[("DEFENSIVE",      "HIGH",       "DAY_TRADE")] = _dt(2.0, 3.5, 1.2, 1.8, 1.8)
+    t[("DEFENSIVE",      "CONVICTION", "DAY_TRADE")] = _dt(2.0, 4.0, 1.2, 1.5, 2.0)
+
+    t[("CHOPPY",         "LOW",        "DAY_TRADE")] = _dt(1.5, 2.5, 1.2, 2.0, 1.2)
+    t[("CHOPPY",         "MEDIUM",     "DAY_TRADE")] = _dt(1.5, 3.0, 1.2, 1.8, 1.4)
+    t[("CHOPPY",         "HIGH",       "DAY_TRADE")] = _dt(2.0, 3.5, 1.2, 1.8, 1.6)
+    t[("CHOPPY",         "CONVICTION", "DAY_TRADE")] = _dt(2.0, 4.0, 1.2, 1.5, 1.8)
+
+    t[("HIGH_VOL",       "LOW",        "DAY_TRADE")] = _dt(2.0, 3.5, 2.0, 3.0, 1.5)
+    t[("HIGH_VOL",       "MEDIUM",     "DAY_TRADE")] = _dt(2.0, 4.0, 2.0, 2.5, 1.8)
+    t[("HIGH_VOL",       "HIGH",       "DAY_TRADE")] = _dt(2.0, 4.0, 2.0, 2.5, 2.0)
+    t[("HIGH_VOL",       "CONVICTION", "DAY_TRADE")] = _dt(2.5, 4.5, 1.8, 2.5, 2.0)
+
+    t[("CAPITULATION",   "HIGH",       "DAY_TRADE")] = _dt(2.0, 5.0, 2.0, 3.5, 2.0)
+    t[("CAPITULATION",   "CONVICTION", "DAY_TRADE")] = _dt(2.5, 6.0, 2.0, 3.0, 2.5)
+
+    # ── PEAD ───────────────────────────────────────────────────────────────────
+    t[("NORMAL",         "LOW",        "PEAD")] = _pd(2.0, 5.0, 1.5, 2.5, 2.0)
+    t[("NORMAL",         "MEDIUM",     "PEAD")] = _pd(2.5, 6.0, 1.5, 2.5, 2.5)
+    t[("NORMAL",         "HIGH",       "PEAD")] = _pd(3.0, 7.0, 1.5, 2.0, 2.8)
+    t[("NORMAL",         "CONVICTION", "PEAD")] = _pd(3.5, 8.0, 1.5, 2.0, 3.0)
+
+    t[("BULL_TREND",     "LOW",        "PEAD")] = _pd(2.5, 6.0, 1.5, 2.5, 2.2)
+    t[("BULL_TREND",     "MEDIUM",     "PEAD")] = _pd(3.0, 7.0, 1.5, 2.5, 2.8)
+    t[("BULL_TREND",     "HIGH",       "PEAD")] = _pd(3.5, 8.0, 1.5, 2.0, 3.0)
+    t[("BULL_TREND",     "CONVICTION", "PEAD")] = _pd(4.0, 10.0, 1.5, 2.0, 3.5)
+
+    t[("OPPORTUNITY",    "LOW",        "PEAD")] = _pd(2.5, 6.0, 1.5, 2.5, 2.2)
+    t[("OPPORTUNITY",    "MEDIUM",     "PEAD")] = _pd(3.0, 7.0, 1.5, 2.0, 2.5)
+    t[("OPPORTUNITY",    "HIGH",       "PEAD")] = _pd(3.5, 8.0, 1.5, 2.0, 3.0)
+    t[("OPPORTUNITY",    "CONVICTION", "PEAD")] = _pd(4.0, 10.0, 1.5, 2.0, 3.5)
+
+    t[("CRASH_RECOVERY", "LOW",        "PEAD")] = _pd(2.0, 5.0, 1.5, 2.5, 2.0)
+    t[("CRASH_RECOVERY", "MEDIUM",     "PEAD")] = _pd(2.5, 6.0, 1.5, 2.5, 2.5)
+    t[("CRASH_RECOVERY", "HIGH",       "PEAD")] = _pd(3.0, 7.0, 1.5, 2.0, 2.8)
+    t[("CRASH_RECOVERY", "CONVICTION", "PEAD")] = _pd(3.5, 8.0, 1.5, 2.0, 3.0)
+
+    t[("DEFENSIVE",      "LOW",        "PEAD")] = _pd(2.0, 4.0, 1.5, 2.5, 1.8)
+    t[("DEFENSIVE",      "MEDIUM",     "PEAD")] = _pd(2.0, 5.0, 1.5, 2.5, 2.0)
+    t[("DEFENSIVE",      "HIGH",       "PEAD")] = _pd(2.5, 6.0, 1.5, 2.0, 2.5)
+    t[("DEFENSIVE",      "CONVICTION", "PEAD")] = _pd(3.0, 7.0, 1.5, 2.0, 2.8)
+
+    t[("CHOPPY",         "LOW",        "PEAD")] = _pd(1.5, 3.5, 1.5, 2.5, 1.5)
+    t[("CHOPPY",         "MEDIUM",     "PEAD")] = _pd(2.0, 4.5, 1.5, 2.5, 1.8)
+    t[("CHOPPY",         "HIGH",       "PEAD")] = _pd(2.5, 5.5, 1.5, 2.0, 2.2)
+    t[("CHOPPY",         "CONVICTION", "PEAD")] = _pd(3.0, 6.5, 1.5, 2.0, 2.5)
+
+    t[("HIGH_VOL",       "LOW",        "PEAD")] = _pd(2.0, 5.0, 2.0, 3.5, 1.8)
+    t[("HIGH_VOL",       "MEDIUM",     "PEAD")] = _pd(2.5, 6.0, 2.0, 3.0, 2.2)
+    t[("HIGH_VOL",       "HIGH",       "PEAD")] = _pd(3.0, 7.0, 2.0, 3.0, 2.5)
+    t[("HIGH_VOL",       "CONVICTION", "PEAD")] = _pd(3.5, 8.0, 2.0, 2.5, 2.8)
+
+    t[("CAPITULATION",   "HIGH",       "PEAD")] = _pd(4.0, 10.0, 2.5, 5.0, 3.0)
+    t[("CAPITULATION",   "CONVICTION", "PEAD")] = _pd(5.0, 12.0, 2.5, 4.5, 3.5)
+
+    # ── SWING ──────────────────────────────────────────────────────────────────
+    t[("NORMAL",         "LOW",        "SWING")] = _sw(4.0,  8.0, 2.5, 4.0, 2.5, 3, 3.5, 1.0)
+    t[("NORMAL",         "MEDIUM",     "SWING")] = _sw(4.5,  8.5, 2.5, 3.5, 3.0, 4, 2.5, 0.5)
+    t[("NORMAL",         "HIGH",       "SWING")] = _sw(5.0,  9.0, 2.5, 3.5, 3.2, 5, 2.0, 0.3)
+    t[("NORMAL",         "CONVICTION", "SWING")] = _sw(5.5, 10.0, 2.0, 3.0, 3.5, 6, 1.5, 0.2)
+
+    t[("BULL_TREND",     "LOW",        "SWING")] = _sw(4.5,  8.5, 2.5, 4.0, 2.8, 4, 3.0, 0.5)
+    t[("BULL_TREND",     "MEDIUM",     "SWING")] = _sw(5.0,  9.0, 2.5, 3.5, 3.2, 5, 2.0, 0.3)
+    t[("BULL_TREND",     "HIGH",       "SWING")] = _sw(6.0, 10.5, 2.0, 3.0, 3.5, 7, 1.5, 0.2)
+    t[("BULL_TREND",     "CONVICTION", "SWING")] = _sw(7.0, 12.0, 2.0, 3.0, 4.0, 8, 1.0, 0.1)
+
+    t[("OPPORTUNITY",    "LOW",        "SWING")] = _sw(4.0,  8.0, 2.5, 4.0, 2.5, 3, 3.5, 0.8)
+    t[("OPPORTUNITY",    "MEDIUM",     "SWING")] = _sw(5.0,  9.0, 2.5, 3.5, 3.0, 5, 2.5, 0.5)
+    t[("OPPORTUNITY",    "HIGH",       "SWING")] = _sw(5.5, 10.0, 2.0, 3.5, 3.2, 6, 2.0, 0.3)
+    t[("OPPORTUNITY",    "CONVICTION", "SWING")] = _sw(6.0, 11.0, 2.0, 3.0, 3.5, 7, 1.5, 0.2)
+
+    t[("CRASH_RECOVERY", "LOW",        "SWING")] = _sw(3.5,  7.0, 3.0, 5.0, 2.5, 3, 4.0, 1.5)
+    t[("CRASH_RECOVERY", "MEDIUM",     "SWING")] = _sw(4.0,  8.0, 2.5, 4.5, 3.0, 4, 3.0, 1.0)
+    t[("CRASH_RECOVERY", "HIGH",       "SWING")] = _sw(5.0,  9.0, 2.5, 4.0, 3.2, 5, 2.5, 0.5)
+    t[("CRASH_RECOVERY", "CONVICTION", "SWING")] = _sw(5.5, 10.0, 2.5, 3.5, 3.5, 6, 2.0, 0.3)
+
+    t[("DEFENSIVE",      "LOW",        "SWING")] = _sw(3.0,  6.0, 2.5, 4.0, 2.0, 2, 4.0, 1.5)
+    t[("DEFENSIVE",      "MEDIUM",     "SWING")] = _sw(3.5,  7.0, 2.5, 4.0, 2.5, 3, 3.5, 1.0)
+    t[("DEFENSIVE",      "HIGH",       "SWING")] = _sw(4.0,  8.0, 2.5, 3.5, 2.8, 4, 3.0, 0.5)
+    t[("DEFENSIVE",      "CONVICTION", "SWING")] = _sw(5.0,  9.0, 2.0, 3.5, 3.0, 5, 2.5, 0.3)
+
+    t[("CHOPPY",         "HIGH",       "SWING")] = _sw(3.5,  7.0, 2.5, 4.0, 2.0, 3, 2.5, 1.0)
+    t[("CHOPPY",         "CONVICTION", "SWING")] = _sw(4.0,  8.0, 2.5, 3.5, 2.5, 4, 1.0, 0.5)
+
+    t[("HIGH_VOL",       "MEDIUM",     "SWING")] = _sw(3.5,  7.0, 3.0, 5.0, 2.5, 2, 3.5, 1.0)
+    t[("HIGH_VOL",       "HIGH",       "SWING")] = _sw(4.0,  8.0, 3.0, 4.5, 3.0, 3, 3.0, 0.5)
+    t[("HIGH_VOL",       "CONVICTION", "SWING")] = _sw(5.0,  9.5, 2.5, 4.0, 3.2, 4, 2.5, 0.3)
+
+    t[("CAPITULATION",   "HIGH",       "SWING")] = _sw(6.0, 12.0, 4.0, 6.0, 3.5, 5, 3.0, -5.0)
+    t[("CAPITULATION",   "CONVICTION", "SWING")] = _sw(8.0, 15.0, 4.0, 5.5, 4.0, 7, 2.0, -5.0)
+
+    # ── CATALYST ────────────────────────────────────────────────────────────────
+    t[("NORMAL",         "LOW",        "CATALYST")] = _cl(2.0, 3.5, 1.2, 1.8, 1.8)
+    t[("NORMAL",         "MEDIUM",     "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("NORMAL",         "HIGH",       "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.8, 2.2)
+    t[("NORMAL",         "CONVICTION", "CATALYST")] = _cl(3.5, 5.0, 1.0, 1.5, 2.5)
+
+    t[("BULL_TREND",     "LOW",        "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("BULL_TREND",     "MEDIUM",     "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.8, 2.2)
+    t[("BULL_TREND",     "HIGH",       "CATALYST")] = _cl(3.5, 5.0, 1.2, 1.8, 2.5)
+    t[("BULL_TREND",     "CONVICTION", "CATALYST")] = _cl(4.0, 6.0, 1.0, 1.5, 3.0)
+
+    t[("OPPORTUNITY",    "LOW",        "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("OPPORTUNITY",    "MEDIUM",     "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.8, 2.2)
+    t[("OPPORTUNITY",    "HIGH",       "CATALYST")] = _cl(3.5, 5.0, 1.2, 1.8, 2.5)
+    t[("OPPORTUNITY",    "CONVICTION", "CATALYST")] = _cl(4.0, 6.0, 1.0, 1.5, 3.0)
+
+    t[("CRASH_RECOVERY", "LOW",        "CATALYST")] = _cl(2.0, 4.0, 1.5, 2.5, 1.8)
+    t[("CRASH_RECOVERY", "MEDIUM",     "CATALYST")] = _cl(2.5, 4.5, 1.5, 2.0, 2.0)
+    t[("CRASH_RECOVERY", "HIGH",       "CATALYST")] = _cl(3.0, 5.0, 1.5, 2.0, 2.5)
+    t[("CRASH_RECOVERY", "CONVICTION", "CATALYST")] = _cl(3.5, 6.0, 1.5, 2.0, 2.8)
+
+    t[("DEFENSIVE",      "LOW",        "CATALYST")] = _cl(1.5, 3.0, 1.2, 2.0, 1.5)
+    t[("DEFENSIVE",      "MEDIUM",     "CATALYST")] = _cl(2.0, 3.5, 1.2, 1.8, 1.8)
+    t[("DEFENSIVE",      "HIGH",       "CATALYST")] = _cl(2.5, 4.0, 1.2, 1.8, 2.0)
+    t[("DEFENSIVE",      "CONVICTION", "CATALYST")] = _cl(3.0, 4.5, 1.2, 1.5, 2.2)
+
+    t[("CHOPPY",         "CONVICTION", "CATALYST")] = _cl(2.5, 4.0, 1.5, 2.0, 2.0)
+
+    t[("HIGH_VOL",       "MEDIUM",     "CATALYST")] = _cl(2.0, 4.0, 2.0, 3.0, 1.8)
+    t[("HIGH_VOL",       "HIGH",       "CATALYST")] = _cl(2.5, 4.5, 2.0, 2.5, 2.0)
+    t[("HIGH_VOL",       "CONVICTION", "CATALYST")] = _cl(3.0, 5.0, 2.0, 2.5, 2.5)
+
+    t[("CAPITULATION",   "HIGH",       "CATALYST")] = _cl(3.0, 6.0, 2.5, 4.0, 2.5)
+    t[("CAPITULATION",   "CONVICTION", "CATALYST")] = _cl(4.0, 8.0, 2.5, 3.5, 3.0)
+
+    # Stamp disabled entries
+    for key in _DISABLED_COMBOS:
+        t[key] = _TPSL_DISABLED
+
+    return t
+
+
+_TPSL_TABLE: dict[tuple[str, str, str], TPSLParams] = _build_tpsl_table()
+_TPSL_FALLBACK = _TPSL_TABLE[("NORMAL", "MEDIUM", "DAY_TRADE")]
+
+
+def get_tp_sl_params(regime: str, tier: str, mode: str) -> TPSLParams:
+    return _TPSL_TABLE.get((regime, tier, mode), _TPSL_FALLBACK)
 
 
 @dataclass(frozen=True)
@@ -12,16 +239,12 @@ class EntryParams:
     composite_min: int
     rsi_max: int
     hard_close_hour: int = 13
+    max_position_pct: float = 0.05
 
 
 @dataclass(frozen=True)
 class SwingParams:
     eligible: bool
-    min_pnl_pct: float
-    profit_lock_pct: float
-    tp1_pct: float
-    tp2_pct: float
-    sl_pct: float
 
 
 @dataclass(frozen=True)
@@ -54,31 +277,31 @@ class AutoExecuteParams:
 def _entry_table() -> dict[str, EntryParams]:
     defensive_composite = round(config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT)
     return {
-        "CRISIS":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,              0),
-        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13),
-        "BULL_TREND":     EntryParams(config.COMPOSITE_MIN_BULL_TREND, config.RSI_BUY_MAX,             14),
-        "CHOPPY":         EntryParams(config.CHOPPY_COMPOSITE_GATE,    config.CHOPPY_RSI_PULLBACK_MAX, 12),
-        "DEFENSIVE":      EntryParams(defensive_composite,             config.RSI_BUY_MAX_HIGH_VOL,    12),
-        "HIGH_VOL":       EntryParams(config.COMPOSITE_MIN_HIGH_VOL,   config.RSI_BUY_MAX_HIGH_VOL,   13),
-        "OPPORTUNITY":    EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             14),
-        "CRASH_RECOVERY": EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13),
-        "CAPITULATION":   EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13),
+        "CRISIS":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,              0,  0.0),
+        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.05),
+        "BULL_TREND":     EntryParams(config.COMPOSITE_MIN_BULL_TREND, config.RSI_BUY_MAX,             14,  0.03),
+        "CHOPPY":         EntryParams(config.CHOPPY_COMPOSITE_GATE,    config.CHOPPY_RSI_PULLBACK_MAX, 12,  0.04),
+        "DEFENSIVE":      EntryParams(defensive_composite,             config.RSI_BUY_MAX_HIGH_VOL,    12,  0.04),
+        "HIGH_VOL":       EntryParams(config.COMPOSITE_MIN_HIGH_VOL,   config.RSI_BUY_MAX_HIGH_VOL,   13,  0.03),
+        "OPPORTUNITY":    EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             14,  0.03),
+        "CRASH_RECOVERY": EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.025),
+        "CAPITULATION":   EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.025),
     }
 
 
-_CRISIS_SWING = SwingParams(False, _SENTINEL, _SENTINEL, 0.0, 0.0, 0.0)
+_CRISIS_SWING = SwingParams(False)
 
 
 def _swing_table() -> dict[str, SwingParams]:
     return {
-        "NORMAL":         SwingParams(True,  0.5,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
-        "BULL_TREND":     SwingParams(True,  0.3,  2.0, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
-        "OPPORTUNITY":    SwingParams(True,  0.5,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
-        "CRASH_RECOVERY": SwingParams(True,  1.0,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
-        "CAPITULATION":   SwingParams(True,  -5.0, _SENTINEL, 10.0, 20.0, config.SWING_SL_PCT_CAPITULATION),
-        "CHOPPY":         SwingParams(False, 0.5,  2.5, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
-        "DEFENSIVE":      SwingParams(False, 0.5,  3.0, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
-        "HIGH_VOL":       SwingParams(False, 0.5,  3.0, 5.0,  10.0, config.SWING_OVERNIGHT_SL_PCT),
+        "NORMAL":         SwingParams(True),
+        "BULL_TREND":     SwingParams(True),
+        "OPPORTUNITY":    SwingParams(True),
+        "CRASH_RECOVERY": SwingParams(True),
+        "CAPITULATION":   SwingParams(True),
+        "CHOPPY":         SwingParams(False),
+        "DEFENSIVE":      SwingParams(False),
+        "HIGH_VOL":       SwingParams(False),
         "CRISIS":         _CRISIS_SWING,
     }
 
