@@ -30,17 +30,19 @@ def _score_to_tier(score: int) -> str:
     return "LOW"
 
 
-def derive_mode(symbol: str, pead_ok: bool, existing_swing_pos: bool = False) -> str:
-    """Derive trading mode for a symbol at evaluation time.
-
-    SWING      — symbol already in open swing positions
-    PEAD       — post-earnings drift setup (PEAD score >= 80)
-    DAY_TRADE  — default intraday mode
-    """
+def derive_mode(
+    symbol: str,
+    pead_ok: bool,
+    existing_swing_pos: bool = False,
+    catalyst_active: bool = False,
+) -> str:
+    """Derive trading mode — single SoT (Rule 32). Priority: SWING > PEAD > CATALYST > DAY_TRADE."""
     if existing_swing_pos:
         return "SWING"
     if pead_ok:
         return "PEAD"
+    if catalyst_active:
+        return "CATALYST"
     return "DAY_TRADE"
 
 
@@ -126,8 +128,22 @@ def _score_econ(event_active: bool) -> int:
     return 0 if event_active else 5
 
 
+def _is_fresh(ts_str: str | None, max_minutes: int) -> bool:
+    if not ts_str:
+        return False
+    from datetime import datetime
+    from utils.constants import ET
+    try:
+        ts = datetime.fromisoformat(ts_str).astimezone(ET)
+        delta = (datetime.now(ET) - ts).total_seconds() / 60
+        return delta <= max_minutes
+    except (ValueError, TypeError):
+        return False
+
+
 def _compute_unlocks(
     tier: str,
+    mode: str,
     pead_ok: bool,
     intra_sent: int,
     sentiment: int,
@@ -136,7 +152,7 @@ def _compute_unlocks(
 ) -> frozenset:
     unlocks: set[str] = set()
     if tier == "CONVICTION":
-        if pead_ok or intra_sent >= 60:
+        if pead_ok or intra_sent >= 60 or mode == "CATALYST":
             unlocks.add("T2_CHOPPY")
         if intra_sent >= 50 and earnings_clear_days >= 14:
             unlocks.add("SWING_CHOPPY")
@@ -176,13 +192,17 @@ def compute_ticker_quality(
     pead_score:          PEAD score 0–100 (pre-computed by caller).
     event_active:        Whether an economic risk window is currently active (pre-computed by caller).
     """
+    import config as _config
     regime = snap.regime
     ep = get_entry_params(regime)
 
     research_sym = snap.research.get(symbol, {})
     sentiment: int = research_sym.get("sentiment_score", 0)
     intra_data = snap.intraday_news.get(symbol, {})
-    intra_sent: int = intra_data.get("sentiment_score", sentiment)
+    intra_ts    = intra_data.get("timestamp")
+    # treat missing timestamp as fresh (no staleness data = pass-through)
+    intra_fresh = (intra_ts is None) or _is_fresh(intra_ts, _config.INTRADAY_NEWS_STALE_MINUTES)
+    intra_sent: int = intra_data.get("sentiment_score", sentiment) if intra_fresh else 0
 
     c_pts, c_gap = _score_composite(iv.composite_score, ep.composite_min)
     s_pts, s_gap = _score_sentiment(sentiment)
@@ -195,9 +215,12 @@ def compute_ticker_quality(
     score = max(0, min(100, c_pts + s_pts + i_pts + e_pts + p_pts + ec_pts + ev_pts))
     tier = _score_to_tier(score)
 
-    gaps = tuple(g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap] if g)
+    extra_gaps: list[str] = []
+    if not intra_fresh and intra_ts:
+        extra_gaps.append("intraday_stale")
+    gaps = tuple(g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap, *extra_gaps] if g)
     unlocks = _compute_unlocks(
-        tier, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
+        tier, mode, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
     )
 
     return TickerQuality(
