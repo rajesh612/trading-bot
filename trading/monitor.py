@@ -183,6 +183,11 @@ def run_position_monitor():
     alpaca_positions = alpaca.get_positions()
     now              = datetime.now(ET)
 
+    try:
+        regime = load_macro_regime().get("regime", "NORMAL")
+    except Exception:
+        regime = "NORMAL"
+
     for symbol, pos in list(open_positions.items()):
 
         # ── Layer 1: bracket fill reconciliation ─────────────────────────────
@@ -286,6 +291,31 @@ def run_position_monitor():
                 symbol, pnl_pct, tp_pct,
             )
             close_position(symbol, alpaca, open_positions, current_price, _try_compute_iv(symbol, alpaca), "monitor_take_profit")
+        elif (
+            regime == "HIGH_VOL"
+            and now.hour >= config.HIGH_VOL_EARLY_EXIT_HOUR
+            and pnl_pct < -config.HIGH_VOL_EARLY_EXIT_MIN_LOSS_PCT
+            and not pos.get("is_swing", False)
+        ):
+            entry_ts_str = pos.get("entry_time")
+            if entry_ts_str:
+                try:
+                    from datetime import timezone  # noqa: F401 — keep for clarity
+                    entry_dt = datetime.fromisoformat(entry_ts_str)
+                    if entry_dt.tzinfo is None:
+                        entry_dt = entry_dt.replace(tzinfo=ET)
+                    hold_hours = (now - entry_dt).total_seconds() / 3600
+                    if hold_hours >= config.HIGH_VOL_EARLY_EXIT_MIN_HOLD_H:
+                        logger.info(
+                            "HIGH_VOL EARLY EXIT: %s held %.1fh, P&L=%+.2f%% — closing stale losing day trade",
+                            symbol, hold_hours, pnl_pct,
+                        )
+                        close_position(
+                            symbol, alpaca, open_positions, current_price,
+                            _try_compute_iv(symbol, alpaca), "highvol_early_exit",
+                        )
+                except Exception as exc:
+                    logger.debug("HIGH_VOL early exit: entry_time parse failed for %s: %s", symbol, exc)
 
     flush_profit_lock_updates(open_positions)
 

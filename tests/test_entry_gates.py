@@ -904,10 +904,10 @@ class TestDynamicGateParams:
     def test_normal_high_swing_profit_lock(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("NORMAL", "HIGH", "SWING")
-        assert p.profit_lock_pct == pytest.approx(2.0)
+        assert p.profit_lock_pct == pytest.approx(1.5)
 
     @pytest.mark.unit
     def test_choppy_high_swing_profit_lock(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("CHOPPY", "HIGH", "SWING")
-        assert p.profit_lock_pct == pytest.approx(2.5)
+        assert p.profit_lock_pct == pytest.approx(2.0)

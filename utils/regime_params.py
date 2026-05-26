@@ -149,40 +149,52 @@ def _build_tpsl_table() -> dict[tuple[str, str, str], TPSLParams]:
     t[("CAPITULATION",   "CONVICTION", "PEAD")] = _pd(5.0, 12.0, 2.5, 4.5, 3.5)
 
     # ── SWING ──────────────────────────────────────────────────────────────────
-    t[("NORMAL",         "LOW",        "SWING")] = _sw(4.0,  8.0, 2.5, 4.0, 2.5, 3, 3.5, 1.0)
-    t[("NORMAL",         "MEDIUM",     "SWING")] = _sw(4.5,  8.5, 2.5, 3.5, 3.0, 4, 2.5, 0.5)
-    t[("NORMAL",         "HIGH",       "SWING")] = _sw(5.0,  9.0, 2.5, 3.5, 3.2, 5, 2.0, 0.3)
-    t[("NORMAL",         "CONVICTION", "SWING")] = _sw(5.5, 10.0, 2.0, 3.0, 3.5, 6, 1.5, 0.2)
+    # SL floors come from config.SWING_SL_FLOORS (named per regime — no magic numbers).
+    # Hold params (max_days, profit_lock, min_pnl) come from config.SWING_HOLD_PARAMS.
+    # TP floors and ceilings are unchanged from the original table design.
+    def _sw_cfg(tp1, tp2, regime, tier, atr):
+        sl_f = config.SWING_SL_FLOORS.get(regime, 3.5)
+        if tier == "CONVICTION":
+            sl_f = max(sl_f - config.SWING_SL_CONVICTION_TIGHT, 1.5)
+        sl_c = round(sl_f + 1.5, 1)
+        days, plock, minpnl = config.SWING_HOLD_PARAMS[(regime, tier)]
+        tp1 = max(tp1, sl_f)   # first TP must be >= SL floor for valid risk/reward
+        return TPSLParams(tp1, tp2, sl_f, sl_c, atr, days, plock, minpnl)
 
-    t[("BULL_TREND",     "LOW",        "SWING")] = _sw(4.5,  8.5, 2.5, 4.0, 2.8, 4, 3.0, 0.5)
-    t[("BULL_TREND",     "MEDIUM",     "SWING")] = _sw(5.0,  9.0, 2.5, 3.5, 3.2, 5, 2.0, 0.3)
-    t[("BULL_TREND",     "HIGH",       "SWING")] = _sw(6.0, 10.5, 2.0, 3.0, 3.5, 7, 1.5, 0.2)
-    t[("BULL_TREND",     "CONVICTION", "SWING")] = _sw(7.0, 12.0, 2.0, 3.0, 4.0, 8, 1.0, 0.1)
+    t[("NORMAL",         "LOW",        "SWING")] = _sw_cfg(4.0,  8.0, "NORMAL",  "LOW",        2.5)
+    t[("NORMAL",         "MEDIUM",     "SWING")] = _sw_cfg(4.5,  8.5, "NORMAL",  "MEDIUM",     3.0)
+    t[("NORMAL",         "HIGH",       "SWING")] = _sw_cfg(5.0,  9.0, "NORMAL",  "HIGH",       3.2)
+    t[("NORMAL",         "CONVICTION", "SWING")] = _sw_cfg(5.5, 10.0, "NORMAL",  "CONVICTION", 3.5)
 
-    t[("OPPORTUNITY",    "LOW",        "SWING")] = _sw(4.0,  8.0, 2.5, 4.0, 2.5, 3, 3.5, 0.8)
-    t[("OPPORTUNITY",    "MEDIUM",     "SWING")] = _sw(5.0,  9.0, 2.5, 3.5, 3.0, 5, 2.5, 0.5)
-    t[("OPPORTUNITY",    "HIGH",       "SWING")] = _sw(5.5, 10.0, 2.0, 3.5, 3.2, 6, 2.0, 0.3)
-    t[("OPPORTUNITY",    "CONVICTION", "SWING")] = _sw(6.0, 11.0, 2.0, 3.0, 3.5, 7, 1.5, 0.2)
+    t[("BULL_TREND",     "LOW",        "SWING")] = _sw_cfg(4.5,  8.5, "BULL_TREND", "LOW",        2.8)
+    t[("BULL_TREND",     "MEDIUM",     "SWING")] = _sw_cfg(5.0,  9.0, "BULL_TREND", "MEDIUM",     3.2)
+    t[("BULL_TREND",     "HIGH",       "SWING")] = _sw_cfg(6.0, 10.5, "BULL_TREND", "HIGH",       3.5)
+    t[("BULL_TREND",     "CONVICTION", "SWING")] = _sw_cfg(7.0, 12.0, "BULL_TREND", "CONVICTION", 4.0)
 
-    t[("CRASH_RECOVERY", "LOW",        "SWING")] = _sw(3.5,  7.0, 3.0, 5.0, 2.5, 3, 4.0, 1.5)
-    t[("CRASH_RECOVERY", "MEDIUM",     "SWING")] = _sw(4.0,  8.0, 2.5, 4.5, 3.0, 4, 3.0, 1.0)
-    t[("CRASH_RECOVERY", "HIGH",       "SWING")] = _sw(5.0,  9.0, 2.5, 4.0, 3.2, 5, 2.5, 0.5)
-    t[("CRASH_RECOVERY", "CONVICTION", "SWING")] = _sw(5.5, 10.0, 2.5, 3.5, 3.5, 6, 2.0, 0.3)
+    t[("OPPORTUNITY",    "LOW",        "SWING")] = _sw_cfg(4.0,  8.0, "OPPORTUNITY", "LOW",        2.5)
+    t[("OPPORTUNITY",    "MEDIUM",     "SWING")] = _sw_cfg(5.0,  9.0, "OPPORTUNITY", "MEDIUM",     3.0)
+    t[("OPPORTUNITY",    "HIGH",       "SWING")] = _sw_cfg(5.5, 10.0, "OPPORTUNITY", "HIGH",       3.2)
+    t[("OPPORTUNITY",    "CONVICTION", "SWING")] = _sw_cfg(6.0, 11.0, "OPPORTUNITY", "CONVICTION", 3.5)
 
-    t[("DEFENSIVE",      "LOW",        "SWING")] = _sw(3.0,  6.0, 2.5, 4.0, 2.0, 2, 4.0, 1.5)
-    t[("DEFENSIVE",      "MEDIUM",     "SWING")] = _sw(3.5,  7.0, 2.5, 4.0, 2.5, 3, 3.5, 1.0)
-    t[("DEFENSIVE",      "HIGH",       "SWING")] = _sw(4.0,  8.0, 2.5, 3.5, 2.8, 4, 3.0, 0.5)
-    t[("DEFENSIVE",      "CONVICTION", "SWING")] = _sw(5.0,  9.0, 2.0, 3.5, 3.0, 5, 2.5, 0.3)
+    t[("CRASH_RECOVERY", "LOW",        "SWING")] = _sw_cfg(3.5,  7.0, "CRASH_RECOVERY", "LOW",        2.5)
+    t[("CRASH_RECOVERY", "MEDIUM",     "SWING")] = _sw_cfg(4.0,  8.0, "CRASH_RECOVERY", "MEDIUM",     3.0)
+    t[("CRASH_RECOVERY", "HIGH",       "SWING")] = _sw_cfg(5.0,  9.0, "CRASH_RECOVERY", "HIGH",       3.2)
+    t[("CRASH_RECOVERY", "CONVICTION", "SWING")] = _sw_cfg(5.5, 10.0, "CRASH_RECOVERY", "CONVICTION", 3.5)
 
-    t[("CHOPPY",         "HIGH",       "SWING")] = _sw(3.5,  7.0, 2.5, 4.0, 2.0, 3, 2.5, 1.0)
-    t[("CHOPPY",         "CONVICTION", "SWING")] = _sw(4.0,  8.0, 2.5, 3.5, 2.5, 4, 1.0, 0.5)
+    t[("DEFENSIVE",      "LOW",        "SWING")] = _sw_cfg(3.0,  6.0, "DEFENSIVE", "LOW",        2.0)
+    t[("DEFENSIVE",      "MEDIUM",     "SWING")] = _sw_cfg(3.5,  7.0, "DEFENSIVE", "MEDIUM",     2.5)
+    t[("DEFENSIVE",      "HIGH",       "SWING")] = _sw_cfg(4.0,  8.0, "DEFENSIVE", "HIGH",       2.8)
+    t[("DEFENSIVE",      "CONVICTION", "SWING")] = _sw_cfg(5.0,  9.0, "DEFENSIVE", "CONVICTION", 3.0)
 
-    t[("HIGH_VOL",       "MEDIUM",     "SWING")] = _sw(3.5,  7.0, 3.0, 5.0, 2.5, 2, 3.5, 1.0)
-    t[("HIGH_VOL",       "HIGH",       "SWING")] = _sw(4.0,  8.0, 3.0, 4.5, 3.0, 3, 3.0, 0.5)
-    t[("HIGH_VOL",       "CONVICTION", "SWING")] = _sw(5.0,  9.5, 2.5, 4.0, 3.2, 4, 2.5, 0.3)
+    t[("CHOPPY",         "HIGH",       "SWING")] = _sw_cfg(3.5,  7.0, "CHOPPY", "HIGH",       2.0)
+    t[("CHOPPY",         "CONVICTION", "SWING")] = _sw_cfg(4.0,  8.0, "CHOPPY", "CONVICTION", 2.5)
 
-    t[("CAPITULATION",   "HIGH",       "SWING")] = _sw(6.0, 12.0, 4.0, 6.0, 3.5, 5, 3.0, -5.0)
-    t[("CAPITULATION",   "CONVICTION", "SWING")] = _sw(8.0, 15.0, 4.0, 5.5, 4.0, 7, 2.0, -5.0)
+    t[("HIGH_VOL",       "MEDIUM",     "SWING")] = _sw_cfg(3.5,  7.0, "HIGH_VOL", "MEDIUM",     2.5)
+    t[("HIGH_VOL",       "HIGH",       "SWING")] = _sw_cfg(4.0,  8.0, "HIGH_VOL", "HIGH",       3.0)
+    t[("HIGH_VOL",       "CONVICTION", "SWING")] = _sw_cfg(5.0,  9.5, "HIGH_VOL", "CONVICTION", 3.2)
+
+    t[("CAPITULATION",   "HIGH",       "SWING")] = _sw_cfg(6.0, 12.0, "CAPITULATION", "HIGH",       3.5)
+    t[("CAPITULATION",   "CONVICTION", "SWING")] = _sw_cfg(8.0, 15.0, "CAPITULATION", "CONVICTION", 4.0)
 
     # ── CATALYST ────────────────────────────────────────────────────────────────
     t[("NORMAL",         "LOW",        "CATALYST")] = _cl(2.0, 3.5, 1.2, 1.8, 1.8)

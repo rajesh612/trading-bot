@@ -61,7 +61,7 @@ def test_swing_max_days_monotone():
 @pytest.mark.unit
 def test_bull_trend_conviction_swing_widest():
     p = get_tp_sl_params("BULL_TREND", "CONVICTION", "SWING")
-    assert p.max_days == 8
+    assert p.max_days == 10   # raised from 8: longer hold in bull trend captures more alpha
     assert p.tp_ceiling_pct == 12.0
 
 

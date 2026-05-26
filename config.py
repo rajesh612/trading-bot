@@ -211,11 +211,67 @@ EOD_PROFITABLE_THRESHOLD = 0.5  # pnl_pct above this → "eod_force_profitable"
 EOD_LOSS_THRESHOLD       = -0.5 # pnl_pct below this → "eod_force_loss"
 EOD_FORCE_CLOSE_HOUR   = 15  # hour at which force_close_all() runs (ET)
 EOD_FORCE_CLOSE_MINUTE = 55  # minute at which force_close_all() runs (ET)
+
+# HIGH_VOL intraday early exit — proactively close stale losing day trades before EOD force-close.
+# Avoids holding broken setups to 3:55 PM in volatile regimes where recovery is less likely.
+HIGH_VOL_EARLY_EXIT_HOUR: int = 14        # 2 PM ET: window opens
+HIGH_VOL_EARLY_EXIT_MIN_HOLD_H: float = 2.0   # position must be held ≥ 2h to qualify
+HIGH_VOL_EARLY_EXIT_MIN_LOSS_PCT: float = 0.5  # must be down ≥ 0.5% (avoids noise exits)
+
 EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
 EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
 PROFIT_LOCK_SWING_PCT    = 2.5       # default/documentation anchor for profit-lock bypass threshold
 SWING_PROMOTE_MIN_PNL_PCT = 0.5     # default/documentation anchor for standard promotion min P&L
+
+# Overnight swing SL floors — raised to prevent premature stop-outs from normal overnight variance.
+# All SWING_SL exits in backtests hit exactly the 2.5% floor (too tight for overnight noise).
+# CONVICTION tier gets 0.5% tighter (higher confidence = less room needed).
+SWING_SL_FLOORS: dict[str, float] = {
+    "NORMAL":         3.5,
+    "BULL_TREND":     3.5,
+    "OPPORTUNITY":    3.5,
+    "CRASH_RECOVERY": 3.5,
+    "DEFENSIVE":      3.0,
+    "CHOPPY":         3.5,
+    "HIGH_VOL":       4.0,
+    "CAPITULATION":   4.5,
+}
+SWING_SL_CONVICTION_TIGHT: float = 0.5   # CONVICTION tier reduces SL floor by this
+
+# Swing hold parameters per (regime, tier): (max_days, profit_lock_pct, min_pnl_pct)
+# max_days raised +1 for NORMAL/BULL_TREND (capture more of trending moves).
+# profit_lock lowered so more positions stay as swings when profitable.
+# min_pnl lowered so more positions qualify for EOD promotion.
+SWING_HOLD_PARAMS: dict[tuple[str, str], tuple[int, float, float]] = {
+    ("NORMAL",         "LOW"):        (4,  3.0, 0.8),
+    ("NORMAL",         "MEDIUM"):     (5,  2.0, 0.3),
+    ("NORMAL",         "HIGH"):       (6,  1.5, 0.2),
+    ("NORMAL",         "CONVICTION"): (7,  1.0, 0.1),
+    ("BULL_TREND",     "LOW"):        (5,  2.5, 0.3),
+    ("BULL_TREND",     "MEDIUM"):     (6,  1.5, 0.2),
+    ("BULL_TREND",     "HIGH"):       (8,  1.0, 0.1),
+    ("BULL_TREND",     "CONVICTION"): (10, 0.8, 0.1),
+    ("OPPORTUNITY",    "LOW"):        (4,  3.0, 0.5),
+    ("OPPORTUNITY",    "MEDIUM"):     (6,  2.0, 0.3),
+    ("OPPORTUNITY",    "HIGH"):       (7,  1.5, 0.2),
+    ("OPPORTUNITY",    "CONVICTION"): (8,  1.0, 0.1),
+    ("CRASH_RECOVERY", "LOW"):        (3,  3.5, 1.0),
+    ("CRASH_RECOVERY", "MEDIUM"):     (4,  2.5, 0.7),
+    ("CRASH_RECOVERY", "HIGH"):       (5,  2.0, 0.3),
+    ("CRASH_RECOVERY", "CONVICTION"): (6,  1.5, 0.2),
+    ("DEFENSIVE",      "LOW"):        (2,  3.5, 1.0),
+    ("DEFENSIVE",      "MEDIUM"):     (3,  3.0, 0.7),
+    ("DEFENSIVE",      "HIGH"):       (4,  2.5, 0.3),
+    ("DEFENSIVE",      "CONVICTION"): (5,  2.0, 0.2),
+    ("CHOPPY",         "HIGH"):       (3,  2.0, 0.7),
+    ("CHOPPY",         "CONVICTION"): (4,  1.0, 0.3),
+    ("HIGH_VOL",       "MEDIUM"):     (2,  3.0, 0.7),
+    ("HIGH_VOL",       "HIGH"):       (3,  2.5, 0.3),
+    ("HIGH_VOL",       "CONVICTION"): (4,  2.0, 0.2),
+    ("CAPITULATION",   "HIGH"):       (5,  3.0, -5.0),
+    ("CAPITULATION",   "CONVICTION"): (7,  2.0, -5.0),
+}
 SWING_SENTIMENT_MIN_NORMAL  = -20    # symbol sentiment floor for NORMAL swing promotion
 SWING_SENTIMENT_MIN_BULL    = -30    # wider floor in BULL_TREND (trend offsets weak sentiment)
 SWING_SENTIMENT_MIN_OPP     = -10    # tighter floor in OPPORTUNITY (thesis depends on sentiment)

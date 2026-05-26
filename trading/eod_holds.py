@@ -4,6 +4,7 @@ EOD hold qualification and promotion logic for swing positions.
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from types import SimpleNamespace
 import config
 from calendars.earnings import is_earnings_imminent
 from utils import regimes
@@ -163,6 +164,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
             entry_sector_score = float(pos.get("entry_sector_sentiment", 0))
 
             tier = pos.get("quality_tier", "MEDIUM")
+            quality_proxy = SimpleNamespace(tier=tier)
             qualifies, reason = qualifies_for_eod_hold(
                 symbol=symbol,
                 regime=regime,
@@ -172,6 +174,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
                 current_sector_sentiment=current_sector_score,
                 consecutive_red_days=regime_info.get("consecutive_red_days", 0),
                 vix_trend=regime_info.get("vix_trend", "stable"),
+                quality=quality_proxy,
             )
             if not qualifies:
                 logger.info(f"SWING SKIP {symbol}: {reason}")

@@ -438,11 +438,12 @@ class TestSwingManagerOrchestration:
 
     @pytest.mark.unit
     def test_eod_hold_min_pnl_uses_swing_params(self):
+        # NORMAL MEDIUM min_pnl_pct is 0.3; use 0.2 to test below-threshold blocking
         from trading.eod_holds import qualifies_for_eod_hold
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", regime="NORMAL",
             earnings_tomorrow=False,
-            current_pnl_pct=0.3,   # below default 0.5 threshold
+            current_pnl_pct=0.2,   # below NORMAL MEDIUM min_pnl_pct (0.3)
             entry_sector_sentiment=20.0,
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
@@ -473,16 +474,16 @@ class TestSwingPromotionFromTPSLTable:
         import config
         monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", str(tmp_path / "open.json"))
         monkeypatch.setattr(config, "SWING_POSITIONS_FILE", str(tmp_path / "swing.json"))
-        # NORMAL/HIGH/SWING: max_days=5
+        # NORMAL/HIGH/SWING: max_days=6 (raised from 5 to capture more of trending moves)
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("NORMAL", "HIGH", "SWING")
-        assert p.max_days == 5
+        assert p.max_days == 6
 
     @pytest.mark.unit
     def test_profit_lock_from_table(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("BULL_TREND", "CONVICTION", "SWING")
-        assert p.profit_lock_pct == 1.0
+        assert p.profit_lock_pct == 0.8
         assert p.min_pnl_pct == 0.1
 
     @pytest.mark.unit

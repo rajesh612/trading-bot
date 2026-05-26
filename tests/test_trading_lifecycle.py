@@ -534,3 +534,99 @@ class TestSwingOvernightSL:
     @pytest.mark.unit
     def test_swing_overnight_sl_tighter_than_default(self):
         assert config.SWING_OVERNIGHT_SL_PCT < config.SWING_SL_DEFAULT_PCT
+
+
+# ── HIGH_VOL early exit ───────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestHighVolEarlyExit:
+    """Tests for the HIGH_VOL intraday early exit logic in run_position_monitor()."""
+
+    def _make_position(self, entry_time_str: str) -> dict:
+        return {
+            "entry_price": 100.0,
+            "qty": 10,
+            "stop_loss_pct": 4.0,
+            "take_profit_pct": 5.0,
+            "entry_time": entry_time_str,
+        }
+
+    def _run_monitor(self, monkeypatch, *, regime: str, now_hour: int, pnl_pct: float, hold_hours: float):
+        """Shared test driver — returns the mock close_position."""
+        from unittest.mock import MagicMock, patch
+        from zoneinfo import ZoneInfo
+
+        ET_zone = ZoneInfo("America/New_York")
+        # Build a "now" at the desired hour
+        now = datetime(2026, 5, 26, now_hour, 30, 0, tzinfo=ET_zone)
+        # Build entry_time so that hold_hours is satisfied
+        from datetime import timedelta
+        entry_dt = now - timedelta(hours=hold_hours)
+        entry_time_str = entry_dt.isoformat()
+
+        # current_price that produces the desired pnl_pct
+        entry_price = 100.0
+        current_price = entry_price * (1 + pnl_pct / 100)
+
+        position = self._make_position(entry_time_str)
+        position["entry_price"] = entry_price
+
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_positions.return_value = {"TSLA": MagicMock()}
+        mock_alpaca.get_latest_price.return_value = current_price
+
+        mock_close = MagicMock()
+
+        with patch("trading.monitor.load_open_positions", return_value={"TSLA": position}), \
+             patch("trading.monitor.AlpacaClient", return_value=mock_alpaca), \
+             patch("trading.monitor.load_macro_regime", return_value={"regime": regime}), \
+             patch("trading.monitor.close_position", mock_close), \
+             patch("trading.monitor.datetime") as mock_dt, \
+             patch("trading.monitor.flush_profit_lock_updates"), \
+             patch("trading.monitor._apply_profit_lock", side_effect=lambda pos, _: pos), \
+             patch("trading.monitor._try_compute_iv", return_value=None), \
+             patch("trading.monitor._check_drawdown_alerts"), \
+             patch("utils.data_health.get_staleness_guard", side_effect=Exception("skip")):
+            mock_dt.now.return_value = now
+            mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+            from trading.monitor import run_position_monitor
+            run_position_monitor()
+
+        return mock_close
+
+    def test_early_exit_fires_when_conditions_met(self, monkeypatch):
+        """All conditions satisfied: regime=HIGH_VOL, after 2PM, down 1%, held 3h."""
+        mock_close = self._run_monitor(
+            monkeypatch, regime="HIGH_VOL", now_hour=14, pnl_pct=-1.0, hold_hours=3.0
+        )
+        mock_close.assert_called_once()
+        _, _, _, _, _, reason = mock_close.call_args[0]
+        assert reason == "highvol_early_exit"
+
+    def test_early_exit_skips_if_before_2pm(self, monkeypatch):
+        """Hour is 13 (before HIGH_VOL_EARLY_EXIT_HOUR=14) — must NOT fire."""
+        mock_close = self._run_monitor(
+            monkeypatch, regime="HIGH_VOL", now_hour=13, pnl_pct=-1.0, hold_hours=3.0
+        )
+        mock_close.assert_not_called()
+
+    def test_early_exit_skips_if_not_high_vol(self, monkeypatch):
+        """Regime is NORMAL — must NOT fire."""
+        mock_close = self._run_monitor(
+            monkeypatch, regime="NORMAL", now_hour=14, pnl_pct=-1.0, hold_hours=3.0
+        )
+        mock_close.assert_not_called()
+
+    def test_early_exit_skips_if_loss_too_small(self, monkeypatch):
+        """P&L is -0.3% (below 0.5% threshold) — must NOT fire."""
+        mock_close = self._run_monitor(
+            monkeypatch, regime="HIGH_VOL", now_hour=14, pnl_pct=-0.3, hold_hours=3.0
+        )
+        mock_close.assert_not_called()
+
+    def test_early_exit_skips_if_held_less_than_2h(self, monkeypatch):
+        """Held only 1h (below HIGH_VOL_EARLY_EXIT_MIN_HOLD_H=2.0) — must NOT fire."""
+        mock_close = self._run_monitor(
+            monkeypatch, regime="HIGH_VOL", now_hour=14, pnl_pct=-1.0, hold_hours=1.0
+        )
+        mock_close.assert_not_called()
