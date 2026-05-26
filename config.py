@@ -224,20 +224,46 @@ SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is 
 PROFIT_LOCK_SWING_PCT    = 2.5       # default/documentation anchor for profit-lock bypass threshold
 SWING_PROMOTE_MIN_PNL_PCT = 0.5     # default/documentation anchor for standard promotion min P&L
 
-# Overnight swing SL floors — raised to prevent premature stop-outs from normal overnight variance.
-# All SWING_SL exits in backtests hit exactly the 2.5% floor (too tight for overnight noise).
-# CONVICTION tier gets 0.5% tighter (higher confidence = less room needed).
-SWING_SL_FLOORS: dict[str, float] = {
-    "NORMAL":         3.5,
-    "BULL_TREND":     3.5,
-    "OPPORTUNITY":    3.5,
-    "CRASH_RECOVERY": 3.5,
-    "DEFENSIVE":      3.0,
-    "CHOPPY":         3.5,
-    "HIGH_VOL":       4.0,
-    "CAPITULATION":   4.5,
+# Overnight swing SL floors per (regime, tier) — wider for LOW-quality (higher overnight variance),
+# tighter for CONVICTION (high-confidence entries tolerate less adverse drift before exiting).
+# Replaces the previous per-regime dict + CONVICTION_TIGHT subtraction.
+SWING_SL_FLOOR_PARAMS: dict[tuple[str, str], float] = {
+    # NORMAL: spread across tiers captures variance differences by stock quality
+    ("NORMAL",         "LOW"):        4.0,
+    ("NORMAL",         "MEDIUM"):     3.5,
+    ("NORMAL",         "HIGH"):       3.0,
+    ("NORMAL",         "CONVICTION"): 2.5,
+    # BULL_TREND: same quality spread; trend provides SL cushion for CONVICTION
+    ("BULL_TREND",     "LOW"):        4.0,
+    ("BULL_TREND",     "MEDIUM"):     3.5,
+    ("BULL_TREND",     "HIGH"):       3.0,
+    ("BULL_TREND",     "CONVICTION"): 2.5,
+    # OPPORTUNITY: same as NORMAL
+    ("OPPORTUNITY",    "LOW"):        4.0,
+    ("OPPORTUNITY",    "MEDIUM"):     3.5,
+    ("OPPORTUNITY",    "HIGH"):       3.0,
+    ("OPPORTUNITY",    "CONVICTION"): 2.5,
+    # CRASH_RECOVERY: wider across all tiers (post-crash variance is elevated)
+    ("CRASH_RECOVERY", "LOW"):        4.5,
+    ("CRASH_RECOVERY", "MEDIUM"):     4.0,
+    ("CRASH_RECOVERY", "HIGH"):       3.5,
+    ("CRASH_RECOVERY", "CONVICTION"): 3.0,
+    # DEFENSIVE: tighter — defensive names are lower-beta
+    ("DEFENSIVE",      "LOW"):        3.5,
+    ("DEFENSIVE",      "MEDIUM"):     3.0,
+    ("DEFENSIVE",      "HIGH"):       2.5,
+    ("DEFENSIVE",      "CONVICTION"): 2.0,
+    # CHOPPY: only HIGH/CONVICTION swing-eligible
+    ("CHOPPY",         "HIGH"):       3.5,
+    ("CHOPPY",         "CONVICTION"): 3.0,
+    # HIGH_VOL: widest — elevated overnight variance in volatile regimes
+    ("HIGH_VOL",       "MEDIUM"):     4.5,
+    ("HIGH_VOL",       "HIGH"):       4.0,
+    ("HIGH_VOL",       "CONVICTION"): 3.5,
+    # CAPITULATION: extreme volatility needs most room
+    ("CAPITULATION",   "HIGH"):       5.0,
+    ("CAPITULATION",   "CONVICTION"): 4.0,
 }
-SWING_SL_CONVICTION_TIGHT: float = 0.5   # CONVICTION tier reduces SL floor by this
 
 # Swing hold parameters per (regime, tier): (max_days, profit_lock_pct, min_pnl_pct)
 # max_days raised +1 for NORMAL/BULL_TREND (capture more of trending moves).

@@ -1274,12 +1274,19 @@ class TestSwingSLFloors:
         medium = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
         conviction = get_tp_sl_params("NORMAL", "CONVICTION", "SWING")
         assert conviction.sl_floor_pct < medium.sl_floor_pct
-        assert conviction.sl_floor_pct == 3.0  # 3.5 - 0.5
+        assert conviction.sl_floor_pct == 2.5  # explicit per-tier floor, no CONVICTION_TIGHT
+
+    def test_swing_sl_low_wider_than_medium(self):
+        from utils.regime_params import get_tp_sl_params
+        low = get_tp_sl_params("NORMAL", "LOW", "SWING")
+        medium = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
+        assert low.sl_floor_pct > medium.sl_floor_pct
+        assert low.sl_floor_pct == 4.0  # low-quality stocks need wider overnight room
 
     def test_highvol_swing_sl_wider(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("HIGH_VOL", "MEDIUM", "SWING")
-        assert p.sl_floor_pct >= 4.0
+        assert p.sl_floor_pct >= 4.5  # MEDIUM in HIGH_VOL gets widest floor
 
     def test_swing_maxdays_increased_normal(self):
         from utils.regime_params import get_tp_sl_params

@@ -149,13 +149,11 @@ def _build_tpsl_table() -> dict[tuple[str, str, str], TPSLParams]:
     t[("CAPITULATION",   "CONVICTION", "PEAD")] = _pd(5.0, 12.0, 2.5, 4.5, 3.5)
 
     # ── SWING ──────────────────────────────────────────────────────────────────
-    # SL floors come from config.SWING_SL_FLOORS (named per regime — no magic numbers).
+    # SL floors come from config.SWING_SL_FLOOR_PARAMS (per regime×tier — full granularity).
     # Hold params (max_days, profit_lock, min_pnl) come from config.SWING_HOLD_PARAMS.
     # TP floors and ceilings are unchanged from the original table design.
     def _sw_cfg(tp1, tp2, regime, tier, atr):
-        sl_f = config.SWING_SL_FLOORS.get(regime, 3.5)
-        if tier == "CONVICTION":
-            sl_f = max(sl_f - config.SWING_SL_CONVICTION_TIGHT, 1.5)
+        sl_f = config.SWING_SL_FLOOR_PARAMS.get((regime, tier), 3.5)
         sl_c = round(sl_f + 1.5, 1)
         days, plock, minpnl = config.SWING_HOLD_PARAMS[(regime, tier)]
         tp1 = max(tp1, sl_f)   # first TP must be >= SL floor for valid risk/reward
@@ -363,7 +361,7 @@ def _filter_table() -> dict[tuple[str, str], FilterParams]:
         "CAPITULATION":   (config.COMPOSITE_MIN_NORMAL, -15, -10),
         "CRISIS":         (999, 0, 0),
     }
-    offsets = {"LOW": +10, "MEDIUM": 0, "HIGH": -5, "CONVICTION": -10}
+    offsets = {"LOW": +15, "MEDIUM": 0, "HIGH": -5, "CONVICTION": -10}
     table = {}
     for regime, (base_comp, sent_block, intra_block) in base.items():
         for tier, offset in offsets.items():
