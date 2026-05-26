@@ -770,8 +770,23 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
     @pytest.mark.unit
     def test_capitulation_wider_ptj_threshold(self):
-        ok_at_minus_4_9, _ = self._call(regime="CAPITULATION", current_pnl_pct=-4.9)
-        ok_at_minus_5_1, _ = self._call(regime="CAPITULATION", current_pnl_pct=-5.1)
+        """CAPITULATION/HIGH swing allows down to -5% P&L (min_pnl_pct=-5.0 in table)."""
+        from utils.ticker_quality import TickerQuality
+        from trading.eod_holds import qualifies_for_eod_hold
+        high_q = TickerQuality(tier="HIGH", score=70, unlocks=frozenset(),
+                               quality_gaps=(), component_scores={})
+        ok_at_minus_4_9, _ = qualifies_for_eod_hold(
+            symbol="TEST", regime="CAPITULATION", earnings_tomorrow=False,
+            current_pnl_pct=-4.9, quality=high_q,
+            entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+            consecutive_red_days=0, vix_trend="stable",
+        )
+        ok_at_minus_5_1, _ = qualifies_for_eod_hold(
+            symbol="TEST", regime="CAPITULATION", earnings_tomorrow=False,
+            current_pnl_pct=-5.1, quality=high_q,
+            entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+            consecutive_red_days=0, vix_trend="stable",
+        )
         assert ok_at_minus_4_9
         assert not ok_at_minus_5_1
 
@@ -843,14 +858,15 @@ class TestGetSwingParams:
         assert p.eligible is False
 
     def test_normal_eligible_with_positive_min_pnl(self):
-        from utils.regime_params import get_swing_params
-        p = get_swing_params("NORMAL")
-        assert p.eligible is True
+        from utils.regime_params import get_swing_params, get_tp_sl_params
+        sp = get_swing_params("NORMAL")
+        assert sp.eligible is True
+        p = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
         assert p.min_pnl_pct > 0
 
     def test_profit_lock_bypass_above_min_pnl(self):
-        from utils.regime_params import get_swing_params
-        p = get_swing_params("CHOPPY")
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "CONVICTION", "SWING")
         assert p.profit_lock_pct > p.min_pnl_pct
 
     def test_high_vol_swing_ineligible(self):
@@ -1109,7 +1125,7 @@ def test_evaluate_eod_holds_uses_normal_params_when_regime_stale(monkeypatch, tm
     def fake_get_swing_params(regime):
         captured_regime.append(regime)
         from utils.regime_params import SwingParams
-        return SwingParams(False, 999, 999, 0.0, 0.0, 0.0)
+        return SwingParams(False)
 
     monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
     monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
@@ -1169,18 +1185,16 @@ class TestTierBasedSwingPromotion:
         return TickerQuality("MEDIUM", 45, frozenset(), (), {})
 
     @pytest.mark.unit
-    def test_conviction_swing_choppy_uses_1pct_profit_lock(self):
-        from signals.entry_gates import get_effective_profit_lock
-        quality = self._conviction_swing_choppy()
-        lock = get_effective_profit_lock("CHOPPY", quality)
-        assert lock == pytest.approx(1.0)
+    def test_conviction_swing_choppy_profit_lock_from_table(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "CONVICTION", "SWING")
+        assert p.profit_lock_pct == pytest.approx(1.0)
 
     @pytest.mark.unit
-    def test_medium_quality_choppy_uses_default_profit_lock(self):
-        from signals.entry_gates import get_effective_profit_lock
-        quality = self._medium_quality()
-        lock = get_effective_profit_lock("CHOPPY", quality)
-        assert lock == pytest.approx(2.5)
+    def test_high_choppy_swing_profit_lock_from_table(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "HIGH", "SWING")
+        assert p.profit_lock_pct == pytest.approx(2.5)
 
     @pytest.mark.unit
     def test_regime_stale_blocks_swing(self):

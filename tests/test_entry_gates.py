@@ -895,24 +895,19 @@ class TestDynamicGateParams:
         assert result == 50 + 10
 
     @pytest.mark.unit
-    def test_swing_choppy_unlock_lowers_profit_lock(self):
-        from signals.entry_gates import get_effective_profit_lock
-        quality = self._conviction_quality(frozenset({"SWING_CHOPPY"}))
-        lock = get_effective_profit_lock("CHOPPY", quality)
-        assert lock == pytest.approx(1.0)
+    def test_choppy_conviction_swing_profit_lock(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "CONVICTION", "SWING")
+        assert p.profit_lock_pct == pytest.approx(1.0)
 
     @pytest.mark.unit
-    def test_swing_sentiment_unlock_lowers_profit_lock(self):
-        from utils.ticker_quality import TickerQuality
-        from signals.entry_gates import get_effective_profit_lock
-        quality = TickerQuality("HIGH", 67, frozenset({"SWING_SENTIMENT"}), (), {})
-        lock = get_effective_profit_lock("NORMAL", quality)
-        assert lock == pytest.approx(1.5)
+    def test_normal_high_swing_profit_lock(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("NORMAL", "HIGH", "SWING")
+        assert p.profit_lock_pct == pytest.approx(2.0)
 
     @pytest.mark.unit
-    def test_no_unlock_uses_default_profit_lock(self):
-        from utils.ticker_quality import TickerQuality
-        from signals.entry_gates import get_effective_profit_lock
-        quality = TickerQuality("HIGH", 67, frozenset(), (), {})
-        lock = get_effective_profit_lock("CHOPPY", quality)
-        assert lock == pytest.approx(2.5)
+    def test_choppy_high_swing_profit_lock(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "HIGH", "SWING")
+        assert p.profit_lock_pct == pytest.approx(2.5)

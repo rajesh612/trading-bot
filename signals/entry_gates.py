@@ -252,15 +252,3 @@ def is_catalyst_active(symbol: str, snap) -> bool:
     return True
 
 
-def get_effective_profit_lock(regime: str, quality: TickerQuality | None) -> float:
-    """Return the effective profit-lock threshold for EOD swing promotion.
-
-    CONVICTION+SWING_CHOPPY in CHOPPY unlocks at 1.0% (vs 2.5% default).
-    HIGH/CONVICTION+SWING_SENTIMENT unlocks at 1.5%.
-    All others use 2.5 (default profit-lock threshold).
-    """
-    if quality and "SWING_CHOPPY" in quality.unlocks and regime == "CHOPPY":
-        return 1.0
-    if quality and "SWING_SENTIMENT" in quality.unlocks:
-        return 1.5
-    return 2.5

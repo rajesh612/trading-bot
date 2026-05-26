@@ -12,10 +12,10 @@ import pandas as pd
 import config
 from indicators.precompute import precompute_indicators_for_day
 from signals.atr_tp import compute_atr_tp_pct
-from signals.entry_gates import effective_composite_gate, get_effective_profit_lock
+from signals.entry_gates import effective_composite_gate
 from trading.tiered_tp import evaluate_tiered_tp_action
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
+from utils.regime_params import get_swing_params, get_tp_sl_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
 from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
 from utils.ticker_quality import TickerQuality, compute_ticker_quality
 
@@ -188,7 +188,10 @@ def _close_trade(
 def _init_tiered_swing_fields(pos: dict, regime: str) -> None:
     """Initialise 40/30/30 tiered TP fields on a position being promoted to swing."""
     from trading.tiered_tp import _compute_tier_quantities
-    sp = get_swing_params(regime)
+    tier = pos.get("quality_tier", "MEDIUM")
+    p = get_tp_sl_params(regime, tier, "SWING")
+    if p.is_disabled:
+        p = get_tp_sl_params("NORMAL", tier, "SWING")
     total_qty = int(pos["qty"])
     tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)
     pos.update({
@@ -200,9 +203,9 @@ def _init_tiered_swing_fields(pos: dict, regime: str) -> None:
         "trailing_stop_active": False,
         "trailing_high_water":  pos["entry"],
         "entry_price":          pos["entry"],
-        "stop_loss_pct":        sp.sl_pct,
-        "tp1_pct":              sp.tp1_pct,
-        "tp2_pct":              sp.tp2_pct,
+        "stop_loss_pct":        p.sl_floor_pct,
+        "tp1_pct":              p.tp_floor_pct,
+        "tp2_pct":              p.tp_ceiling_pct,
     })
 
 
@@ -220,30 +223,36 @@ def _evaluate_swing_promotion(
         avail2 = df2[df2.index <= ts]
         eod_price = float(avail2["close"].iloc[-1]) if not avail2.empty else pos2["entry"]
         pnl_pct = (eod_price - pos2["entry"]) / pos2["entry"] * 100
+        tier = pos2.get("quality_tier", "MEDIUM")
         sp = get_swing_params(regime)
-        quality = qmap.get(sym2)
+        p  = get_tp_sl_params(regime, tier, "SWING")
 
-        effective_lock = get_effective_profit_lock(regime, quality)
-        profit_lock_bypass = (
-            pnl_pct >= effective_lock
-            and regime != "CRISIS"
-            and n_swings < SWING_MAX_POSITIONS
-        )
+        if p.is_disabled:
+            continue
+
+        quality = qmap.get(sym2)
         choppy_conviction_ok = (
             regime == "CHOPPY"
             and quality is not None
             and "SWING_CHOPPY" in quality.unlocks
+        )
+        if not sp.eligible and not choppy_conviction_ok:
+            continue
+
+        profit_lock_bypass = (
+            pnl_pct >= p.profit_lock_pct
+            and regime != "CRISIS"
             and n_swings < SWING_MAX_POSITIONS
         )
         standard_qualify = (
             (sp.eligible or choppy_conviction_ok)
-            and pnl_pct >= sp.min_pnl_pct
+            and pnl_pct >= p.min_pnl_pct
             and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
             and n_swings < SWING_MAX_POSITIONS
         )
         if profit_lock_bypass or standard_qualify:
             pos2["is_swing"] = True
-            pos2["swing_days_remaining"] = SWING_MAX_DAYS
+            pos2["swing_days_remaining"] = p.max_days
             _init_tiered_swing_fields(pos2, regime)
             pos2["sl"] = round(pos2["entry"] * (1 - pos2["stop_loss_pct"] / 100), 4)
             n_swings += 1

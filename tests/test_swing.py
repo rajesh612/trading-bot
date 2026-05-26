@@ -402,12 +402,18 @@ class TestSwingManagerOrchestration:
         assert "earnings" in reason
 
     def test_capitulation_no_earnings_passes(self):
-        """CAPITULATION without earnings tomorrow should qualify."""
+        """CAPITULATION without earnings tomorrow should qualify for HIGH-tier positions."""
         from trading.eod_holds import qualifies_for_eod_hold
+        from utils.ticker_quality import TickerQuality
+        quality = TickerQuality(
+            tier="HIGH", score=70, unlocks=frozenset(),
+            quality_gaps=(), component_scores={},
+        )
         ok, reason = qualifies_for_eod_hold(
             symbol="NVDA", regime="CAPITULATION",
             earnings_tomorrow=False,
             current_pnl_pct=2.0,
+            quality=quality,
             entry_sector_sentiment=20.0,
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
@@ -459,3 +465,29 @@ class TestSwingManagerOrchestration:
         # Gap down 3% (from 100 to 97) — between -7% stop and -2% threshold → TIGHTEN_STOP
         action = _evaluate_gap_action(pos, current_price=97.0)
         assert action == "TIGHTEN_STOP"
+
+
+class TestSwingPromotionFromTPSLTable:
+    @pytest.mark.unit
+    def test_promotion_uses_tpsl_max_days(self, monkeypatch, tmp_path):
+        import config
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", str(tmp_path / "open.json"))
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", str(tmp_path / "swing.json"))
+        # NORMAL/HIGH/SWING: max_days=5
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("NORMAL", "HIGH", "SWING")
+        assert p.max_days == 5
+
+    @pytest.mark.unit
+    def test_profit_lock_from_table(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("BULL_TREND", "CONVICTION", "SWING")
+        assert p.profit_lock_pct == 1.0
+        assert p.min_pnl_pct == 0.1
+
+    @pytest.mark.unit
+    def test_get_effective_profit_lock_removed(self):
+        import utils.regime_params as rp
+        assert not hasattr(rp, "get_effective_profit_lock"), (
+            "get_effective_profit_lock must be deleted — use get_tp_sl_params directly"
+        )

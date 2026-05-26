@@ -11,7 +11,7 @@ from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
 
 from utils.constants import ET
-from utils.regime_params import get_swing_params
+from utils.regime_params import get_swing_params, get_tp_sl_params
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +55,9 @@ def qualifies_for_eod_hold(
         return False, "regime data stale — swing promotion blocked"
 
     params = get_swing_params(regime)
-
-    from signals.entry_gates import get_effective_profit_lock
-    effective_lock = get_effective_profit_lock(regime, quality)
+    tier = quality.tier if quality else "MEDIUM"
+    p = get_tp_sl_params(regime, tier, "SWING")
+    profit_lock = p.profit_lock_pct if not p.is_disabled else config.PROFIT_LOCK_SWING_PCT
 
     # Universal veto 1: CRISIS — no overnight exposure under any circumstances
     if regime == "CRISIS":
@@ -68,22 +68,16 @@ def qualifies_for_eod_hold(
         return False, "earnings tomorrow — overnight binary risk"
 
     # Profit-lock bypass: strongly profitable positions qualify in any non-CRISIS regime
-    if current_pnl_pct >= effective_lock:
+    if current_pnl_pct >= profit_lock:
         return True, ""
 
-    # SWING_CHOPPY unlock allows CONVICTION positions to swing in CHOPPY at lower threshold
-    if quality is not None and "SWING_CHOPPY" in quality.unlocks and regime == "CHOPPY":
-        if current_pnl_pct >= effective_lock:
-            return True, ""
-        return False, f"CHOPPY+SWING_CHOPPY unlock: P&L {current_pnl_pct:.1f}% < {effective_lock:.1f}% floor"
-
-    # Any non-swing-eligible regime — block new swing promotions (CHOPPY, DEFENSIVE, HIGH_VOL)
-    if not params.eligible:
+    # Disabled tier combo or non-eligible regime — block new swing promotions
+    if p.is_disabled or not params.eligible:
         return False, f"{regime} regime — no new swing promotions"
 
     # Min P&L gate: prevent overnight risk on flat/marginal positions
-    if current_pnl_pct < params.min_pnl_pct:
-        return False, f"insufficient P&L for swing ({current_pnl_pct:.1f}% < {params.min_pnl_pct}%)"
+    if current_pnl_pct < p.min_pnl_pct:
+        return False, f"insufficient P&L for swing ({current_pnl_pct:.1f}% < {p.min_pnl_pct}%)"
 
     # NORMAL: veto on sector reversal (current < -20 AND entry was > +10)
     if regime == "NORMAL":
@@ -168,6 +162,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
             current_sector_score = float(sector_sentiment.get(sector, 0))
             entry_sector_score = float(pos.get("entry_sector_sentiment", 0))
 
+            tier = pos.get("quality_tier", "MEDIUM")
             qualifies, reason = qualifies_for_eod_hold(
                 symbol=symbol,
                 regime=regime,
@@ -182,36 +177,35 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
                 logger.info(f"SWING SKIP {symbol}: {reason}")
                 continue
 
-            sp = get_swing_params(regime)
-            tp1_pct = sp.tp1_pct
-            tp2_pct = sp.tp2_pct
-            sl_pct  = sp.sl_pct
-            capitulation = regime == "CAPITULATION"
+            p = get_tp_sl_params(regime, tier, "SWING")
+            if p.is_disabled:
+                logger.info("SWING SKIP %s — tier %s disabled for %s SWING", symbol, tier, regime)
+                continue
 
+            capitulation = regime == "CAPITULATION"
             total_qty = int(pos["qty"])
             tp1_qty, tp2_qty, trailing_qty = _compute_tier_quantities(total_qty)
-            max_days = config.SWING_MAX_DAYS
 
             swing_pos = {
                 "symbol":              symbol,
                 "entry_price":         entry,
                 "qty":                 total_qty,
                 "entry_time":          pos.get("entry_time", now.isoformat()),
-                "stop_loss_pct":       sl_pct,
-                "take_profit_pct":     tp2_pct,
-                "stop_loss_price":     round(entry * (1 - sl_pct / 100), 2),
-                "take_profit_price":   round(entry * (1 + tp2_pct / 100), 2),
-                "tp1_pct":             tp1_pct,
+                "stop_loss_pct":       p.sl_floor_pct,
+                "take_profit_pct":     p.tp_ceiling_pct,
+                "stop_loss_price":     round(entry * (1 - p.sl_floor_pct / 100), 2),
+                "take_profit_price":   round(entry * (1 + p.tp_ceiling_pct / 100), 2),
+                "tp1_pct":             p.tp_floor_pct,
                 "tp1_qty":             tp1_qty,
                 "tp1_hit":             False,
-                "tp2_pct":             tp2_pct,
+                "tp2_pct":             p.tp_ceiling_pct,
                 "tp2_qty":             tp2_qty,
                 "tp2_hit":             False,
                 "trailing_qty":        trailing_qty,
                 "trailing_stop_active": False,
                 "trailing_high_water": current_price,
                 "swing_days_held":     0,
-                "max_swing_days":      max_days,
+                "max_swing_days":      p.max_days,
                 "regime_at_entry":     regime,
                 "capitulation_hold":   capitulation,
                 "hard_deadline":       None,
@@ -226,7 +220,8 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
             promoted.append(symbol)
             logger.info(
                 f"SWING PROMOTE {symbol}: P&L={pnl_pct:+.2f}% | "
-                f"TP1={tp1_pct}% TP2={tp2_pct}% SL={sl_pct}% | {regime} regime"
+                f"TP1={p.tp_floor_pct}% TP2={p.tp_ceiling_pct}% SL={p.sl_floor_pct}% | "
+                f"{regime}/{tier} regime"
             )
         except Exception as exc:
             logger.warning(f"evaluate_eod_holds: error for {symbol}: {exc}")
