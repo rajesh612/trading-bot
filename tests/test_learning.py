@@ -861,3 +861,37 @@ def test_learning_agent_tunes_atr_multiplier(monkeypatch, tmp_path):
     saved = load_json(params_file, {})
     assert "atr_tp_multiplier" in saved
     assert config.ATR_TP_MULT_MIN <= saved["atr_tp_multiplier"] <= config.ATR_TP_MULT_MAX
+
+
+class TestAggregateTier:
+    @pytest.mark.unit
+    def test_tier_aggregation_win_rate(self):
+        from learning.trade_analysis import _aggregate_by_tier
+        trades = [
+            {"quality_tier": "HIGH", "pnl_pct": 2.5, "atr_pct": 1.2, "exit_reason": "TP"},
+            {"quality_tier": "HIGH", "pnl_pct": -1.0, "atr_pct": 1.1, "exit_reason": "SL"},
+            {"quality_tier": "MEDIUM", "pnl_pct": 0.8, "atr_pct": 0.9, "exit_reason": "TP"},
+        ]
+        result = _aggregate_by_tier(trades)
+        assert result["HIGH"]["win_rate"] == pytest.approx(0.5)
+        assert result["HIGH"]["count"] == 2
+        assert result["MEDIUM"]["count"] == 1
+
+    @pytest.mark.unit
+    def test_force_close_rate_computed(self):
+        from learning.trade_analysis import _aggregate_by_tier
+        trades = [
+            {"quality_tier": "LOW", "pnl_pct": 0.3, "atr_pct": 0.8, "exit_reason": "FORCE_CLOSE"},
+            {"quality_tier": "LOW", "pnl_pct": 1.0, "atr_pct": 0.9, "exit_reason": "TP"},
+        ]
+        result = _aggregate_by_tier(trades)
+        assert result["LOW"]["force_close_rate"] == pytest.approx(0.5)
+
+    @pytest.mark.unit
+    def test_most_constrained_param(self):
+        from learning.trade_analysis import _most_constrained_param, _ZERO_TRADE_BOUNDS
+        params = {}
+        for key, (lo, hi) in _ZERO_TRADE_BOUNDS.items():
+            params[key] = hi  # all at max restriction
+        result = _most_constrained_param(params)
+        assert result in _ZERO_TRADE_BOUNDS

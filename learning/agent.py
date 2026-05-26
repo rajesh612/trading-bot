@@ -15,10 +15,13 @@ from trading import risk_manager
 from macro.regime import load_macro_regime, load_trading_params
 from learning.trade_analysis import (
     _aggregate_by_regime,
+    _aggregate_by_tier,
     _classify_loss_source,
     _compute_regime_winrate,
     _clamp_threshold,
+    _most_constrained_param,
     _tune_atr_tp_multiplier,
+    _ZERO_TRADE_BOUNDS,
 )
 from learning.data import (
     _load_todays_closed_trades,
@@ -50,22 +53,11 @@ def _write_strategy_memory(content: str) -> None:
         bak_files[0].unlink()
         bak_files = bak_files[1:]
 
-_ZERO_TRADE_BOUNDS = {
-    "rsi_buy_max":          (65, 80),
-    "composite_min_normal": (15, 30),
-    "vwap_slope_min":       (-0.6, -0.1),
-}
-
-
 def _handle_zero_trade_day(params_path) -> None:
     """Deterministic single-param relaxation on zero-trade days. No Claude call."""
     from utils.io_utils import load_json, save_json
-    from datetime import datetime
-    from utils.constants import ET
     params = load_json(params_path, {})
-    weekday = datetime.now(ET).weekday()
-    param_order = ["rsi_buy_max", "composite_min_normal", "vwap_slope_min"]
-    target = param_order[weekday % len(param_order)]
+    target = _most_constrained_param(params)
     low, high = _ZERO_TRADE_BOUNDS.get(target, (None, None))
     if low is None:
         return
@@ -108,6 +100,12 @@ def run_learning_agent():
         for t in closed_trades
         if (t.get("pnl_pct") or 0) < 0
     }
+
+    tier_agg = _aggregate_by_tier(closed_trades)
+    force_close_rt = (
+        sum(1 for t in closed_trades if t.get("exit_reason") == "FORCE_CLOSE")
+        / len(closed_trades)
+    ) if closed_trades else 0.0
 
     # ── Step 1: Performance + regime analysis ────────────────────────────────
     analysis_response = ai.messages.create(
@@ -152,6 +150,8 @@ def run_learning_agent():
                     f"<trades>{json.dumps(closed_trades)}</trades>\n\n"
                     f"<weights>{json.dumps(current_weights)}</weights>\n\n"
                     f"<params>{json.dumps(current_params)}</params>\n\n"
+                    f"<performance_by_tier>{json.dumps(tier_agg)}</performance_by_tier>\n\n"
+                    f"<force_close_rate>{force_close_rt:.1%}</force_close_rate>\n\n"
                     "Return JSON:\n"
                     "{\n"
                     '  "total_trades": <int>,\n'

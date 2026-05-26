@@ -167,6 +167,42 @@ def _classify_loss_source(trade: dict) -> str:
     return "unknown"
 
 
+_ZERO_TRADE_BOUNDS: dict[str, tuple] = {
+    "rsi_buy_max":          (65, 80),
+    "composite_min_normal": (15, 30),
+    "vwap_slope_min":       (-0.6, -0.1),
+}
+
+
+def _aggregate_by_tier(trades: list[dict]) -> dict[str, dict]:
+    """Win rate, avg P&L, count, avg atr_pct, force_close_rate per quality tier."""
+    result: dict[str, dict] = {}
+    for tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION"):
+        bucket = [t for t in trades if t.get("quality_tier") == tier]
+        if not bucket:
+            continue
+        wins = [t for t in bucket if (t.get("pnl_pct") or 0) > 0]
+        result[tier] = {
+            "count":            len(bucket),
+            "win_rate":         len(wins) / len(bucket),
+            "avg_pnl_pct":      sum(t.get("pnl_pct", 0) for t in bucket) / len(bucket),
+            "avg_atr_pct":      sum(t.get("atr_pct", 0) for t in bucket) / len(bucket),
+            "force_close_rate": sum(
+                1 for t in bucket if t.get("exit_reason") == "FORCE_CLOSE"
+            ) / len(bucket),
+        }
+    return result
+
+
+def _most_constrained_param(params: dict) -> str:
+    """Return the param name closest to its upper (most restrictive) bound."""
+    scores: dict[str, float] = {}
+    for key, (lo, hi) in _ZERO_TRADE_BOUNDS.items():
+        val = float(params.get(key, hi))
+        scores[key] = (val - lo) / (hi - lo) if hi != lo else 0.0
+    return max(scores, key=lambda k: scores[k])
+
+
 _ATR_TP_GRID = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0]
 _ATR_TP_MIN_TRADES = 15
 
