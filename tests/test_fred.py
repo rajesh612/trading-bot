@@ -63,3 +63,89 @@ class TestFredCacheExpansion:
         import inspect
         src = inspect.getsource(fc)
         assert "requests.get(" not in src, "Must use Session, not bare requests.get()"
+
+
+class TestYieldCurveOverride:
+    @pytest.mark.unit
+    def test_bull_trend_overridden_to_defensive_when_inverted(self):
+        from macro.regime import _apply_fred_overrides
+        result = _apply_fred_overrides("BULL_TREND", {"yield_curve_inverted": True})
+        assert result == "DEFENSIVE"
+
+    @pytest.mark.unit
+    def test_normal_not_overridden_without_inversion(self):
+        from macro.regime import _apply_fred_overrides
+        result = _apply_fred_overrides("NORMAL", {"yield_curve_inverted": False})
+        assert result == "NORMAL"
+
+    @pytest.mark.unit
+    def test_crisis_not_overridden(self):
+        from macro.regime import _apply_fred_overrides
+        result = _apply_fred_overrides("CRISIS", {"yield_curve_inverted": True})
+        assert result == "CRISIS"
+
+    @pytest.mark.unit
+    def test_opportunity_overridden_when_inverted(self):
+        from macro.regime import _apply_fred_overrides
+        result = _apply_fred_overrides("OPPORTUNITY", {"yield_curve_inverted": True})
+        assert result == "DEFENSIVE"
+
+
+class TestCatalystSurpriseScore:
+    @pytest.mark.unit
+    def test_hot_cpi_is_bearish(self, tmp_path, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", str(tmp_path / "fred.json"))
+        monkeypatch.setattr(config, "FRED_CPI_TARGET_PCT", 2.0)
+        from utils.io_utils import save_json
+        save_json(str(tmp_path / "fred.json"), {"cpi_yoy_pct": 5.5, "cpi_vs_target": "above"})
+        from macro.economic_calendar import get_catalyst_surprise_score
+        score = get_catalyst_surprise_score("CPI")
+        assert score < 0
+
+    @pytest.mark.unit
+    def test_low_cpi_is_bullish(self, tmp_path, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", str(tmp_path / "fred.json"))
+        monkeypatch.setattr(config, "FRED_CPI_TARGET_PCT", 2.0)
+        from utils.io_utils import save_json
+        save_json(str(tmp_path / "fred.json"), {"cpi_yoy_pct": 1.0, "cpi_vs_target": "below"})
+        from macro.economic_calendar import get_catalyst_surprise_score
+        score = get_catalyst_surprise_score("CPI")
+        assert score > 0
+
+    @pytest.mark.unit
+    def test_unknown_event_returns_zero(self, tmp_path, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", str(tmp_path / "fred.json"))
+        from utils.io_utils import save_json
+        save_json(str(tmp_path / "fred.json"), {})
+        from macro.economic_calendar import get_catalyst_surprise_score
+        assert get_catalyst_surprise_score("EARNINGS") == 0.0
+
+
+class TestSectorFredScoring:
+    @pytest.mark.unit
+    def test_xlf_hiking_tailwind(self):
+        from utils.ticker_quality import _score_sector_fred
+        pts, gap = _score_sector_fred("XLF", {"fed_direction": "hiking"})
+        assert pts == 3
+
+    @pytest.mark.unit
+    def test_xlu_hiking_headwind_clamped_to_zero(self):
+        from utils.ticker_quality import _score_sector_fred
+        pts, gap = _score_sector_fred("XLU", {"fed_direction": "hiking"})
+        assert pts == 0   # negative clamped to 0
+        assert gap is not None  # gap reported
+
+    @pytest.mark.unit
+    def test_xlk_cutting_tailwind(self):
+        from utils.ticker_quality import _score_sector_fred
+        pts, gap = _score_sector_fred("XLK", {"fed_direction": "cutting"})
+        assert pts == 3
+
+    @pytest.mark.unit
+    def test_unknown_etf_returns_zero(self):
+        from utils.ticker_quality import _score_sector_fred
+        pts, gap = _score_sector_fred("XYZ", {"fed_direction": "hiking"})
+        assert pts == 0

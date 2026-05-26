@@ -19,6 +19,15 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
+
+def _apply_fred_overrides(regime: str, fred_cache: dict) -> str:
+    """Hard regime downgrade when FRED signals structural contradiction."""
+    if fred_cache.get("yield_curve_inverted") and regime not in ("CRISIS", "CAPITULATION"):
+        if regime in ("BULL_TREND", "OPPORTUNITY"):
+            return "DEFENSIVE"
+    return regime
+
+
 _VALID_REGIMES = {
     "BULL_TREND", "BULL_TREND_PARABOLIC", "NORMAL", "CHOPPY",
     "DEFENSIVE", "OPPORTUNITY", "CAPITULATION", "CRISIS", "CRASH_RECOVERY",
@@ -127,6 +136,10 @@ def fetch_macro_regime() -> dict:
             event_risk, event_details = is_event_risk_window(now)
         except Exception:
             pass
+
+        from macro.fred_cache import load_fred_cache
+        fred_cache = load_fred_cache()
+        regime = _apply_fred_overrides(regime, fred_cache)
 
         result = {
             "regime": regime, "macro_health_score": macro_health, "sector_scores": ss,

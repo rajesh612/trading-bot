@@ -223,8 +223,22 @@ def get_post_event_window(
 
 
 def get_catalyst_surprise_score(event_type: str) -> float:
-    """Return -1.0 to +1.0 surprise magnitude. >0 = bullish, <0 = bearish, 0 = neutral/no data.
-    Stub — replaced by real implementation in Task 12."""
+    """Return -1.0 to +1.0 surprise magnitude. >0 = bullish, <0 = bearish, 0 = neutral/no data."""
+    from macro.fred_cache import load_fred_cache
+    cache = load_fred_cache()
+    if event_type == "CPI":
+        yoy = cache.get("cpi_yoy_pct")
+        if yoy is None:
+            return 0.0
+        if yoy > config.FRED_CPI_TARGET_PCT + 0.5:
+            return -min(1.0, (yoy - 2.5) / 2.0)
+        if yoy < config.FRED_CPI_TARGET_PCT - 0.5:
+            return min(1.0, (1.5 - yoy) / 1.5)
+        return 0.0
+    if event_type in ("NFP", "JOBS"):
+        return -0.5 if cache.get("unemployment_rising") else 0.3
+    if event_type == "JOBLESS_CLAIMS":
+        return -0.5 if cache.get("claims_spike") else 0.2
     return 0.0
 
 
