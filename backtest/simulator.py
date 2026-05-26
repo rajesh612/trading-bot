@@ -5,6 +5,7 @@ No network I/O, no file I/O — safe to call from tests without side effects.
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -44,34 +45,34 @@ LOOKBACK_BARS = config.BARS_LOOKBACK;   SWING_MAX_POSITIONS = config.SWING_MAX_P
 SWING_MAX_DAYS = 3
 
 
-@dataclass(frozen=True)
+_REGIME_SENTIMENT_PRIOR: dict[str, int] = {
+    "BULL_TREND":     40,
+    "OPPORTUNITY":    35,
+    "NORMAL":         15,
+    "CRASH_RECOVERY": 10,
+    "DEFENSIVE":       0,
+    "CHOPPY":         -5,
+    "HIGH_VOL":      -10,
+    "CAPITULATION":  -20,
+    "CRISIS":        -40,
+}
+
+
+@dataclass
 class _BacktestSnap:
-    """Minimal snap stub for compute_ticker_quality — no live research/news in backtest."""
+    """Minimal snap stub for compute_ticker_quality — regime-derived sentiment priors."""
     regime: str
-    research: dict = None
-    intraday_news: dict = None
+    _watch_list: list = field(default_factory=list)
 
-    def __post_init__(self):
-        object.__setattr__(self, "research", self.research if self.research is not None else {})
-        object.__setattr__(self, "intraday_news", self.intraday_news if self.intraday_news is not None else {})
+    @cached_property
+    def research(self) -> dict:
+        prior = _REGIME_SENTIMENT_PRIOR.get(self.regime, 0)
+        return {sym: {"sentiment_score": prior} for sym in self._watch_list}
 
-
-def _build_quality_map(
-    watch_list: list[str],
-    precomp: dict[str, dict],
-    snap: "_BacktestSnap",
-) -> dict[str, TickerQuality]:
-    """Compute TickerQuality for each watch-list symbol using its earliest precomputed iv."""
-    qmap: dict[str, TickerQuality] = {}
-    for sym in watch_list:
-        sym_bars = precomp.get(sym)
-        if not sym_bars:
-            continue
-        iv = next(iter(sym_bars.values()), None)
-        if iv is None:
-            continue
-        qmap[sym] = compute_ticker_quality(sym, iv, snap, "DAY_TRADE")
-    return qmap
+    @cached_property
+    def intraday_news(self) -> dict:
+        prior = _REGIME_SENTIMENT_PRIOR.get(self.regime, 0)
+        return {sym: {"sentiment_score": prior} for sym in self._watch_list}
 
 
 @dataclass
@@ -327,6 +328,7 @@ def _sim_tranche2_gates_pass(
     drop_pct: float,
     regime: str,
     now,
+    quality=None,
 ) -> bool:
     """Simplified T2 gate check for per-bar simulation — no earnings/sentiment data available."""
     if pos.get("tranche_2_triggered"):
@@ -334,6 +336,8 @@ def _sim_tranche2_gates_pass(
     if now.hour >= config.TRANCHE2_CUTOFF_HOUR:
         return False
     if get_t2_params(regime).cutoff_hour == 0:
+        return False
+    if regime == "CHOPPY" and (quality is None or "T2_CHOPPY" not in quality.unlocks):
         return False
     if drop_pct < config.TRANCHE2_DROP_MIN_PCT or drop_pct > config.TRANCHE2_DROP_MAX_PCT:
         return False
@@ -456,9 +460,7 @@ def simulate_day(
         if df_sym is not None and not df_sym.empty:
             precomp[sym] = precompute_indicators_for_day(sym, df_sym, day)
 
-    # Build quality map for the day (uses earliest iv per symbol)
-    _snap = _BacktestSnap(regime=regime)
-    quality_map: dict[str, TickerQuality] = _build_quality_map(watch_list, precomp, _snap)
+    _snap = _BacktestSnap(regime=regime, _watch_list=watch_list)
 
     pending_signals: dict[str, dict] = {}
 
@@ -469,7 +471,7 @@ def simulate_day(
         if SWING_ENABLED and not swing_evaluated and ts_et >= swing_eval_ts:
             swing_evaluated = True
             n_swings = sum(1 for p in state.positions.values() if p.get("is_swing"))
-            n_swings = _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings, quality_map)
+            n_swings = _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings)
 
         for sym in list(state.positions.keys()):
             df_sym = day_bars.get(sym)
@@ -523,7 +525,12 @@ def simulate_day(
                         iv_at_bar = precomp.get(sym, {}).get(ts)
                         if iv_at_bar is None:
                             iv_at_bar = type("_IV", (), {"rsi": 100, "composite_score": 0})()
-                        if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et):
+                        stored_tier = pos.get("quality_tier", "MEDIUM")
+                        t2_quality = TickerQuality(
+                            tier=stored_tier, score=50, unlocks=frozenset(),
+                            quality_gaps=(), component_scores={},
+                        )
+                        if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et, quality=t2_quality):
                             current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
                             _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
                             state.t2_fire_count += 1
@@ -549,8 +556,11 @@ def simulate_day(
             if sym in state.sl_blacklist: continue
             iv = precomp.get(sym, {}).get(ts)
             if iv is None: continue
-            quality = quality_map.get(sym)
-            tier = quality.tier if quality else "MEDIUM"
+            from utils.ticker_quality import derive_mode
+            quality = compute_ticker_quality(
+                sym, iv, _snap, derive_mode(sym, pead_ok=False, catalyst_active=False),
+            )
+            tier = quality.tier
             if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max):
                 continue
             if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:

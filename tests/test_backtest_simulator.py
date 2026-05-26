@@ -31,21 +31,23 @@ def _make_iv(composite=55.0, rsi=50.0, vwap_slope=0.1, stoch_d=40.0,
 
 @pytest.mark.unit
 class TestBacktestQuality:
-    def test_quality_map_built_for_watch_list(self):
-        """_build_quality_map returns a TickerQuality for every symbol that has a precomp iv."""
-        from backtest.simulator import _build_quality_map, _BacktestSnap
+    def test_per_bar_quality_computed_for_symbol(self):
+        """compute_ticker_quality returns a valid TickerQuality for a symbol with precomp iv."""
+        from backtest.simulator import _BacktestSnap
+        from utils.ticker_quality import compute_ticker_quality, derive_mode
         iv = _make_iv(composite=60.0)
-        precomp = {"AAPL": {datetime(2026, 1, 2, 10, 0, tzinfo=ET): iv}}
-        snap = _BacktestSnap(regime="NORMAL")
-        qmap = _build_quality_map(["AAPL", "MISSING"], precomp, snap)
-        assert "AAPL" in qmap
-        assert qmap["AAPL"].tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION")
+        snap = _BacktestSnap(regime="NORMAL", _watch_list=["AAPL"])
+        quality = compute_ticker_quality("AAPL", iv, snap, derive_mode("AAPL", pead_ok=False, catalyst_active=False))
+        assert quality.tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION")
 
-    def test_quality_map_skips_symbol_with_no_precomp(self):
-        from backtest.simulator import _build_quality_map, _BacktestSnap
-        snap = _BacktestSnap(regime="NORMAL")
-        qmap = _build_quality_map(["MISSING"], {}, snap)
-        assert "MISSING" not in qmap
+    def test_per_bar_quality_returns_valid_tier_for_any_symbol(self):
+        """compute_ticker_quality returns a TickerQuality even for unknown symbols."""
+        from backtest.simulator import _BacktestSnap
+        from utils.ticker_quality import compute_ticker_quality, derive_mode
+        iv = _make_iv(composite=30.0)
+        snap = _BacktestSnap(regime="NORMAL", _watch_list=["UNKNOWN"])
+        quality = compute_ticker_quality("UNKNOWN", iv, snap, derive_mode("UNKNOWN", pead_ok=False, catalyst_active=False))
+        assert quality.tier in ("LOW", "MEDIUM", "HIGH", "CONVICTION")
 
     def test_open_trade_stores_quality_tier(self, monkeypatch, tmp_path):
         """Position dict must contain 'quality_tier' after _open_trade."""
@@ -277,3 +279,25 @@ class TestBacktestChoppySwingUnlock:
         n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, quality_map)
         assert n == 1
         assert state.positions["AAPL"].get("is_swing", False)
+
+
+class TestBacktestFidelity:
+    @pytest.mark.unit
+    def test_bull_trend_snap_has_positive_sentiment(self):
+        from backtest.simulator import _BacktestSnap
+        snap = _BacktestSnap(regime="BULL_TREND", _watch_list=["AAPL"])
+        assert snap.research["AAPL"]["sentiment_score"] > 0
+
+    @pytest.mark.unit
+    def test_crisis_snap_has_negative_sentiment(self):
+        from backtest.simulator import _BacktestSnap
+        snap = _BacktestSnap(regime="CRISIS", _watch_list=["AAPL"])
+        assert snap.research["AAPL"]["sentiment_score"] < 0
+
+    @pytest.mark.unit
+    def test_snap_research_is_cached(self):
+        from backtest.simulator import _BacktestSnap
+        snap = _BacktestSnap(regime="NORMAL", _watch_list=["AAPL", "MSFT"])
+        r1 = snap.research
+        r2 = snap.research
+        assert r1 is r2  # cached_property
