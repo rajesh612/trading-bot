@@ -10,6 +10,9 @@ import config
 import macro.economic_calendar as _ec_mod
 from indicators.values import IndicatorValues
 from signals.tp_scaler import compute_tp_sl
+from macro.regime import get_cached_regime
+from trading.journal import load_open_positions
+from utils.market_monitor import is_flash_crash_active
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -312,9 +315,36 @@ def build_dynamic_user_context(now: datetime, portfolio_gain_pct: float = 0.0) -
     if portfolio_gain_pct <= -config.DAILY_LOSS_WARN_PCT * 100:
         pnl_note += " ⚠ elevated daily loss — tighten criteria"
 
+    # Portfolio sector concentration
+    from sectors import get_sector_etf
+    open_pos  = load_open_positions()
+    held      = [get_sector_etf(s) for s in open_pos]
+    conc_line = (
+        "Positions: " + ", ".join(
+            f"{s}×{held.count(s)}" for s in sorted(set(held))
+        ) if held else "Positions: none"
+    )
+
+    # Entry window countdown
+    regime       = get_cached_regime()
+    from utils.regime_params import get_entry_params
+    hard_close_h = get_entry_params(regime).hard_close_hour
+    remaining_m  = max(0, hard_close_h * 60 - now.hour * 60 - now.minute)
+    window_line  = f"Entry window: {remaining_m // 60}h{remaining_m % 60:02d}m remaining"
+
+    # Flash-crash status
+    flash_line = (
+        "Flash crash: ACTIVE — entries blocked"
+        if is_flash_crash_active()
+        else "Flash crash: clear"
+    )
+
     return (
         f"MARKET SNAPSHOT ({now.strftime('%H:%M')} ET):\n"
         f"{intraday_lines}\n"
         f"Portfolio P&L today: {pnl_note}\n"
-        f"Event risk: {event_line}"
+        f"Event risk: {event_line}\n"
+        f"{conc_line}\n"
+        f"{window_line}\n"
+        f"{flash_line}"
     )

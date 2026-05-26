@@ -179,6 +179,11 @@ def load_macro_regime() -> dict:
     return _crisis_fallback(datetime.now(ET))
 
 
+def get_cached_regime() -> str:
+    """Return just the regime string from the cached regime file."""
+    return load_macro_regime().get("regime", "NORMAL")
+
+
 def load_trading_params() -> dict:
     """Return learning-agent-adjusted trading params, falling back to config defaults."""
     defaults = {

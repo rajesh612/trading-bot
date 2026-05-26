@@ -1116,3 +1116,33 @@ class TestComputeTpSlWithMode:
                 entry_time=datetime(2026, 5, 24, 10, 0, tzinfo=ET),
                 tier="LOW", regime="CRISIS", mode="DAY_TRADE",
             )
+
+
+class TestContextBuilderAdditions:
+    @pytest.mark.unit
+    def test_context_includes_entry_countdown(self, monkeypatch):
+        from trading.context_builder import build_dynamic_user_context
+        from datetime import datetime
+        from utils.constants import ET
+        from unittest.mock import patch
+        with patch("trading.context_builder.get_cached_regime", return_value="NORMAL"), \
+             patch("trading.context_builder.load_open_positions", return_value={}), \
+             patch("trading.context_builder.is_flash_crash_active", return_value=False):
+            ctx = build_dynamic_user_context(
+                datetime(2026, 5, 24, 10, 30, tzinfo=ET), 0.0
+            )
+        assert "Entry window:" in ctx
+
+    @pytest.mark.unit
+    def test_context_includes_flash_crash_status(self, monkeypatch):
+        from trading.context_builder import build_dynamic_user_context
+        from datetime import datetime
+        from utils.constants import ET
+        from unittest.mock import patch
+        with patch("trading.context_builder.get_cached_regime", return_value="NORMAL"), \
+             patch("trading.context_builder.load_open_positions", return_value={}), \
+             patch("trading.context_builder.is_flash_crash_active", return_value=True):
+            ctx = build_dynamic_user_context(
+                datetime(2026, 5, 24, 10, 30, tzinfo=ET), 0.0
+            )
+        assert "Flash crash: ACTIVE" in ctx

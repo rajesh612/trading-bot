@@ -18,6 +18,12 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 
+def is_flash_crash_active() -> bool:
+    """Return True if a flash-crash CRISIS lockout is currently in effect."""
+    data = load_json(config.MACRO_REGIME_FILE, {})
+    return bool(data.get("flash_crash_active", False))
+
+
 # ── SPY data helpers ─────────────────────────────────────────────────────────
 
 def _get_spy_prev_close() -> float:

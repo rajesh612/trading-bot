@@ -25,6 +25,29 @@ from utils.constants import ET
 
 logger = logging.getLogger(__name__)
 
+
+def _score_capitulation_candidate(symbol: str, bars) -> bool:
+    """True if symbol shows real capitulation: drawdown >= 15% from 20d high + OBV declining."""
+    if bars is None or len(bars) < 5:
+        return False
+    high_20d = bars["high"].rolling(20).max().iloc[-1]
+    current  = float(bars["close"].iloc[-1])
+    drawdown = (high_20d - current) / high_20d if high_20d > 0 else 0.0
+    obv      = (bars["close"].diff().apply(lambda x: 1 if x > 0 else -1) * bars["volume"]).cumsum()
+    obv_trend_down = float(obv.iloc[-1]) < float(obv.iloc[-5])
+    return drawdown >= 0.15 and obv_trend_down
+
+
+def _fetch_daily_bars_for_cap_check(symbols: list[str]) -> dict:
+    from data.market_data import get_daily_bars
+    result = {}
+    for sym in symbols:
+        try:
+            result[sym] = get_daily_bars(sym, days=20)
+        except Exception:
+            result[sym] = None
+    return result
+
 _RESEARCH_LOCK = threading.Lock()
 
 
