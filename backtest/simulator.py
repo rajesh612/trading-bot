@@ -559,6 +559,7 @@ def simulate_day(
             from utils.ticker_quality import derive_mode
             quality = compute_ticker_quality(
                 sym, iv, _snap, derive_mode(sym, pead_ok=False, catalyst_active=False),
+                fred_cache={},
             )
             tier = quality.tier
             if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max):

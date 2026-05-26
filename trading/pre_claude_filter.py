@@ -46,17 +46,21 @@ def apply_pre_claude_filter(
     """
     mode = derive_mode(symbol, pead_ok, existing_swing_pos=False, catalyst_active=catalyst_active)
 
+    fred_cache = getattr(snap, "fred_cache", None) or {}
+
     # Layer 0 — Already closed today
     if daily_closed and symbol in daily_closed:
         quality = compute_ticker_quality(symbol, iv, snap, mode,
                                          sub_etf_chg, earnings_clear_days,
-                                         pead_ok, pead_score, event_active)
+                                         pead_ok, pead_score, event_active,
+                                         fred_cache=fred_cache)
         return FilterResult("SKIP", "already closed today", quality)
 
     # Compute quality first — tier drives all subsequent thresholds
     quality = compute_ticker_quality(symbol, iv, snap, mode,
                                      sub_etf_chg, earnings_clear_days,
-                                     pead_ok, pead_score, event_active)
+                                     pead_ok, pead_score, event_active,
+                                     fred_cache=fred_cache)
     fp = get_filter_params(snap.regime, quality.tier)
 
     # Layer 1 — Composite minimum (higher of regime gate and tier-adjusted floor)

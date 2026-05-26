@@ -123,9 +123,38 @@ def _score_earnings(earnings_clear_days: int) -> tuple[int, str | None]:
     return pts, gap
 
 
-def _score_econ(event_active: bool) -> int:
-    """Max 5 pts — economic calendar risk window."""
-    return 0 if event_active else 5
+def _score_sector_fred(sub_etf: str, fred_cache: dict) -> tuple[int, str | None]:
+    """Max 5 pts — FRED macro headwind/tailwind for sub-sector ETF. Negatives clamped to 0."""
+    if not sub_etf or not fred_cache:
+        return 0, None
+    direction = fred_cache.get("fed_direction", "unknown")
+    inverted  = fred_cache.get("yield_curve_inverted", False)
+    cpi_above = fred_cache.get("cpi_vs_target") == "above"
+
+    TAILWINDS: dict[str, int] = {
+        "XLF":  3 if direction == "hiking"  else 0,
+        "XLU": -4 if direction == "hiking"  else 0,
+        "XLRE":-4 if direction == "hiking"  else 0,
+        "XLP":  2 if direction == "cutting" else 0,
+        "XLK":  3 if direction == "cutting" else 0,
+        "XLY":  2 if direction == "cutting" else 0,
+        "XLE":  3 if cpi_above             else 0,
+    }
+    pts_raw = TAILWINDS.get(sub_etf, 2 if inverted and sub_etf == "GLD" else 0)
+    pts     = max(0, min(5, pts_raw))
+    gap     = f"sector_fred_headwind({pts_raw})" if pts_raw < -1 else None
+    return pts, gap
+
+
+def _score_econ_and_fred(
+    event_active: bool, sub_etf: str, fred_cache: dict
+) -> tuple[int, list[str]]:
+    """Max 5 pts — economic calendar risk window + FRED sector tailwind."""
+    if event_active:
+        return 0, []
+    pts, gap = _score_sector_fred(sub_etf, fred_cache)
+    gaps = [gap] if gap else []
+    return pts, gaps
 
 
 def _is_fresh(ts_str: str | None, max_minutes: int) -> bool:
@@ -171,12 +200,13 @@ def compute_ticker_quality(
     symbol: str,
     iv,
     snap,
-    mode: str,
+    mode: str = "DAY_TRADE",
     sub_etf_chg: float = 0.0,
     earnings_clear_days: int = 30,
     pead_ok: bool = False,
     pead_score: int = 0,
     event_active: bool = False,
+    fred_cache: dict | None = None,
 ) -> TickerQuality:
     """Compute a TickerQuality for *symbol* at the current evaluation instant.
 
@@ -191,6 +221,7 @@ def compute_ticker_quality(
     pead_ok:             Whether the symbol qualifies as a PEAD setup (pre-computed by caller).
     pead_score:          PEAD score 0–100 (pre-computed by caller).
     event_active:        Whether an economic risk window is currently active (pre-computed by caller).
+    fred_cache:          FRED macro state dict (fed_direction, yield_curve_inverted, cpi_vs_target).
     """
     import config as _config
     regime = snap.regime
@@ -204,13 +235,16 @@ def compute_ticker_quality(
     intra_fresh = (intra_ts is None) or _is_fresh(intra_ts, _config.INTRADAY_NEWS_STALE_MINUTES)
     intra_sent: int = intra_data.get("sentiment_score", sentiment) if intra_fresh else 0
 
+    from sectors import get_sub_sector_etf
+    sub_etf = get_sub_sector_etf(symbol)
+
     c_pts, c_gap = _score_composite(iv.composite_score, ep.composite_min)
     s_pts, s_gap = _score_sentiment(sentiment)
     i_pts, i_gap = _score_intraday(intra_sent)
     e_pts, e_gap = _score_sub_etf(sub_etf_chg)
     p_pts, _     = _score_pead(pead_ok, pead_score)
     ec_pts, ec_gap = _score_earnings(earnings_clear_days)
-    ev_pts       = _score_econ(event_active)
+    ev_pts, ev_gaps = _score_econ_and_fred(event_active, sub_etf, fred_cache or {})
 
     score = max(0, min(100, c_pts + s_pts + i_pts + e_pts + p_pts + ec_pts + ev_pts))
     tier = _score_to_tier(score)
@@ -218,7 +252,7 @@ def compute_ticker_quality(
     extra_gaps: list[str] = []
     if not intra_fresh and intra_ts:
         extra_gaps.append("intraday_stale")
-    gaps = tuple(g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap, *extra_gaps] if g)
+    gaps = tuple(g for g in [c_gap, s_gap, i_gap, e_gap, ec_gap, *ev_gaps, *extra_gaps] if g)
     unlocks = _compute_unlocks(
         tier, mode, pead_ok, intra_sent, sentiment, earnings_clear_days, regime
     )
@@ -235,6 +269,6 @@ def compute_ticker_quality(
             "sub_etf": e_pts,
             "pead": p_pts,
             "earnings": ec_pts,
-            "econ": ev_pts,
+            "econ_fred": ev_pts,
         },
     )

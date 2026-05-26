@@ -136,7 +136,7 @@ class TestComputeTickerQuality:
             "AAPL", iv, snap, mode="DAY_TRADE",
             pead_ok=False, pead_score=0, event_active=False,
         )
-        expected_keys = {"composite", "sentiment", "intraday", "sub_etf", "pead", "earnings", "econ"}
+        expected_keys = {"composite", "sentiment", "intraday", "sub_etf", "pead", "earnings", "econ_fred"}
         assert expected_keys == set(result.component_scores.keys())
 
     @patch("utils.ticker_quality.get_entry_params")
@@ -149,7 +149,7 @@ class TestComputeTickerQuality:
             "AAPL", iv, snap, mode="DAY_TRADE",
             pead_ok=False, pead_score=0, event_active=True,
         )
-        assert result.component_scores["econ"] == 0
+        assert result.component_scores["econ_fred"] == 0
 
     @patch("utils.ticker_quality.get_entry_params")
     def test_score_clamped_to_100(self, mock_ep, monkeypatch):
