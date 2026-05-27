@@ -21,6 +21,7 @@ from trading.pipeline import TradingPipeline
 from trading.watch_loader import load_watch_list
 from utils.constants import ET
 from utils import regimes
+from utils.regime_params import get_filter_params
 
 logger = logging.getLogger(__name__)
 
@@ -207,14 +208,18 @@ def run_trading_cycle() -> None:
                 and _zero_pass["count"] >= config.DEAD_DAY_ALERT_CYCLES
                 and now.hour >= alert_hour):
             _zero_pass["alerted"] = True
+            med_floor = get_filter_params(regime, "MEDIUM").composite_min
+            stale_list = sorted(guard.stale_sources)
             msg = (
-                f"⚠️ <b>Dead-day alert</b>: {_zero_pass['count']} consecutive cycles with 0 "
-                f"symbols passing pre-Claude gates.\n"
-                f"Regime: <b>{regime}</b> | Watch list: {len(watch_list)} symbols\n"
-                f"Check COMPOSITE_MIN_NORMAL and gate thresholds."
+                f"⚠️ <b>Dead-day alert</b>: {_zero_pass['count']} consecutive cycles, "
+                f"0 symbols reached Claude.\n"
+                f"Regime: <b>{regime}</b> | Watch: {len(watch_list)} symbols\n"
+                f"can_open: {guard.can_open} | stale: {stale_list}\n"
+                f"MEDIUM floor: {med_floor} (penalty: +{guard.composite_penalty})"
             )
             telegram_notify._send(msg)
             logger.warning(
-                "Dead-day alert: %d consecutive zero-candidate cycles in entry window (regime=%s)",
-                _zero_pass["count"], regime,
+                "Dead-day alert: %d consecutive zero-candidate cycles in entry window "
+                "(regime=%s, can_open=%s, stale=%s)",
+                _zero_pass["count"], regime, guard.can_open, stale_list,
             )

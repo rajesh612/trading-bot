@@ -15,6 +15,14 @@ from utils.io_utils import load_json, save_json
 
 _logger = logging.getLogger(__name__)
 
+# Canonical set of keys written by refresh_fred_cache() — contract for consumers.
+FRED_SCHEMA_KEYS: frozenset[str] = frozenset({
+    "fed_funds_rate", "fed_direction", "cpi_yoy_pct", "cpi_vs_target",
+    "unemployment_rising", "yield_curve_inverted", "yield_curve_spread",
+    "credit_spread_bps", "credit_spread_risk_off", "breakeven_inflation",
+    "claims_spike", "fred_modifier", "updated_at",
+})
+
 _FRED_BASE   = "https://api.stlouisfed.org/fred/series/observations"
 _FRED_SESSION: requests.Session | None = None
 

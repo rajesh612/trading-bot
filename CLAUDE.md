@@ -35,6 +35,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | Every 60 sec (9:30–3:50) | `trading.monitor.run_position_monitor()` |
 | Every 5 min (9:30–3:50) | `utils.market_monitor.run_market_monitor()` — flash-crash detection via SPY |
 | Every 30 min (9:05–2:35) | `research.intraday.refresh_intraday_news()` — intraday news refresh |
+| 12:00 PM | `macro.regime.fetch_macro_regime()` — midday regime refresh (keeps regime fresh through 3:55 PM) |
 | 12:00 PM | Midday check — Telegram alert if zero BUY trades executed today |
 | 3:50 PM | `trading.swing_manager.evaluate_eod_holds()` |
 | 3:55 PM | `trading.closer.force_close_all()` |
@@ -52,7 +53,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `indicators/precompute.py` | `precompute_indicators_for_day()` — vectorized EWM/RSI/MACD precompute; eliminates per-bar recomputation (15× speedup for backtests) |
 | `signals/atr_tp.py` | `compute_atr_tp_pct()` — ATR-based take-profit: `ATR% × atr_tp_multiplier`, clamped to floor/ceiling |
 | `trading/pre_claude_filter.py` | **Quality router only** (5 layers): routes each symbol to SKIP / AUTO_EXECUTE / CLAUDE. No safety gates here — see Rule 23 |
-| `signals/entry_gates.py` | `check_all_gates()` — **sole enforcer of all safety gates** (time window, earnings, event risk, Stoch, parabolic, herding, gap-skip, soft flags) |
+| `signals/entry_gates.py` | `check_all_gates()` — **sole enforcer of all safety gates** (time window, earnings, event risk, Stoch, parabolic, herding, gap-skip, stop-hunt zone [exempt in BULL_TREND/OPPORTUNITY], soft flags) |
 | `signals/volume_guard.py` | `is_volume_weak()` — relative-volume soft gate (< `REL_VOLUME_MIN`) |
 | `signals/opening_range_gate.py` | `get_or_position()` — opening range position (inside/outside/unknown) |
 | `trading/pipeline.py` | Per-cycle orchestrator: fetch bars → indicators → pre-filter → Claude → execute |
@@ -79,6 +80,9 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `utils/catchup.py` | `catchup_missed_agents()` — runs stale pre-market agents on startup if bot missed their cron window (threshold: 8:00 AM ET) |
 | `utils/constants.py` | `ET = ZoneInfo("America/New_York")` — single source |
 | `utils/ticker_quality.py` | `compute_ticker_quality()` — 4-tier quality scorer (LOW/MEDIUM/HIGH/CONVICTION); `derive_mode()` — trading mode derivation |
+| `utils/data_health.py` | `DataHealthTracker` singleton — per-source retry/staleness state; `StalenessGuard` frozen dataclass — composite penalty, `can_open`, T2/auto-execute flags; `get_staleness_guard()` — sole factory; `should_retry_proactive()` — age-based retry without prior failure |
+| `macro/fred_cache.py` | `refresh_fred_cache()` — fetches 13-series FRED data; `FRED_SCHEMA_KEYS` — frozenset of all keys this module writes (schema contract) |
+| `trading/context_builder.py` | `_build_market_context_block()` — assembles Claude prompt context; `FRED_KEYS_CONSUMED` — frozenset of FRED keys read here (tested against `FRED_SCHEMA_KEYS`) |
 
 ### Gate Architecture (Option A)
 
@@ -91,6 +95,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 - Parabolic (5-day return > threshold)
 - Bot herding score
 - Gap-skip
+- Stop-hunt zone (round number / 5d hi/lo proximity) — **exempt in BULL_TREND/OPPORTUNITY** where near-high is a buy signal, not a trap (via `GateParams.stop_hunt_veto`)
 - Soft flags: relative volume weak, inside opening range, breadth weak
 
 **Never add safety rules to `pre_claude_filter`** — they would duplicate `check_all_gates` and go stale independently.
@@ -152,6 +157,8 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `ATR_TP_FLOOR_PCT` / `ATR_TP_CEILING_PCT` | 1.5 / 12.0 | Hard floor/ceiling for computed ATR-TP % |
 | `PROFIT_LOCK_SWING_PCT` | 2.5 | Positions with unrealised P&L ≥ this % qualify for swing in any non-CRISIS regime (per-regime override in `SwingParams.profit_lock_pct`) |
 | `SWING_PROMOTE_MIN_PNL_PCT` | 0.5 | Standard EOD swing promotion requires at least this % gain (per-regime override in `SwingParams.min_pnl_pct`; 0.3 BULL_TREND, 1.0 CRASH_RECOVERY) |
+| `DATA_STALE_THRESHOLD_MINUTES` | `{"regime": 420, "research": 360, …}` | Per-source staleness threshold; exceeded → adds `DATA_COMPOSITE_PENALTY` to composite floor |
+| `DATA_REGIME_CANOPEN_MAX_MINUTES` | 480 | If regime data age exceeds this, `guard.can_open=False` — blocks ALL new entries until refresh |
 
 ---
 
@@ -269,6 +276,9 @@ Split by domain, sub-domain when > 700 lines:
 | `tests/test_pipeline.py` | `cycle_context`, `pre_claude_filter`, `budget_guard`, pipeline tiers |
 | `tests/test_market.py` | `api_budget`, Telegram, daily report, `io_utils`, market monitor |
 | `tests/test_core.py` | `main.py` crash-loop, `alpaca_client`, `market_monitor` |
+| `tests/test_data_health.py` | `DataHealthTracker`, `StalenessGuard`, `get_staleness_guard()`, `should_retry_proactive()` |
+| `tests/test_config_coherence.py` | Config threshold coherence, Rule 23 gate-architecture lint, guard-ordering guard, FRED schema contract |
+| `tests/test_trading_cycle.py` | `run_trading_cycle()` dead-day alert content and cycle-level behaviour |
 
 ### 20. Naming conventions
 | Kind | Style | Example |

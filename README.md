@@ -92,6 +92,7 @@ tail -f logs/trading_bot.log
 | Every 5 min (9:30–3:50) | Market Monitor | Flash-crash detection via SPY (free, no Claude calls) |
 | Every 30 min (9:05–2:35) | Intraday News | Refreshes headlines for active watch list; updates intraday sentiment |
 | Every 30 min | Heartbeat | Confirms scheduler is alive; watchdog exits if missed |
+| 12:00 PM | Macro Regime Refresh | Midday re-fetch keeps regime data fresh through market close |
 | 12:00 PM | Midday Check | Telegram alert if zero BUY trades executed by noon |
 | 3:50 PM | Swing EOD Evaluation | Promotes qualifying positions to overnight swing holds |
 | 3:55 PM | Force Close | Cancels orders, closes all day-trade positions (swing positions preserved) |
@@ -113,6 +114,7 @@ The bot selects a mode per trade based on the macro regime and symbol:
 | HYBRID | BULL_TREND / OPPORTUNITY | 7% | 15% | 3% portfolio |
 | SHORT_TERM | CAPITULATION / CRASH_RECOVERY | 10–12% | 18–20% | 2.5% portfolio |
 | PEAD | Tier-1 stock with recent strong earnings beat | 8% | 8% tiered | 2.5% portfolio |
+| CATALYST | Post-event momentum (FOMC/CPI/NFP settled); sector confirms, surprise score passes | 5% | 8% | 2.5% portfolio |
 | CASH | CRISIS / flash crash | — no entries — | — | — |
 
 ---

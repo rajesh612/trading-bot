@@ -15,6 +15,13 @@ from trading.journal import load_open_positions
 from utils.market_monitor import is_flash_crash_active
 
 
+# Keys this module reads from fred_cache — must be subset of FRED_SCHEMA_KEYS.
+# "cpi_trend" is a legacy fallback key that may not be in the schema; excluded intentionally.
+FRED_KEYS_CONSUMED: frozenset[str] = frozenset({
+    "fed_direction", "cpi_vs_target", "cpi_trend", "unemployment_rising",
+})
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _pos_line(iv, existing_pos: dict | None) -> str:
