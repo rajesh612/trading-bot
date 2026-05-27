@@ -50,8 +50,7 @@ def _crisis_fallback(now: datetime) -> dict:
         "spy_5day_sign_changes": 0, "vix_current": 0.0, "vix_90d_avg": 0.0,
         "vix_trend": "unknown", "spy_5day_return": 0.0,
         "flash_crash_active": False, "flash_crash_until": None,
-        "flash_crash_candidate": None, "event_risk_today": False,
-        "event_risk_details": "", "capitulation_candidates": [],
+        "flash_crash_candidate": None, "capitulation_candidates": [],
         "timestamp": now.isoformat(), "reason": "fetch_failed",
     }
 
@@ -132,13 +131,6 @@ def fetch_macro_regime() -> dict:
         except Exception:
             pass
 
-        event_risk, event_details = False, ""
-        try:
-            from macro.economic_calendar import is_event_risk_window
-            event_risk, event_details = is_event_risk_window(now)
-        except Exception:
-            pass
-
         from macro.fred_cache import load_fred_cache
         fred_cache = load_fred_cache()
         regime = _apply_fred_overrides(regime, fred_cache)
@@ -153,8 +145,7 @@ def fetch_macro_regime() -> dict:
             "iwm_ret5d": round(ret5d(closes.get("iwm", [])), 2),
             "vix3m": round(vix3m_current, 2),
             "flash_crash_active": flash_active, "flash_crash_until": flash_until,
-            "flash_crash_candidate": None, "event_risk_today": event_risk,
-            "event_risk_details": event_details, "capitulation_candidates": cap_candidates,
+            "flash_crash_candidate": None, "capitulation_candidates": cap_candidates,
             "timestamp": now.isoformat(),
             "reason": (
                 f"{consecutive_green}g/{consecutive_red}r consecutive days, "

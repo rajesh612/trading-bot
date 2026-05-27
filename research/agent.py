@@ -130,7 +130,7 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
                     "social_sentiment_score": 0, "social_sentiment_label": "NEUTRAL",
                     "combined_sentiment_score": 0, "combined_sentiment_label": "NEUTRAL",
                     "key_catalyst": None, "risk_flag": "Research error",
-                    "divergence_alert": None, "summary": "Research unavailable.",
+                    "summary": "Research unavailable.",
                     "strategy": "No data — trade cautiously.",
                 }
                 stocktwits  = {}
@@ -150,7 +150,6 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
                 # Signals
                 "key_catalyst":            analysis.get("key_catalyst"),
                 "risk_flag":               analysis.get("risk_flag"),
-                "divergence_alert":        analysis.get("divergence_alert"),
                 "summary":                 analysis.get("summary", ""),
                 "strategy":                analysis.get("strategy", ""),
                 # Raw social stats
@@ -164,7 +163,6 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
                 f"    {symbol}: news={analysis.get('news_sentiment_label')}({analysis.get('news_sentiment_score'):+d}) | "
                 f"social={analysis.get('social_sentiment_label')}({analysis.get('social_sentiment_score'):+d}) | "
                 f"combined={analysis.get('combined_sentiment_label')}({analysis.get('combined_sentiment_score'):+d})"
-                + (f" | {analysis.get('divergence_alert')}" if analysis.get("divergence_alert") else "")
             )
 
             # Flush partial results after each stock so we never lose all work on a crash
@@ -188,7 +186,6 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
         report["__meta__"] = {
             "sector_sentiment":      sector_sentiment,
             "macro_shock_score":     macro_shock_score,
-            "unscheduled_event_risk": macro_shock_score >= 60,
             "capitulation_candidates": capitulation_candidates,
             "timestamp":             datetime.now(ET).isoformat(),
         }

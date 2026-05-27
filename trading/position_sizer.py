@@ -69,8 +69,3 @@ def apply_sentiment_multiplier(qty: int, sentiment_score: int | float) -> int:
     return max(1, int(round(qty * mult)))
 
 
-def apply_post_event_multiplier(qty: int, is_post_event: bool) -> int:
-    """Reduce position size on the day after a major macro event."""
-    if is_post_event:
-        qty = max(1, int(round(qty * config.POST_EVENT_POSITION_MULT)))
-    return qty

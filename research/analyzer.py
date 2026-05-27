@@ -95,7 +95,6 @@ def _quick_sentiment_result(stocktwits: dict, stock_news: list[dict]) -> dict | 
         "combined_sentiment_label": label,
         "key_catalyst":   None,
         "risk_flag":      None,
-        "divergence_alert": None,
         "summary":   f"Rule-based: StockTwits {bullish_pct}% bullish ({tagged} tagged msgs, no news).",
         "strategy":  f"Social sentiment strongly {label.lower()} — trade with trend.",
     }
@@ -177,7 +176,6 @@ def _analyze_stock(
                     '  "combined_sentiment_label": "<BULLISH|BEARISH|NEUTRAL>",\n'
                     '  "key_catalyst": "<main driver or null>",\n'
                     '  "risk_flag": "<major risk or null>",\n'
-                    '  "divergence_alert": "<short squeeze or divergence if present, else null>",\n'
                     '  "summary": "<2-sentence combined summary>",\n'
                     '  "strategy": "<2-3 bullet points on intraday strategy>"\n'
                     "}"
@@ -214,7 +212,6 @@ def _analyze_stock(
         "combined_sentiment_label": "NEUTRAL",
         "key_catalyst": None,
         "risk_flag": None,
-        "divergence_alert": None,
         "summary": "Parse error.",
         "strategy": "No strategy data.",
     }

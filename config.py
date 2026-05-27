@@ -89,7 +89,6 @@ SENTIMENT_SIZE_TIERS: list[tuple[int, float]] = [
     (-20, 0.75),
 ]
 SENTIMENT_SIZE_FLOOR     = 0.50
-POST_EVENT_POSITION_MULT = 0.6   # 60% sizing on post-FOMC/NFP/CPI days
 HIGH_VOL_POSITION_MULT   = 0.75  # Raised from 0.5 — capture recovery moves in HIGH_VOL regime
 
 SWING_MAX_POSITIONS        = 6    # max concurrent swing positions
