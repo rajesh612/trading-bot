@@ -446,7 +446,7 @@ DATA_RETRY_BACKOFF_PREMARKET         = [1, 3, 8]   # minutes; before 9:30 ET
 DATA_RETRY_BACKOFF_INTRADAY          = [1, 2, 5]   # minutes; during market hours
 
 DATA_STALE_THRESHOLD_MINUTES: dict[str, int] = {
-    "regime":              60,
+    "regime":             420,   # regime fetched once at 8:55 AM; 7h covers full session
     "research":           360,
     "screener":            90,
     "earnings":           480,
@@ -462,7 +462,7 @@ DATA_COMPOSITE_PENALTY: dict[str, int] = {
 }
 DATA_DISABLE_AUTO_EXECUTE            = frozenset({"regime"})
 DATA_DISABLE_T2                      = frozenset({"regime"})
-DATA_REGIME_CANOPEN_MAX_MINUTES      = 240   # force can_open=False if regime > 4h stale
+DATA_REGIME_CANOPEN_MAX_MINUTES      = 480   # 8h covers full day from 8:55 AM to 4:55 PM
 DATA_SWING_STALE_FALLBACK_REGIME     = "NORMAL"
 DATA_SCREENER_FAILURE_RATE_THRESHOLD = 0.80
 DATA_WATCH_LIST_HEALTH_FILE          = STATE_DIR / "watch_list_health.json"

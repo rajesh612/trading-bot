@@ -43,8 +43,8 @@ def _rotate_telemetry(today_str: str) -> None:
         pass
 
 
-def _run_intraday_retries(now, guard) -> None:
-    """Re-run stale pre-market agents if tracker says retry is due."""
+def _run_intraday_retries(now) -> None:
+    """Re-run stale pre-market agents when failure-backoff or age-based retry is due."""
     from utils.data_health import _tracker
     from macro.regime import fetch_macro_regime
     from research.agent import run_research_agent
@@ -55,7 +55,11 @@ def _run_intraday_retries(now, guard) -> None:
         "research": lambda: run_research_agent(load_watch_list()),
     }
     for source_id, fn in _INTRADAY_RETRY_MAP.items():
-        if _tracker.can_retry(source_id, now=now):
+        needs_retry = (
+            _tracker.can_retry(source_id, now=now)
+            or _tracker.should_retry_proactive(source_id, now=now)
+        )
+        if needs_retry:
             logger.info("DATA RETRY (intraday): re-running %s", source_id)
             try:
                 fn()
@@ -78,15 +82,16 @@ def run_trading_cycle() -> None:
         logger.warning("Daily loss limit hit (%.2f%%). Halting new entries.", daily_pnl_pct)
         return
 
+    from utils.data_health import get_staleness_guard, _tracker
+
+    # Intraday retry before building the guard so the guard reflects refreshed state
+    _run_intraday_retries(now)
+
     regime_info = load_macro_regime()
     regime      = regime_info.get("regime", "NORMAL")
     params      = load_trading_params()
 
-    from utils.data_health import get_staleness_guard, _tracker
     guard = get_staleness_guard(regime_info)     # build once, flows through entire cycle
-
-    # Intraday retry: re-run stale agents before building snapshot
-    _run_intraday_retries(now, guard)
 
     flash_crash_active = regime_info.get("flash_crash_active", False)
     flash_crash_until  = regime_info.get("flash_crash_until")

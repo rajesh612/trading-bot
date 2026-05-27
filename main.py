@@ -179,6 +179,7 @@ def setup_scheduler():
     scheduler.add_job(job_economic_calendar,   CronTrigger(hour=config.ECONOMIC_CALENDAR_HOUR, minute=config.ECONOMIC_CALENDAR_MINUTE, **kw), id="economic_calendar", replace_existing=True, max_instances=1, misfire_grace_time=300)
     scheduler.add_job(job_volatility_screener, CronTrigger(hour=8,  minute=45, **kw), id="volatility_screener", replace_existing=True, **{k: v for k, v in PRE_MARKET_KW.items() if k not in kw})
     scheduler.add_job(job_macro_regime,        CronTrigger(hour=8,  minute=55, **kw), id="macro_regime",        replace_existing=True, max_instances=1, misfire_grace_time=300)
+    scheduler.add_job(job_macro_regime,        CronTrigger(hour=12, minute=0,  **kw), id="macro_regime_midday", replace_existing=True, max_instances=1, misfire_grace_time=300)
     scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list",          replace_existing=True, max_instances=1, misfire_grace_time=300)
     scheduler.add_job(job_swing_gap_check,     CronTrigger(hour=9,  minute=32, **kw), id="swing_gap_check",     replace_existing=True, max_instances=1, misfire_grace_time=120)
     scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True, max_instances=1, misfire_grace_time=30)

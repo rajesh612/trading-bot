@@ -120,6 +120,26 @@ class DataHealthTracker:
         nxt = entry.get("next_retry_at")
         return nxt is not None and now >= nxt
 
+    def should_retry_proactive(self, source_id: str, now: datetime | None = None) -> bool:
+        """Return True when source aged past threshold but never failed.
+
+        This covers the case where data is fetched once pre-market, ages out
+        during the session, but the failure-backoff path never fires because
+        no fetch was attempted (and therefore no record_failure call was made).
+        """
+        now   = now or datetime.now(ET)
+        entry = self._entry(source_id)
+        if entry["last_success_at"] is None:
+            return False                     # never fetched; normal failure path applies
+        if entry.get("next_retry_at") is not None:
+            return False                     # already in failure-backoff mode
+        today = now.strftime("%Y-%m-%d")
+        self._reset_daily_attempts_if_needed(entry, today)
+        if entry["attempts_today"] >= config.DATA_RETRY_MAX:
+            return False
+        threshold = config.DATA_STALE_THRESHOLD_MINUTES.get(source_id, 60)
+        return self.age_minutes(source_id, now=now) > threshold
+
     def age_minutes(self, source_id: str, now: datetime | None = None) -> float:
         now   = now or datetime.now(ET)
         entry = self._entry(source_id)

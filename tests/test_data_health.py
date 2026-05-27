@@ -245,3 +245,66 @@ class TestGetStalenessGuard:
         guard = get_staleness_guard(tracker=t)
         assert len(guard.claude_warnings) >= 1
         assert any("regime" in w for w in guard.claude_warnings)
+
+
+# ── should_retry_proactive ────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestShouldRetryProactive:
+    """Proactive age-based retry: fires when source aged out but never failed."""
+
+    def _t(self):
+        from utils.data_health import DataHealthTracker
+        return DataHealthTracker()
+
+    def _now(self):
+        return datetime(2026, 5, 27, 11, 0, 0, tzinfo=ET)
+
+    def test_returns_true_when_stale_by_age(self, monkeypatch):
+        """Fires when source aged past threshold with no failure recorded."""
+        import config
+        monkeypatch.setattr(config, "DATA_STALE_THRESHOLD_MINUTES", {"regime": 60})
+        monkeypatch.setattr(config, "DATA_RETRY_MAX", 3)
+        t = self._t()
+        t.record_success("regime", now=self._now() - timedelta(minutes=90))
+        assert t.should_retry_proactive("regime", now=self._now()) is True
+
+    def test_returns_false_when_source_fresh(self, monkeypatch):
+        """Does not fire when source is within stale threshold."""
+        import config
+        monkeypatch.setattr(config, "DATA_STALE_THRESHOLD_MINUTES", {"regime": 60})
+        monkeypatch.setattr(config, "DATA_RETRY_MAX", 3)
+        t = self._t()
+        t.record_success("regime", now=self._now() - timedelta(minutes=30))
+        assert t.should_retry_proactive("regime", now=self._now()) is False
+
+    def test_returns_false_when_in_failure_backoff(self, monkeypatch):
+        """Does not double-trigger when failure-backoff next_retry_at is set."""
+        import config
+        monkeypatch.setattr(config, "DATA_STALE_THRESHOLD_MINUTES", {"regime": 60})
+        monkeypatch.setattr(config, "DATA_RETRY_MAX", 3)
+        monkeypatch.setattr(config, "DATA_RETRY_BACKOFF_INTRADAY", [1, 2, 5])
+        t = self._t()
+        t.record_success("regime", now=self._now() - timedelta(minutes=90))
+        t.record_failure("regime", now=self._now() - timedelta(minutes=2))
+        assert t.should_retry_proactive("regime", now=self._now()) is False
+
+    def test_returns_false_when_attempts_exhausted(self, monkeypatch):
+        """Stops after DATA_RETRY_MAX attempts today."""
+        import config
+        monkeypatch.setattr(config, "DATA_STALE_THRESHOLD_MINUTES", {"regime": 60})
+        monkeypatch.setattr(config, "DATA_RETRY_MAX", 1)
+        monkeypatch.setattr(config, "DATA_RETRY_BACKOFF_INTRADAY", [1])
+        t = self._t()
+        t.record_success("regime", now=self._now() - timedelta(minutes=90))
+        t.record_failure("regime", now=self._now() - timedelta(minutes=5))
+        t._state["regime"]["next_retry_at"] = None  # isolate attempts check
+        assert t.should_retry_proactive("regime", now=self._now()) is False
+
+    def test_returns_false_when_never_succeeded(self, monkeypatch):
+        """Does not fire if source was never fetched successfully."""
+        import config
+        monkeypatch.setattr(config, "DATA_STALE_THRESHOLD_MINUTES", {"regime": 60})
+        monkeypatch.setattr(config, "DATA_RETRY_MAX", 3)
+        t = self._t()
+        assert t.should_retry_proactive("regime", now=self._now()) is False

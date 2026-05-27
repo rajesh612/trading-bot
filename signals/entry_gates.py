@@ -146,8 +146,9 @@ def check_all_gates(
     if event_risk:
         return GateResult(False, f"event risk window: {event_name}")
 
-    # 6. Stop-hunt zone
-    if iv.stop_hunt_zone:
+    # 6. Stop-hunt zone — hard veto except in momentum regimes (BULL_TREND/OPPORTUNITY)
+    #    where price near its 5d high is a buy signal, not a trap.
+    if iv.stop_hunt_zone and gp.stop_hunt_veto:
         return GateResult(False, "stop-hunt zone (round number or 5d hi/lo proximity)")
 
     # 7. VWAP overextension

@@ -289,6 +289,31 @@ class TestCheckAllGates:
         assert result.passed is False
         assert "stop-hunt" in result.reason            # not VWAP message
 
+    def test_stop_hunt_not_vetoed_in_bull_trend(self, monkeypatch):
+        """Stop-hunt zone is a soft flag (not hard veto) in BULL_TREND — momentum regime."""
+        import config
+        monkeypatch.setattr(config, "VWAP_OVEREXTENSION_GATE", False)
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", False)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = self._iv(stop_hunt_zone=True, rsi=55.0, stoch_d=50.0)
+        result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(), 0,
+                                 regime="BULL_TREND")
+        assert result.passed is True
+
+    def test_stop_hunt_still_vetoed_in_choppy(self, monkeypatch):
+        """Stop-hunt zone remains a hard veto in CHOPPY — mean-reversion risk."""
+        import config
+        monkeypatch.setattr(config, "VWAP_OVEREXTENSION_GATE", False)
+        monkeypatch.setattr(config, "PARABOLIC_ENTRY_BLOCK", False)
+        self._patch_calendars(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = self._iv(stop_hunt_zone=True, rsi=55.0, stoch_d=50.0)
+        result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(), 0,
+                                 regime="CHOPPY")
+        assert result.passed is False
+        assert "stop-hunt" in result.reason
+
     def test_vwap_gate_fires_before_parabolic(self, monkeypatch):
         """VWAP overextension (7) is checked before parabolic (8)."""
         import config

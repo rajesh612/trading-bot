@@ -275,6 +275,7 @@ class GateParams:
     stoch_hard_veto: int
     rel_volume_min: float
     breadth_weak_threshold: float
+    stop_hunt_veto: bool = True   # False for momentum regimes where near-high is a buy signal
 
 
 @dataclass(frozen=True)
@@ -373,6 +374,9 @@ def _filter_table() -> dict[tuple[str, str], FilterParams]:
     return table
 
 
+_STOP_HUNT_VETO_DISABLED = frozenset({"BULL_TREND", "OPPORTUNITY"})
+
+
 def _gate_table() -> dict[tuple[str, str], GateParams]:
     base = {
         "NORMAL":         (85, 97, 0.60, 0.85),
@@ -394,6 +398,7 @@ def _gate_table() -> dict[tuple[str, str], GateParams]:
                 stoch_hard_veto=sv,
                 rel_volume_min=rv,
                 breadth_weak_threshold=bw,
+                stop_hunt_veto=regime not in _STOP_HUNT_VETO_DISABLED,
             )
     return table
 
