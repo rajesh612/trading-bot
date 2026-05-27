@@ -264,7 +264,7 @@ def build_stable_system_context(
     sector_scores = regime_info.get("sector_scores", {})
 
     fed   = fred_cache.get("fed_direction", "unknown")
-    cpi   = fred_cache.get("cpi_trend", "unknown")
+    cpi   = fred_cache.get("cpi_vs_target") or fred_cache.get("cpi_trend", "unknown")
     unemp = "rising" if fred_cache.get("unemployment_rising") else "stable"
 
     shock      = research_meta.get("macro_shock_score", 0)
