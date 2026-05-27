@@ -285,6 +285,73 @@ class AutoExecuteParams:
     extra_unlock: str | None    # named unlock required, or None
 
 
+@dataclass(frozen=True)
+class ConcurrencyParams:
+    max_open:          int
+    size_mult:         float
+    heat_weight:       float
+    swing_health_gate: bool
+
+
+_CONCURRENCY_DISABLED     = ConcurrencyParams(max_open=0,   size_mult=1.0, heat_weight=1.0, swing_health_gate=True)
+_CONCURRENCY_CONSERVATIVE = ConcurrencyParams(max_open=1,   size_mult=1.0, heat_weight=1.0, swing_health_gate=True)
+
+
+_CONCURRENCY_TABLE: dict[tuple[str, str], ConcurrencyParams] = {
+    ("BULL_TREND",     "CONVICTION"): ConcurrencyParams(5,   1.35, 0.90, False),
+    ("BULL_TREND",     "HIGH"):       ConcurrencyParams(4,   1.15, 1.00, False),
+    ("BULL_TREND",     "MEDIUM"):     ConcurrencyParams(3,   1.00, 1.00, True),
+    ("BULL_TREND",     "LOW"):        ConcurrencyParams(2,   0.80, 1.20, True),
+    ("NORMAL",         "CONVICTION"): ConcurrencyParams(4,   1.25, 0.90, False),
+    ("NORMAL",         "HIGH"):       ConcurrencyParams(3,   1.10, 1.00, True),
+    ("NORMAL",         "MEDIUM"):     ConcurrencyParams(2,   1.00, 1.00, True),
+    ("NORMAL",         "LOW"):        ConcurrencyParams(1,   0.80, 1.20, True),
+    ("OPPORTUNITY",    "CONVICTION"): ConcurrencyParams(4,   1.25, 0.90, False),
+    ("OPPORTUNITY",    "HIGH"):       ConcurrencyParams(3,   1.10, 1.00, True),
+    ("OPPORTUNITY",    "MEDIUM"):     ConcurrencyParams(2,   1.00, 1.00, True),
+    ("OPPORTUNITY",    "LOW"):        ConcurrencyParams(1,   0.80, 1.20, True),
+    ("CHOPPY",         "CONVICTION"): ConcurrencyParams(3,   1.00, 0.90, True),
+    ("CHOPPY",         "HIGH"):       ConcurrencyParams(2,   0.90, 1.00, True),
+    ("CHOPPY",         "MEDIUM"):     ConcurrencyParams(1,   0.80, 1.10, True),
+    ("CHOPPY",         "LOW"):        ConcurrencyParams(1,   0.70, 1.30, True),
+    ("HIGH_VOL",       "CONVICTION"): ConcurrencyParams(3,   1.00, 0.90, True),
+    ("HIGH_VOL",       "HIGH"):       ConcurrencyParams(2,   0.90, 1.00, True),
+    ("HIGH_VOL",       "MEDIUM"):     ConcurrencyParams(1,   0.80, 1.10, True),
+    ("HIGH_VOL",       "LOW"):        ConcurrencyParams(1,   0.70, 1.30, True),
+    ("CRASH_RECOVERY", "CONVICTION"): ConcurrencyParams(3,   1.00, 0.90, True),
+    ("CRASH_RECOVERY", "HIGH"):       ConcurrencyParams(2,   0.90, 1.00, True),
+    ("CRASH_RECOVERY", "MEDIUM"):     ConcurrencyParams(1,   0.90, 1.00, True),
+    ("CRASH_RECOVERY", "LOW"):        ConcurrencyParams(1,   0.80, 1.20, True),
+    ("DEFENSIVE",      "CONVICTION"): ConcurrencyParams(2,   1.00, 1.00, True),
+    ("DEFENSIVE",      "HIGH"):       ConcurrencyParams(1,   0.90, 1.00, True),
+    ("DEFENSIVE",      "MEDIUM"):     ConcurrencyParams(1,   0.80, 1.10, True),
+    ("DEFENSIVE",      "LOW"):        ConcurrencyParams(0,   1.00, 1.00, True),
+    ("CAPITULATION",   "CONVICTION"): ConcurrencyParams(2,   1.00, 1.00, True),
+    ("CAPITULATION",   "HIGH"):       ConcurrencyParams(1,   0.90, 1.00, True),
+    ("CAPITULATION",   "MEDIUM"):     ConcurrencyParams(0,   1.00, 1.00, True),
+    ("CAPITULATION",   "LOW"):        ConcurrencyParams(0,   1.00, 1.00, True),
+}
+
+
+def get_concurrency_params(regime: str, tier: str, mode: str) -> ConcurrencyParams:
+    try:
+        if regime == "CRISIS":
+            return _CONCURRENCY_DISABLED
+        cp = _CONCURRENCY_TABLE.get((regime, tier), _CONCURRENCY_CONSERVATIVE)
+        if mode in ("PEAD", "CATALYST"):
+            cp = ConcurrencyParams(
+                max_open=cp.max_open + 1,
+                size_mult=cp.size_mult,
+                heat_weight=cp.heat_weight,
+                swing_health_gate=cp.swing_health_gate,
+            )
+        if mode == "SWING":
+            return ConcurrencyParams(max_open=999, size_mult=1.0, heat_weight=0.0, swing_health_gate=False)
+        return cp
+    except Exception:
+        return _CONCURRENCY_CONSERVATIVE
+
+
 def _entry_table() -> dict[str, EntryParams]:
     defensive_composite = round(config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT)
     return {
