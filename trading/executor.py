@@ -42,6 +42,30 @@ def _get_sector_sentiment(research_meta: dict, symbol: str) -> float:
         return 0.0
 
 
+def _compute_swing_book_pnl(stock_data_prices: dict[str, float], portfolio_value: float) -> float:
+    """Unrealised P&L of swing book as % of portfolio_value.
+
+    Returns -999.0 on any read or computation error (fail-closed — triggers swing gate).
+    stock_data_prices: {symbol: current_price} built from iv.current_price — no API calls.
+    """
+    try:
+        swing_positions = load_json(config.SWING_POSITIONS_FILE, None)
+        if swing_positions is None:
+            return -999.0
+        if not swing_positions or portfolio_value <= 0:
+            return 0.0
+        total_pnl = 0.0
+        for sym, pos in swing_positions.items():
+            entry_price = pos.get("entry_price", 0)
+            qty         = pos.get("qty", 0)
+            if entry_price <= 0 or qty <= 0:
+                continue
+            current_price = stock_data_prices.get(sym, entry_price)
+            total_pnl += (current_price - entry_price) * qty
+        return total_pnl / portfolio_value * 100
+    except Exception:
+        return -999.0
+
 
 def execute_buy(
     *,
