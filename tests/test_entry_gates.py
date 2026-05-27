@@ -98,22 +98,10 @@ class TestEntryGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(), None,
-            self._now_blocked_time(), entries_this_cycle=0,
+            self._now_blocked_time(),
         )
         assert result.passed is False
         assert "time" in result.reason
-
-    def test_per_cycle_cap_blocks(self, monkeypatch):
-        """Gate 2 fires when entries_this_cycle >= MAX_ENTRIES_PER_CYCLE."""
-        import config
-        self._patch_calendars(monkeypatch)
-        from signals.entry_gates import check_all_gates
-        result = check_all_gates(
-            "NVDA", self._iv(), {}, set(), None,
-            self._now_allowed(), entries_this_cycle=config.MAX_ENTRIES_PER_CYCLE,
-        )
-        assert result.passed is False
-        assert "cap" in result.reason
 
     def test_daily_closed_blocks(self, monkeypatch):
         """Gate 3 fires when symbol is in daily_closed set."""
@@ -121,7 +109,7 @@ class TestEntryGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, {"NVDA"}, None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
         )
         assert result.passed is False
         assert "closed today" in result.reason
@@ -132,7 +120,7 @@ class TestEntryGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {"NVDA": {}}, set(), None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
         )
         assert result.passed is False
         assert "already open" in result.reason
@@ -146,7 +134,7 @@ class TestEntryGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(), None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
         )
         assert result.passed is False
         assert "event risk" in result.reason
@@ -161,7 +149,7 @@ class TestEntryGates:
         iv = self._iv(current_price=120.0, vwap_std2_upper=100.0)
         result = check_all_gates(
             "NVDA", iv, {}, set(), None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
         )
         assert result.passed is False
         assert "VWAP" in result.reason
@@ -175,7 +163,7 @@ class TestEntryGates:
         iv = self._iv(parabolic=True)
         result = check_all_gates(
             "NVDA", iv, {}, set(), None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
         )
         assert result.passed is False
         assert "parabolic" in result.reason
@@ -189,7 +177,7 @@ class TestEntryGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(), None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
         )
         assert result.passed is True
         assert result.reason == ""
@@ -203,7 +191,7 @@ class TestEntryGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(), None,
-            self._now_allowed(), entries_this_cycle=0,
+            self._now_allowed(),
             spy_ret5d=10.0, symbol_ret5d=-5.0,  # badly underperforming
         )
         assert result.passed is True
@@ -252,32 +240,6 @@ class TestCheckAllGates:
 
     # ── Gate ordering ─────────────────────────────────────────────────────────
 
-    def test_time_gate_fires_before_cap(self, monkeypatch):
-        """Time gate (1) fires before per-cycle cap (2) — both conditions present."""
-        import config
-        self._patch_calendars(monkeypatch)
-        from signals.entry_gates import check_all_gates
-        result = check_all_gates(
-            "NVDA", self._iv(), {}, set(), None,
-            self._now_closed(),                        # outside window
-            entries_this_cycle=config.MAX_ENTRIES_PER_CYCLE,  # cap also hit
-        )
-        assert result.passed is False
-        assert "time" in result.reason                # time gate message, not cap
-
-    def test_cap_fires_before_daily_closed(self, monkeypatch):
-        """Cap (2) fires before daily-closed check (3)."""
-        import config
-        self._patch_calendars(monkeypatch)
-        from signals.entry_gates import check_all_gates
-        result = check_all_gates(
-            "NVDA", self._iv(), {}, {"NVDA"}, None,
-            self._now_open(),
-            entries_this_cycle=config.MAX_ENTRIES_PER_CYCLE,  # cap fires
-        )
-        assert result.passed is False
-        assert "cap" in result.reason                  # not "closed today"
-
     def test_stop_hunt_fires_before_vwap_check(self, monkeypatch):
         """Stop-hunt (6) is checked before VWAP overextension (7)."""
         import config
@@ -285,7 +247,7 @@ class TestCheckAllGates:
         self._patch_calendars(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = self._iv(stop_hunt_zone=True, current_price=120.0, vwap_std2_upper=100.0)
-        result = check_all_gates("NVDA", iv, {}, set(), None, self._now_open(), 0)
+        result = check_all_gates("NVDA", iv, {}, set(), None, self._now_open())
         assert result.passed is False
         assert "stop-hunt" in result.reason            # not VWAP message
 
@@ -297,7 +259,7 @@ class TestCheckAllGates:
         self._patch_calendars(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = self._iv(stop_hunt_zone=True, rsi=55.0, stoch_d=50.0)
-        result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(), 0,
+        result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(),
                                  regime="BULL_TREND")
         assert result.passed is True
 
@@ -309,7 +271,7 @@ class TestCheckAllGates:
         self._patch_calendars(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = self._iv(stop_hunt_zone=True, rsi=55.0, stoch_d=50.0)
-        result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(), 0,
+        result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(),
                                  regime="CHOPPY")
         assert result.passed is False
         assert "stop-hunt" in result.reason
@@ -322,7 +284,7 @@ class TestCheckAllGates:
         self._patch_calendars(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = self._iv(current_price=120.0, vwap_std2_upper=100.0, parabolic=True)
-        result = check_all_gates("NVDA", iv, {}, set(), None, self._now_open(), 0)
+        result = check_all_gates("NVDA", iv, {}, set(), None, self._now_open())
         assert result.passed is False
         assert "VWAP" in result.reason                 # not parabolic
 
@@ -338,7 +300,7 @@ class TestCheckAllGates:
         iv = self._iv(parabolic=True)
         result = check_all_gates(
             "NVDA", iv, {}, set(), None,
-            self._now_open(), entries_this_cycle=0,
+            self._now_open(),
             spy_ret5d=10.0, symbol_ret5d=-5.0,         # weak RS — soft gate
         )
         assert result.passed is False
@@ -356,7 +318,7 @@ class TestCheckAllGates:
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(),
             None,                                      # None → mtf_unavailable flag
-            self._now_open(), entries_this_cycle=0,
+            self._now_open(),
             spy_ret5d=10.0, symbol_ret5d=-5.0,         # weak RS flag
         )
         assert result.passed is True
@@ -371,7 +333,7 @@ class TestCheckAllGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(), None,
-            self._now_open(), entries_this_cycle=0,
+            self._now_open(),
         )
         assert result.passed is True
         assert result.reason == ""
@@ -385,7 +347,7 @@ class TestCheckAllGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(), {}, set(), None,
-            self._now_open(), entries_this_cycle=0,
+            self._now_open(),
         )
         with pytest.raises((AttributeError, TypeError)):
             result.passed = False  # type: ignore[misc]
@@ -400,7 +362,7 @@ class TestCheckAllGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "NVDA", self._iv(parabolic=True), {}, set(), None,
-            self._now_open(), entries_this_cycle=0,
+            self._now_open(),
         )
         assert result.passed is False
         assert len(result.reason) > 0
@@ -446,7 +408,7 @@ class TestRsiStochGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "AAPL", self._iv(rsi=73.0), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is False
         assert "RSI" in result.reason
@@ -457,7 +419,7 @@ class TestRsiStochGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "AAPL", self._iv(rsi=72.0), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is True
 
@@ -469,7 +431,7 @@ class TestRsiStochGates:
         above_threshold = config.STOCH_HARD_VETO_THRESHOLD + 1.0
         result = check_all_gates(
             "NVDA", self._iv(stoch_d=above_threshold), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is False
         assert "Stochastic" in result.reason or "stoch" in result.reason.lower()
@@ -480,7 +442,7 @@ class TestRsiStochGates:
         from signals.entry_gates import check_all_gates
         result = check_all_gates(
             "MSFT", self._iv(rsi=60.0, stoch_d=70.0), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is True
 
@@ -527,7 +489,7 @@ class TestGapUpGate:
         # prev_close=100, current=104 → 4% gap up, exceeds 3% threshold
         result = check_all_gates(
             "TEST", self._iv(prev_close=100.0, current_price=104.0), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is False
         assert "gap-up skip" in result.reason
@@ -539,7 +501,7 @@ class TestGapUpGate:
         # prev_close=100, current=102 → 2% gap up, within 3% threshold
         result = check_all_gates(
             "TEST", self._iv(prev_close=100.0, current_price=102.0), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is True
 
@@ -550,7 +512,7 @@ class TestGapUpGate:
         # prev_close=0 → gate check skipped, should allow entry
         result = check_all_gates(
             "TEST", self._iv(prev_close=0.0, current_price=100.0), {}, set(), None,
-            self._now(), entries_this_cycle=0,
+            self._now(),
         )
         assert result.passed is True
 
@@ -696,7 +658,7 @@ def test_stoch_soft_flag_when_between_thresholds(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(stoch_d=float(config.STOCH_SOFT_FLAG_THRESHOLD))
     result = check_all_gates(
-        "AAPL", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+        "AAPL", iv, {}, set(), None, _gates_now(),
     )
     assert result.passed
     assert any("stoch_elevated" in f for f in result.flags)
@@ -709,7 +671,7 @@ def test_stoch_above_hard_veto_still_blocks(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(stoch_d=float(config.STOCH_HARD_VETO_THRESHOLD) + 1)
     result = check_all_gates(
-        "AAPL", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+        "AAPL", iv, {}, set(), None, _gates_now(),
     )
     assert not result.passed
     assert "Stochastic hard veto" in result.reason
@@ -723,7 +685,6 @@ def test_sector_etf_soft_gate_flags_weak_sector(monkeypatch):
     iv = _gates_iv()
     result = check_all_gates(
         "AAPL", iv, {}, set(), None, _gates_now(),
-        entries_this_cycle=0,
         sector_today={"XLK": config.SECTOR_ETF_SOFT_DROP_PCT - 0.5},
         symbol_sector_etf="XLK",
     )
@@ -739,7 +700,7 @@ def test_price_cap_blocks_expensive_stock(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=450.0, vwap_std2_upper=500.0, prev_close=450.0)
     result = check_all_gates(
-        "LITE", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+        "LITE", iv, {}, set(), None, _gates_now(),
     )
     assert result.passed is False
     assert "MAX_ENTRY_PRICE" in result.reason
@@ -753,7 +714,7 @@ def test_price_cap_allows_stock_at_limit(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=400.0, vwap_std2_upper=450.0, prev_close=400.0)
     result = check_all_gates(
-        "MRVL", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+        "MRVL", iv, {}, set(), None, _gates_now(),
     )
     assert "MAX_ENTRY_PRICE" not in result.reason
 
@@ -766,7 +727,7 @@ def test_price_cap_zero_disables_gate(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=2000.0, vwap_std2_upper=2500.0, prev_close=2000.0)
     result = check_all_gates(
-        "BRK", iv, {}, set(), None, _gates_now(), entries_this_cycle=0,
+        "BRK", iv, {}, set(), None, _gates_now(),
     )
     assert "MAX_ENTRY_PRICE" not in result.reason
 
@@ -787,7 +748,7 @@ def test_sector_soft_flag_when_negative(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         sector_sentiment_score=-15.0,
     )
     assert result.passed
@@ -803,7 +764,7 @@ def test_sector_soft_flag_absent_when_positive(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         sector_sentiment_score=20.0,
     )
     assert not any("sector_sentiment" in f for f in result.flags)
@@ -818,7 +779,7 @@ def test_news_quality_soft_flag_for_swing_candidate(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         swing_eligible=True, sentiment_score=30.0,
     )
     assert result.passed
@@ -834,7 +795,7 @@ def test_news_quality_flag_skipped_for_day_trade(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         swing_eligible=False, sentiment_score=10.0,
     )
     assert not any("swing_news" in f for f in result.flags)
@@ -850,7 +811,7 @@ def test_event_day_blocks_swing_entry_in_normal(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         swing_eligible=True, major_event_today=True, mode="DAY_TRADE",
     )
     assert not result.passed
@@ -865,7 +826,7 @@ def test_event_day_allows_day_trade_when_not_swing_eligible(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         swing_eligible=False, major_event_today=True, mode="DAY_TRADE",
     )
     assert "major economic event" not in result.reason
@@ -879,7 +840,7 @@ def test_event_day_no_block_when_no_event(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         swing_eligible=True, major_event_today=False,
     )
     assert "major economic event" not in result.reason
@@ -893,7 +854,7 @@ def test_event_day_does_not_block_catalyst_mode(monkeypatch):
     from signals.entry_gates import check_all_gates
     iv = _gates_iv(current_price=100.0)
     result = check_all_gates(
-        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        "NVDA", iv, {}, set(), None, _market_open(),
         swing_eligible=True, major_event_today=True, mode="CATALYST",
     )
     assert "major economic event" not in result.reason

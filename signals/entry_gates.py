@@ -76,7 +76,6 @@ def check_all_gates(
     daily_closed: set[str],
     bars_15min: pd.DataFrame | None,
     now: datetime,
-    entries_this_cycle: int,
     spy_ret5d: float = 0.0,
     symbol_ret5d: float = 0.0,
     mode: str = "DAY_TRADE",
@@ -127,104 +126,100 @@ def check_all_gates(
     if sl_blacklisted:
         return GateResult(False, f"{symbol} is SL-blacklisted (hit stop-loss recently)")
 
-    # 2. Per-cycle entry cap
-    if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE_BURST:
-        return GateResult(False, "per-cycle entry cap reached")
-
-    # 3. Already closed today or already open
+    # 2. Already closed today or already open
     if symbol in daily_closed:
         return GateResult(False, "already closed today")
     if symbol in open_positions:
         return GateResult(False, "position already open")
 
-    # 4. Earnings imminent — PEAD is exempt (post-earnings drift plays require earnings)
+    # 3. Earnings imminent — PEAD is exempt (post-earnings drift plays require earnings)
     if mode != "PEAD" and is_earnings_imminent(symbol, days=1):
         return GateResult(False, "earnings within 1 day")
 
-    # 5. Event risk window
+    # 4. Event risk window
     event_risk, event_name = ecc.is_event_risk_window(now)
     if event_risk:
         return GateResult(False, f"event risk window: {event_name}")
 
-    # 6. Stop-hunt zone — hard veto except in momentum regimes (BULL_TREND/OPPORTUNITY)
+    # 5. Stop-hunt zone — hard veto except in momentum regimes (BULL_TREND/OPPORTUNITY)
     #    where price near its 5d high is a buy signal, not a trap.
     if iv.stop_hunt_zone and gp.stop_hunt_veto:
         return GateResult(False, "stop-hunt zone (round number or 5d hi/lo proximity)")
 
-    # 7. VWAP overextension
+    # 6. VWAP overextension
     if not passes_vwap_guard(iv):
         vwap_dev = (iv.current_price - iv.vwap_std2_upper) / iv.vwap_std2_upper * 100
         return GateResult(False, f"price above VWAP+2σ ({vwap_dev:+.2f}% overextended)")
 
-    # 8. Parabolic move
+    # 7. Parabolic move
     if config.PARABOLIC_ENTRY_BLOCK and iv.parabolic:
         return GateResult(False, "parabolic move — hard veto (mean-reversion risk)")
 
-    # 9. Bot herding (hard unless squeeze overrides)
+    # 8. Bot herding (hard unless squeeze overrides)
     if not iv.squeeze_setup:
         if iv.bot_herding_score >= config.BOT_HERD_HIGH_SCORE:
             return GateResult(False, f"bot herding too high ({iv.bot_herding_score})")
         if iv.momentum_exhaustion and iv.bot_herding_score >= config.BOT_HERD_ALERT_SCORE:
             return GateResult(False, f"momentum exhaustion + herding ({iv.bot_herding_score})")
 
-    # 10. RSI overbought hard skip — saves Claude tokens on conditions that will HOLD anyway
+    # 9. RSI overbought hard skip — saves Claude tokens on conditions that will HOLD anyway
     # Exempted for PEAD: earnings-momentum stocks legitimately run above normal RSI bounds
     if mode != "PEAD" and iv.rsi > rsi_max:
         return GateResult(False, f"RSI overbought hard skip (RSI={iv.rsi:.1f} > {rsi_max:.0f})")
 
-    # 11. Stochastic overbought — hard veto above stoch_hard_veto, soft flag when elevated
+    # 10. Stochastic overbought — hard veto above stoch_hard_veto, soft flag when elevated
     if iv.stoch_d > gp.stoch_hard_veto:
         return GateResult(False, f"Stochastic hard veto (%D={iv.stoch_d:.1f} > {gp.stoch_hard_veto})")
     if iv.stoch_d >= gp.stoch_soft_flag:
         flags.append(f"stoch_elevated(%D={iv.stoch_d:.1f})")
 
-    # 12. Gap-up skip — exempted for PEAD (post-earnings drift stocks gap intentionally)
+    # 11. Gap-up skip — exempted for PEAD (post-earnings drift stocks gap intentionally)
     if mode != "PEAD" and iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
         gap_pct = (iv.current_price / iv.prev_close - 1) * 100
         return GateResult(False, f"gap-up skip ({gap_pct:.1f}% > {config.GAP_SKIP_PCT}%)")
 
     # ── Soft gates (pass through, flag for Claude) ────────────────────────────
 
-    # 13. Relative strength
+    # 12. Relative strength
     if symbol_ret5d != 0.0:
         ratio = rs_rank(symbol, spy_ret5d, symbol_ret5d)
         if not passes_rs_filter(ratio):
             flags.append(f"rs_weak(ratio={ratio:.2f})")
 
-    # 14. MTF confirmation
+    # 13. MTF confirmation
     try:
         if bars_15min is not None and not passes_mtf_filter(bars_15min):
             flags.append("mtf_not_confirmed")
     except Exception:
         flags.append("mtf_unavailable")
 
-    # 15. Correlation guard
+    # 14. Correlation guard
     if not passes_correlation_guard(symbol, open_positions):
         flags.append("sector_limit_soft")
 
-    # 16. Sector ETF soft gate
+    # 15. Sector ETF soft gate
     if sector_today and symbol_sector_etf:
         chg = sector_today.get(symbol_sector_etf)
         if chg is not None and chg < config.SECTOR_ETF_SOFT_DROP_PCT:
             flags.append(f"sector_weak({symbol_sector_etf}={chg:+.1f}%)")
 
-    # 17. Relative volume — thin tape increases false-positive rate
+    # 16. Relative volume — thin tape increases false-positive rate
     if iv.relative_volume < gp.rel_volume_min:
         flags.append(f"rel_vol_low({iv.relative_volume:.2f}x)")
 
-    # 18. Opening range position — entries inside OR carry reversal risk
+    # 17. Opening range position — entries inside OR carry reversal risk
     if iv.or_position == "inside":
         flags.append("inside_opening_range")
 
-    # 19. Market breadth — narrow IWM/SPY breadth signals possible bull trap
+    # 18. Market breadth — narrow IWM/SPY breadth signals possible bull trap
     if advance_decline_ratio < gp.breadth_weak_threshold:
         flags.append(f"breadth_weak(ad={advance_decline_ratio:.2f})")
 
-    # 20. Sector sentiment soft flag — sector going negative signals headwind
+    # 19. Sector sentiment soft flag — sector going negative signals headwind
     if sector_sentiment_score < config.SECTOR_ENTRY_MIN_SCORE:
         flags.append(f"sector_sentiment({sector_sentiment_score:.0f}<{config.SECTOR_ENTRY_MIN_SCORE})")
 
-    # 21. News quality soft flag — swing candidates need a catalyst
+    # 20. News quality soft flag — swing candidates need a catalyst
     if swing_eligible and sentiment_score < config.SWING_NEWS_MIN_SCORE:
         flags.append(f"swing_news_weak({sentiment_score:.0f}<{config.SWING_NEWS_MIN_SCORE})")
 

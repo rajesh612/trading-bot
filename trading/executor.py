@@ -60,7 +60,6 @@ def execute_buy(
     rsi_max: float,
     params: dict,
     now: datetime,
-    entries_this_cycle: int,
     daily_pnl_pct: float = 0.0,
     sector_today: dict | None = None,
     symbol_sector_etf: str | None = None,
@@ -75,7 +74,6 @@ def execute_buy(
     """
     Validate and place a single BUY order.
     Returns position_data dict on success, None if any pre-flight check blocks entry.
-    Caller increments entries_this_cycle and result.entries on non-None return.
     """
     vwap_slope_min = params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
     if iv.vwap_slope < vwap_slope_min:
@@ -131,7 +129,6 @@ def execute_buy(
     gate = check_all_gates(
         symbol=symbol, iv=iv, open_positions=open_positions,
         daily_closed=fresh_daily_closed, bars_15min=bars_15min, now=now,
-        entries_this_cycle=entries_this_cycle,
         spy_ret5d=spy_ret5d, symbol_ret5d=symbol_ret5d, mode=mode,
         rsi_max=rsi_max,
         sector_today=sector_today,

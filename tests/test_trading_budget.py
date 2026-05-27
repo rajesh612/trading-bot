@@ -338,7 +338,6 @@ class TestAutoExecuteSoftFlagGuard:
             rsi_max=72.0,
             params={"vwap_slope_min": -0.5},
             now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
-            entries_this_cycle=0,
         )
 
     @pytest.mark.unit
@@ -405,7 +404,6 @@ def test_auto_execute_not_blocked_by_mtf_unavailable():
         spy_ret5d=0.5, symbol_ret5d=1.0, rsi_max=72.0,
         params={"vwap_slope_min": -0.5},
         now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
-        entries_this_cycle=0,
     )
 
     # Only mtf_unavailable (data-fetch failure) — should NOT block auto-execute
@@ -647,7 +645,6 @@ def test_execute_buy_blocks_at_max_daily_loss(monkeypatch, tmp_path):
         portfolio_value=100_000, pos_mult=1.0,
         spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
         params={}, now=datetime.now(ET).replace(hour=11),
-        entries_this_cycle=0,
         daily_pnl_pct=-3.5,   # exceeds MAX_DAILY_LOSS_PCT = 0.03 → -3%
         sector_today={},
         symbol_sector_etf=None,
@@ -691,7 +688,6 @@ def test_execute_buy_warns_at_daily_loss_warn_threshold(monkeypatch, tmp_path):
         portfolio_value=100_000, pos_mult=1.0,
         spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
         params={}, now=datetime.now(ET).replace(hour=11),
-        entries_this_cycle=0,
         daily_pnl_pct=-2.5,   # between warn (-2%) and halt (-3%)
         sector_today={},
         symbol_sector_etf=None,
@@ -729,8 +725,7 @@ def test_executor_logs_warning_on_slippage_timeout(monkeypatch, tmp_path, caplog
             open_positions={}, alpaca=alpaca_mock,
             portfolio_value=100_000, pos_mult=1.0,
             spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
-            params={}, now=datetime.now(ET).replace(hour=11),
-            entries_this_cycle=0, daily_pnl_pct=0.0,
+            params={}, now=datetime.now(ET).replace(hour=11), daily_pnl_pct=0.0,
             sector_today={}, symbol_sector_etf=None,
         )
 
@@ -895,8 +890,7 @@ def test_execute_buy_stores_entry_sector_sentiment(monkeypatch, tmp_path):
             open_positions={}, alpaca=alpaca_mock,
             portfolio_value=100_000, pos_mult=1.0,
             spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=72.0,
-            params={}, now=datetime.now(ET).replace(hour=11),
-            entries_this_cycle=0, daily_pnl_pct=0.0,
+            params={}, now=datetime.now(ET).replace(hour=11), daily_pnl_pct=0.0,
             sector_today={}, symbol_sector_etf=None,
         )
 

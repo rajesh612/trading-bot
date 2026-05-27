@@ -308,7 +308,6 @@ class TestT1Sizing:
             portfolio_value=100_000.0, now=_t2_now(), regime="NORMAL",
             regime_info={"regime": "NORMAL"}, params={},
             pos_mult=1.0, spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=70.0,
-            entries_this_cycle=0,
         )
 
     def test_execute_buy_sizes_t1_at_60pct(self, monkeypatch, tmp_path):

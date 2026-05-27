@@ -171,68 +171,32 @@ class TestTradingPipeline:
 
 @pytest.mark.unit
 class TestPipelinePerCycleCap:
-    """Tests for the MAX_ENTRIES_PER_CYCLE enforcement via check_all_gates."""
+    """Burst cap is now enforced in pipeline.py entry loops, not check_all_gates()."""
 
-    def _now_open(self) -> datetime:
-        from zoneinfo import ZoneInfo
-        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
-
-    @staticmethod
-    def _iv(**overrides):
-        import types
-        base = dict(
-            current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
-            stop_hunt_zone=False, parabolic=False,
-            momentum_exhaustion=False, bot_herding_score=0, squeeze_setup=False,
-        )
-        base.update(overrides)
-        return types.SimpleNamespace(**base)
-
-    def _patch(self, monkeypatch):
-        import calendars.earnings as ec
-        import macro.economic_calendar as ecc
-        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
-        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
-
-    def test_cap_blocks_regardless_of_symbol(self, monkeypatch):
-        """Cap is per-cycle, not per-symbol — applies even to a brand-new symbol."""
+    def test_burst_cap_config_is_renamed(self):
+        """MAX_ENTRIES_PER_CYCLE renamed to MAX_ENTRIES_PER_CYCLE_BURST = 3."""
         import config
-        monkeypatch.setattr(config, "MAX_ENTRIES_PER_CYCLE", 1)
-        self._patch(monkeypatch)
-        from signals.entry_gates import check_all_gates
-        for sym in ("AAPL", "NVDA", "TSLA"):
-            result = check_all_gates(
-                sym, self._iv(), {}, set(), None, self._now_open(), entries_this_cycle=1,
-            )
-            assert result.passed is False, f"{sym} should be blocked by cap"
+        assert hasattr(config, "MAX_ENTRIES_PER_CYCLE_BURST")
+        assert config.MAX_ENTRIES_PER_CYCLE_BURST == 3
+        assert not hasattr(config, "MAX_ENTRIES_PER_CYCLE"), (
+            "config.MAX_ENTRIES_PER_CYCLE still exists — remove the old name"
+        )
 
     def test_close_decision_bypasses_cap(self):
-        """CLOSE action in pipeline calls close_position, not check_all_gates — cap irrelevant."""
-        # check_all_gates is only called for BUY candidates; verifying it is not invoked for CLOSE
-        # is implicit — here we confirm close_position exists and accepts the right signature.
+        """CLOSE action calls close_position, not check_all_gates."""
         from trading.closer import close_position
         import inspect
         sig = inspect.signature(close_position)
         assert "symbol" in sig.parameters
-        assert "entries_this_cycle" not in sig.parameters  # cap param is absent from closer
+        assert "entries_this_cycle" not in sig.parameters
 
     def test_5day_return_exactly_6_rows(self):
-        """_compute_symbol_5day_return needs at least 6 rows."""
         import pandas as pd
         from trading.pipeline import _compute_symbol_5day_return
         df5 = pd.DataFrame({"close": [100.0] * 5})
         df6 = pd.DataFrame({"close": [100.0] * 6})
         assert _compute_symbol_5day_return(df5) == pytest.approx(0.0)
-        assert _compute_symbol_5day_return(df6) == pytest.approx(0.0)  # flat
-
-    def test_cycle_result_entries_increments_correctly(self):
-        """CycleResult.entries accumulates correctly when used as counter."""
-        from trading.pipeline import CycleResult
-        r = CycleResult()
-        r.entries += 1
-        assert r.entries == 1
-        r.entries += 1
-        assert r.entries == 2
+        assert _compute_symbol_5day_return(df6) == pytest.approx(0.0)
 
 
 @pytest.mark.unit
@@ -406,7 +370,6 @@ def test_execute_buy_blocked_by_high_vol_composite_gate():
             rsi_max=config.RSI_BUY_MAX_HIGH_VOL,
             params={"vwap_slope_min": -0.3},
             now=MagicMock(),
-            entries_this_cycle=0,
         )
 
     assert result is None
@@ -1055,8 +1018,7 @@ def test_journal_stores_atr_pct(monkeypatch, tmp_path):
         research={}, open_positions={},
         alpaca=FakeAlpaca(), portfolio_value=100_000.0,
         pos_mult=1.0, spy_ret5d=0.0, symbol_ret5d=0.0, rsi_max=70.0,
-        params={}, now=datetime(2026, 5, 18, 10, 30, tzinfo=ET),
-        entries_this_cycle=0, daily_pnl_pct=0.0,
+        params={}, now=datetime(2026, 5, 18, 10, 30, tzinfo=ET), daily_pnl_pct=0.0,
         suppress_notify=True,
     )
 
@@ -1106,7 +1068,7 @@ def test_execute_buy_forces_swing_false_when_regime_stale(monkeypatch, tmp_path)
             symbol="NVDA", iv=iv, decision=decision, symbol_ret5d=0.0,
             alpaca=MagicMock(), open_positions={},
             portfolio_value=100_000, pos_mult=1.0, spy_ret5d=0.0,
-            rsi_max=70, now=MagicMock(), entries_this_cycle=0,
+            rsi_max=70, now=MagicMock(),
             daily_pnl_pct=0.0, params={}, regime="BULL_TREND",
             regime_info={}, research={},
             sector_today={}, staleness_guard=stale_guard,
@@ -1158,7 +1120,6 @@ def test_auto_execute_blocked_when_guard_disallows(monkeypatch):
             can_open=True,
             now=MagicMock(),
             daily_pnl_pct=0.0,
-            entries_so_far=0,
         )
     assert buy_called == [], "execute_buy must not be called when auto_execute_allowed=False"
     assert result_entries == 0
@@ -1209,7 +1170,6 @@ def test_auto_execute_reads_symbol_intraday_sentiment_not_shock(monkeypatch):
             can_open=True,
             now=MagicMock(),
             daily_pnl_pct=0.0,
-            entries_so_far=0,
         )
 
     # intra_sent must come from intraday_news["AAPL"]["sentiment_score"]=60, NOT from __meta__.shock_score=99

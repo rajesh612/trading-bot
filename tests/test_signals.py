@@ -471,7 +471,7 @@ class TestLateEntryCompositeGate:
         result = check_all_gates(
             symbol="AAPL", iv=self._iv_late(composite=35.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), entries_this_cycle=0, regime="BULL_TREND",
+            now=self._late_now(), regime="BULL_TREND",
         )
         assert result.passed is False
         assert "late" in result.reason.lower() or "composite" in result.reason.lower()
@@ -487,7 +487,7 @@ class TestLateEntryCompositeGate:
         result = check_all_gates(
             symbol="AAPL", iv=self._iv_late(composite=60.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), entries_this_cycle=0, regime="BULL_TREND",
+            now=self._late_now(), regime="BULL_TREND",
         )
         assert result.passed is True
 
@@ -501,7 +501,7 @@ class TestLateEntryCompositeGate:
         result = check_all_gates(
             symbol="AAPL", iv=self._iv_late(composite=35.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._early_now(), entries_this_cycle=0,
+            now=self._early_now(),
         )
         assert "late" not in result.reason.lower()
 
@@ -560,7 +560,7 @@ class TestSLBlacklist:
         now = datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
         result = check_all_gates(
             symbol="AAPL", iv=iv, open_positions={}, daily_closed=set(),
-            bars_15min=None, now=now, entries_this_cycle=0, sl_blacklisted=True,
+            bars_15min=None, now=now, sl_blacklisted=True,
         )
         assert result.passed is False
         assert "blacklist" in result.reason.lower() or "sl" in result.reason.lower()
@@ -672,3 +672,14 @@ class TestT2BugFixes:
         )
         # Should be blocked because sector assumed -2.0 (weak) when None
         assert not result.trigger
+
+
+@pytest.mark.unit
+def test_gate2_removed_from_check_all_gates():
+    """Gate #2 (per-cycle cap) has been moved to pipeline.py — check_all_gates must not have this param."""
+    import inspect
+    from signals.entry_gates import check_all_gates
+    sig = inspect.signature(check_all_gates)
+    assert "entries_this_cycle" not in sig.parameters, (
+        "entries_this_cycle must not be a parameter of check_all_gates()"
+    )

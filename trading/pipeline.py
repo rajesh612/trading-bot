@@ -104,13 +104,13 @@ def _check_research_staleness(snap: CycleSnapshot) -> None:
 
 
 def _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
-                       pos_mult, spy_ret5d, rsi_max, now, entries_this_cycle, daily_pnl_pct) -> dict:
+                       pos_mult, spy_ret5d, rsi_max, now, daily_pnl_pct) -> dict:
     return dict(
         regime=snap.regime, regime_info=snap.regime_info,
         research=snap.research, open_positions=open_positions,
         alpaca=alpaca, portfolio_value=portfolio_value,
         pos_mult=pos_mult, spy_ret5d=spy_ret5d, rsi_max=rsi_max,
-        params=snap.params, now=now, entries_this_cycle=entries_this_cycle,
+        params=snap.params, now=now,
         daily_pnl_pct=daily_pnl_pct, sector_today=snap.sector_today,
         symbol_sector_etf=sectors.get_sector_etf(symbol),
         advance_decline_ratio=snap.advance_decline_ratio,
@@ -151,7 +151,7 @@ def _evaluate_thesis_exits(stock_data, snap, ai, alpaca, open_positions) -> int:
 
 def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_value,
                           buying_power, pos_mult, spy_ret5d, rsi_max, atr_tp_mult,
-                          can_open, now, daily_pnl_pct, entries_so_far) -> tuple:
+                          can_open, now, daily_pnl_pct) -> tuple:
     """Phase 4a: auto-execute buys. Returns (new_entries, updated_buying_power, batch)."""
     guard = snap.staleness_guard
     if not guard.auto_execute_allowed:
@@ -178,8 +178,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
                 "take_profit_pct": compute_atr_tp_pct(iv.atr, iv.current_price, atr_tp_mult),
             }
             kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
-                                        pos_mult, spy_ret5d, rsi_max, now,
-                                        entries_so_far + new_entries, daily_pnl_pct)
+                                        pos_mult, spy_ret5d, rsi_max, now, daily_pnl_pct)
             pead_ok_flag = "PEAD_EXTENDED_WINDOW" in (quality.unlocks if quality else frozenset())
             pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=0.0,
                                    quality=quality, pead_ok=pead_ok_flag, **kwargs)
@@ -199,7 +198,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
 
 def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
                             portfolio_value, buying_power, pos_mult, spy_ret5d, rsi_max,
-                            can_open, now, daily_pnl_pct, entries_so_far,
+                            can_open, now, daily_pnl_pct,
                             quality_map: dict | None = None) -> tuple:
     """Phase 4: Claude-decided BUYs and CLOSEs. Returns (entries, closes, buying_power, batch)."""
     new_entries = 0
@@ -214,8 +213,7 @@ def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
             action = decision.get("action", "HOLD").upper()
             if action == "BUY" and not existing_pos and buying_power >= config.MIN_BUYING_POWER and can_open:
                 kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
-                                            pos_mult, spy_ret5d, rsi_max, now,
-                                            entries_so_far + new_entries, daily_pnl_pct)
+                                            pos_mult, spy_ret5d, rsi_max, now, daily_pnl_pct)
                 _q = _quality_map.get(symbol)
                 pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision,
                                        symbol_ret5d=symbol_ret5d,
@@ -343,13 +341,13 @@ class TradingPipeline:
 
         auto_n, buying_power, auto_batch = _execute_auto_entries(
             auto_execute, snap, alpaca, open_positions, portfolio_value, buying_power,
-            pos_mult, spy_ret5d, rsi_max, atr_tp_mult, can_open, now, daily_pnl_pct, 0,
+            pos_mult, spy_ret5d, rsi_max, atr_tp_mult, can_open, now, daily_pnl_pct,
         )
         result.entries += auto_n
 
         claude_n, claude_c, buying_power, claude_batch = _execute_claude_entries(
             stock_data, decisions, snap, alpaca, open_positions, portfolio_value, buying_power,
-            pos_mult, spy_ret5d, rsi_max, can_open, now, daily_pnl_pct, auto_n,
+            pos_mult, spy_ret5d, rsi_max, can_open, now, daily_pnl_pct,
             quality_map=quality_map,
         )
         result.entries += claude_n
