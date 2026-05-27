@@ -149,7 +149,7 @@ def _ask_claude_batch(
         volatile_text += f"\n\nToday's strategy memory:\n{snap.strategy_memory}"
 
     system_blocks = [
-        {"type": "text", "text": stable_system_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": stable_system_text},
         {"type": "text", "text": volatile_text},
     ]
 
@@ -285,7 +285,7 @@ def _ask_claude_exit_batch(
         'Respond in JSON: {"<symbol>": {"action": "HOLD"|"CLOSE", "confidence": <0-100>, "reasoning": "<brief>"}}'
     )
     system_blocks = [
-        {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": system_text},
         {"type": "text", "text": f"Strategy memory:\n{snap.strategy_memory or '(no strategy memory yet)'}"},
     ]
 

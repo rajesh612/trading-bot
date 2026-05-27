@@ -145,6 +145,25 @@ class TestDataHealthTracker:
         t.record_failure("regime", now=_now_et(hour=10))
         assert "regime" in t.stale_sources()
 
+    def test_stale_sources_excludes_phantom_entry_never_tracked(self):
+        """_entry() called without record_success/failure must NOT appear in stale_sources.
+
+        _run_intraday_retries() calls can_retry() which calls _entry() as a side effect,
+        creating tracker state with last_success_at=None. This must not be treated as
+        infinitely stale — we simply have no information about this source yet.
+        """
+        t = self._tracker()
+        t._entry("regime")  # simulates can_retry() or should_retry_proactive() side effect
+        assert "regime" not in t.stale_sources()
+
+    def test_stale_sources_includes_source_with_failures_and_no_success(self):
+        """Source that has failed attempts but never succeeded IS stale."""
+        t = self._tracker()
+        import config
+        t.record_failure("regime", now=_now_et(hour=10))
+        # attempts_today=1 even with no prior success — should be in stale_sources
+        assert "regime" in t.stale_sources()
+
 
 @pytest.mark.unit
 class TestGetStalenessGuard:
@@ -245,6 +264,30 @@ class TestGetStalenessGuard:
         guard = get_staleness_guard(tracker=t)
         assert len(guard.claude_warnings) >= 1
         assert any("regime" in w for w in guard.claude_warnings)
+
+    def test_phantom_entry_not_in_staleness_guard_stale_sources(self, monkeypatch):
+        """Tracker entry created by _entry() alone (no success, no failures) must not
+        appear in guard.stale_sources — it is 'no data' not 'stale data'.
+
+        Regression for: _run_intraday_retries() side-effects causing [STALE:regime,research]
+        in every post-restart cycle even when files are fresh.
+        """
+        import config
+        monkeypatch.setattr(config, "DATA_STALE_THRESHOLD_MINUTES", {"regime": 60})
+        monkeypatch.setattr(config, "DATA_COMPOSITE_PENALTY", {"regime": 10})
+        monkeypatch.setattr(config, "DATA_DISABLE_AUTO_EXECUTE", frozenset({"regime"}))
+        monkeypatch.setattr(config, "DATA_DISABLE_T2", frozenset({"regime"}))
+        monkeypatch.setattr(config, "DATA_REGIME_CANOPEN_MAX_MINUTES", 480)
+        monkeypatch.setattr(config, "DATA_SWING_STALE_FALLBACK_REGIME", "NORMAL")
+        from utils.data_health import DataHealthTracker, get_staleness_guard
+        t = DataHealthTracker()
+        t._entry("regime")   # side-effect of can_retry() / should_retry_proactive()
+        t._entry("research")
+        guard = get_staleness_guard(tracker=t)
+        assert "regime" not in guard.stale_sources
+        assert "research" not in guard.stale_sources
+        assert guard.composite_penalty == 0
+        assert guard.auto_execute_allowed is True
 
 
 # ── should_retry_proactive ────────────────────────────────────────────────────

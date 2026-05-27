@@ -1146,3 +1146,73 @@ class TestContextBuilderAdditions:
                 datetime(2026, 5, 24, 10, 30, tzinfo=ET), 0.0
             )
         assert "Flash crash: ACTIVE" in ctx
+
+
+@pytest.mark.unit
+class TestClaudeCallerCacheControl:
+    """Entry and exit batch callers must NOT include cache_control on system blocks.
+
+    10-min trading cycles always exceed Anthropic's 5-min cache TTL, so cache_control
+    causes write surcharges on every call with zero cache reads — net cost increase.
+    cache_control should remain in research/agent.py and learning/agent.py where
+    multiple API calls happen within the 5-min window.
+    """
+
+    def _make_snap(self):
+        from trading.cycle_context import CycleSnapshot
+        from utils.data_health import FRESH_GUARD
+        return CycleSnapshot(
+            regime_info={"regime": "NORMAL", "macro_health_score": 0,
+                         "vix_current": 18.0, "spy_5day_return": 0.5},
+            regime="NORMAL", fred_cache={}, research={},
+            research_meta={"macro_shock_score": 0},
+            strategy_memory="test memory",
+            weights={"rsi": 1.0},
+            params={
+                "rsi_buy_max": 72, "rsi_buy_max_high_vol": 65,
+                "high_vol_position_mult": 0.5,
+                "entry_start_hour": 10, "entry_end_hour": 15,
+                "atr_tp_multiplier": 2.0,
+            },
+            portfolio_gain_pct=0.0, intraday_news={},
+            staleness_guard=FRESH_GUARD,
+        )
+
+    def test_entry_batch_system_blocks_have_no_cache_control(self):
+        """_ask_claude_batch must not set cache_control on any system block."""
+        from unittest.mock import MagicMock, patch
+        from tests.test_signals import make_full_iv
+        from trading.pre_claude_filter import FilterResult
+
+        captured_kwargs = {}
+
+        def mock_create(**kwargs):
+            captured_kwargs.update(kwargs)
+            resp = MagicMock()
+            resp.usage.input_tokens = 100
+            resp.usage.output_tokens = 50
+            resp.usage.cache_creation_input_tokens = 0
+            resp.usage.cache_read_input_tokens = 0
+            resp.content = [MagicMock(type="text", text='{"TEST": {"action": "HOLD", "confidence": 0, "reasoning": "test", "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "indicator_signals": {}}}')]
+            return resp
+
+        iv = make_full_iv(symbol="TEST", composite_score=70.0)
+        fr = FilterResult(decision="CLAUDE", reason="test", quality=None, gate_result=None)
+        snap = self._make_snap()
+
+        with patch("trading.claude_caller.risk_manager.check_entry_budget", return_value=True), \
+             patch("trading.claude_caller.risk_manager.record_usage"), \
+             patch("trading.claude_caller.build_stable_system_context", return_value="stable ctx"), \
+             patch("trading.claude_caller.build_dynamic_user_context", return_value="dyn ctx"), \
+             patch("trading.claude_caller.build_stock_block", return_value="stock block"):
+            ai = MagicMock()
+            ai.messages.create.side_effect = mock_create
+            from trading.claude_caller import _ask_claude_batch
+            _ask_claude_batch([("TEST", iv, None, fr)], snap, ai)
+
+        system_blocks = captured_kwargs.get("system", [])
+        assert system_blocks, "No system blocks captured"
+        for block in system_blocks:
+            assert "cache_control" not in block, (
+                f"cache_control found in entry system block: {block}"
+            )

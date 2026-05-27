@@ -8,6 +8,23 @@ import notifications.telegram as telegram_notify
 logger = logging.getLogger("main")
 
 
+def _seed_tracker_if_fresh(tracker, source_id: str, file_path) -> None:
+    """Seed the in-memory health tracker from a file's mtime if the file is from today.
+
+    Called by catchup when skipping an agent because its output is already fresh.
+    Without seeding, _run_intraday_retries() creates phantom _entry() state
+    with last_success_at=None, causing stale_sources() to report inf-age sources.
+    """
+    try:
+        from pathlib import Path
+        path = Path(file_path)
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=ET)
+        if mtime.date() == datetime.now(ET).date():
+            tracker.record_success(source_id, now=mtime)
+    except (FileNotFoundError, OSError):
+        pass
+
+
 def _file_is_from_today(path) -> bool:
     """Return True if the file exists and was last modified on today's ET date."""
     try:
@@ -26,6 +43,7 @@ def catchup_missed_agents() -> None:
     """
     # Deferred import to avoid circular reference at module load time
     import scheduler_jobs as _sj
+    from utils.data_health import _tracker
 
     now = datetime.now(ET)
     if now.weekday() >= 5:
@@ -49,6 +67,7 @@ def catchup_missed_agents() -> None:
         _sj.job_earnings_calendar()
     else:
         logger.info("CATCHUP: earnings calendar already ran today — skipping.")
+        _seed_tracker_if_fresh(_tracker, "earnings", config.EARNINGS_CALENDAR_FILE)
 
     # 2. Volatility screener (needed by watch list agent)
     if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
@@ -61,6 +80,7 @@ def catchup_missed_agents() -> None:
             logger.error("CATCHUP: volatility screener raised: %s — checking file state", exc)
     else:
         logger.info("CATCHUP: volatility screener already ran today — skipping.")
+        _seed_tracker_if_fresh(_tracker, "screener", config.DAILY_TRADEABLE_FILE)
 
     if not _file_is_from_today(config.DAILY_TRADEABLE_FILE):
         logger.error(
@@ -82,6 +102,7 @@ def catchup_missed_agents() -> None:
         _sj.job_macro_regime()
     else:
         logger.info("CATCHUP: macro regime already ran today — skipping.")
+        _seed_tracker_if_fresh(_tracker, "regime", config.MACRO_REGIME_FILE)
 
     # 5. Watch list agent (needed by research + trading agents)
     if not _file_is_from_today(config.WATCH_LIST_FILE):
@@ -89,6 +110,7 @@ def catchup_missed_agents() -> None:
         _sj.job_watch_list()
     else:
         logger.info("CATCHUP: watch list already built today — skipping.")
+        _seed_tracker_if_fresh(_tracker, "watch_list", config.WATCH_LIST_FILE)
 
     # 6. Research agent — run in background thread so it doesn't block the scheduler.
     # Fetching news + 15 Claude calls can take 3-5 minutes; the scheduler must start
@@ -106,6 +128,7 @@ def catchup_missed_agents() -> None:
             threading.Thread(target=_run_research, daemon=True, name="catchup-research").start()
         else:
             logger.info("CATCHUP: research report already built today — skipping.")
+            _seed_tracker_if_fresh(_tracker, "research", config.RESEARCH_REPORT_FILE)
     else:
         logger.info("CATCHUP: market closing soon — skipping research catch-up.")
 

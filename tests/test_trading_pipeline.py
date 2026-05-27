@@ -750,7 +750,11 @@ def _make_fake_ai(calls: list, response_text: str):
 
 @pytest.mark.unit
 def test_exit_batch_system_prompt_has_cache_control(monkeypatch):
-    """Exit-batch stable system block must have cache_control for prompt caching."""
+    """Exit-batch system blocks must NOT have cache_control.
+
+    10-min trading cycles always exceed Anthropic's 5-min cache TTL, so
+    cache_control on exit-batch calls causes write surcharges with zero reads.
+    """
     from trading.claude_caller import _ask_claude_exit_batch
     from unittest.mock import MagicMock
 
@@ -782,15 +786,19 @@ def test_exit_batch_system_prompt_has_cache_control(monkeypatch):
     assert calls, "Claude was not called"
     system_blocks = calls[0].get("system", [])
     assert system_blocks, "No system blocks in exit-batch call"
-    assert any(
+    assert not any(
         isinstance(b, dict) and b.get("cache_control")
         for b in system_blocks
-    ), "Stable system block must have cache_control for prompt caching"
+    ), "exit-batch system blocks must not have cache_control (TTL 5min < 10min cycle)"
 
 
 @pytest.mark.unit
 def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
-    """Entry-batch stable system block must have cache_control for prompt caching."""
+    """Entry-batch system blocks must NOT have cache_control.
+
+    10-min trading cycles always exceed Anthropic's 5-min cache TTL, so
+    cache_control on entry-batch calls causes write surcharges with zero reads.
+    """
     from trading.claude_caller import _ask_claude_batch
     from unittest.mock import MagicMock
 
@@ -833,10 +841,10 @@ def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
     assert calls, "Claude was not called"
     system_blocks = calls[0].get("system", [])
     assert system_blocks, "No system blocks in entry-batch call"
-    assert any(
+    assert not any(
         isinstance(b, dict) and b.get("cache_control")
         for b in system_blocks
-    ), "Stable system block must have cache_control for prompt caching"
+    ), "entry-batch system blocks must not have cache_control (TTL 5min < 10min cycle)"
 
 
 # ── P4-T5: _compute_auto_execute_confidence ───────────────────────────────────

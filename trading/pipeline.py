@@ -331,7 +331,7 @@ class TradingPipeline:
         t_claude = time.monotonic()
         decisions: dict[str, dict] = {}
         if not can_open:
-            logger.info("[CYCLE] can_open=False — skipping Claude entry calls (entry window not open yet)")
+            logger.info("[CYCLE] can_open=False — skipping Claude entry calls (staleness guard or entry window)")
         else:
             for i in range(0, len(needs_claude), config.CLAUDE_BATCH_SIZE):
                 decisions.update(_ask_claude_batch(needs_claude[i : i + config.CLAUDE_BATCH_SIZE], snap, ai))

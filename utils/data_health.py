@@ -152,6 +152,10 @@ class DataHealthTracker:
         now  = now or datetime.now(ET)
         stale: set[str] = set()
         for src_id, entry in self._state.items():
+            # Entry created by _entry() side-effect (e.g. from can_retry()) with no
+            # actual fetch recorded and no failures — treat as "no data yet", not stale.
+            if entry["last_success_at"] is None and entry["attempts_today"] == 0:
+                continue
             threshold = config.DATA_STALE_THRESHOLD_MINUTES.get(src_id, 60)
             age       = self.age_minutes(src_id, now=now)
             if age > threshold or entry["attempts_today"] >= config.DATA_RETRY_MAX:
