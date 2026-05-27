@@ -90,6 +90,18 @@ class TestYieldCurveOverride:
         result = _apply_fred_overrides("OPPORTUNITY", {"yield_curve_inverted": True})
         assert result == "DEFENSIVE"
 
+    @pytest.mark.unit
+    def test_normal_overridden_to_defensive_when_inverted(self):
+        from macro.regime import _apply_fred_overrides
+        result = _apply_fred_overrides("NORMAL", {"yield_curve_inverted": True})
+        assert result == "DEFENSIVE"
+
+    @pytest.mark.unit
+    def test_crash_recovery_not_overridden_when_inverted(self):
+        from macro.regime import _apply_fred_overrides
+        result = _apply_fred_overrides("CRASH_RECOVERY", {"yield_curve_inverted": True})
+        assert result == "CRASH_RECOVERY"
+
 
 class TestCatalystSurpriseScore:
     @pytest.mark.unit

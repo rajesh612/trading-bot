@@ -117,6 +117,10 @@ def build_cycle_snapshot(
 
     intraday_ctx = get_intraday_context(datetime.now(ET))
     sector_today = intraday_ctx.sector_today if intraday_ctx is not None else {}
+    # sector_etf_cache: sub-sector ETF intraday % changes for CATALYST gate.
+    # Augmented by intraday_ctx data (broad sector ETFs = XLK, XLF, etc.).
+    # pipeline.py may add sub-sector entries (SOXX, SMH, XBI) for symbols with sub_etf defined.
+    _sector_etf_cache: dict = dict(sector_today)
 
     advance_decline_ratio = 1.0
     try:
@@ -162,6 +166,7 @@ def build_cycle_snapshot(
         staleness_guard=staleness_guard or FRESH_GUARD,
         intraday_news=load_intraday_news(),
         sector_today=sector_today,
+        sector_etf_cache=_sector_etf_cache,
         advance_decline_ratio=advance_decline_ratio,
         major_event_today=major_event_today,
         post_event_window=_post_event_window,

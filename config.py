@@ -487,7 +487,7 @@ FRED_CREDIT_SPREAD_SERIES        = "BAMLH0A0HYM2"
 FRED_BREAKEVEN_SERIES            = "T10YIE"
 FRED_CLAIMS_SERIES               = "ICSA"
 FRED_YIELD_CURVE_INVERSION_THRESHOLD = 0.0   # T10Y2Y < 0 → inverted → DEFENSIVE
-FRED_CREDIT_SPREAD_RISK_OFF      = 500    # bps >= this → risk-off modifier -5
+FRED_CREDIT_SPREAD_RISK_OFF      = 5.0    # FRED reports BAMLH0A0HYM2 in % (e.g. 5.0 = 500 bps); >= this → risk-off
 FRED_BREAKEVEN_HIGH_THRESHOLD    = 3.0   # % breakeven > this → modifier -2
 FRED_CLAIMS_SPIKE_THRESHOLD      = 30000 # WoW initial claims increase >= this
 FRED_MODIFIER_MIN                = -15   # expanded clamp (was effectively ±8)

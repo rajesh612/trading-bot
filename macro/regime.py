@@ -25,6 +25,8 @@ def _apply_fred_overrides(regime: str, fred_cache: dict) -> str:
     if fred_cache.get("yield_curve_inverted") and regime not in ("CRISIS", "CAPITULATION"):
         if regime in ("BULL_TREND", "OPPORTUNITY"):
             return "DEFENSIVE"
+        if regime == "NORMAL":
+            return "DEFENSIVE"
     return regime
 
 

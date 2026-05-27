@@ -103,16 +103,13 @@ def check_all_gates(
 
     # ── Hard gates ────────────────────────────────────────────────────────────
 
-    # 0. CRISIS regime — no entries under any circumstances
-    if mode == "CASH":
-        return GateResult(False, "CRISIS regime — all entries blocked")
-
-    # 0b. Price cap — hard block expensive stocks (>$400 avg -$55/trade at 28% win rate)
+    # 0b. Price cap — hard block expensive stocks (>$750 avg -$55/trade at 28% win rate)
     if config.MAX_ENTRY_PRICE and iv.current_price > config.MAX_ENTRY_PRICE:
         return GateResult(False, f"price ${iv.current_price:.0f} > MAX_ENTRY_PRICE ${config.MAX_ENTRY_PRICE:.0f}")
 
-    # 0c. Major economic event today — no new swing entries (overnight thesis invalidation risk)
-    if major_event_today and swing_eligible:
+    # 0c. Major economic event today — no new swing entries (overnight thesis invalidation risk).
+    # CATALYST mode is exempt: it is specifically designed for post-event plays.
+    if major_event_today and swing_eligible and mode != "CATALYST":
         return GateResult(False, "major economic event today — no new swing-eligible entries")
 
     # 1. Time gate — block first 30 min, last 35 min, and after per-regime hard cutoff
@@ -140,10 +137,9 @@ def check_all_gates(
     if symbol in open_positions:
         return GateResult(False, "position already open")
 
-    # 4. Earnings imminent
-    earnings_days = 1 if mode not in ("HYBRID", "SHORT_TERM") else 2
-    if mode not in ("CAPITULATION", "PEAD") and is_earnings_imminent(symbol, days=earnings_days):
-        return GateResult(False, f"earnings within {earnings_days} day(s)")
+    # 4. Earnings imminent — PEAD is exempt (post-earnings drift plays require earnings)
+    if mode != "PEAD" and is_earnings_imminent(symbol, days=1):
+        return GateResult(False, "earnings within 1 day")
 
     # 5. Event risk window
     event_risk, event_name = ecc.is_event_risk_window(now)

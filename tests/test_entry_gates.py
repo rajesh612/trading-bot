@@ -860,6 +860,20 @@ def test_event_day_no_block_when_no_event(monkeypatch):
     assert "major economic event" not in result.reason
 
 
+@pytest.mark.unit
+def test_event_day_does_not_block_catalyst_mode(monkeypatch):
+    """CATALYST mode bypasses the event-day swing-eligible gate (post-event plays)."""
+    monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+    _patch_cals(monkeypatch)
+    from signals.entry_gates import check_all_gates
+    iv = _gates_iv(current_price=100.0)
+    result = check_all_gates(
+        "NVDA", iv, {}, set(), None, _market_open(), entries_this_cycle=0,
+        swing_eligible=True, major_event_today=True, mode="CATALYST",
+    )
+    assert "major economic event" not in result.reason
+
+
 # ── Task 8: dynamic GateParams per regime×tier + get_effective_profit_lock ────
 
 @pytest.mark.unit
