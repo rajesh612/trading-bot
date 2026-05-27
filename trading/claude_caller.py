@@ -116,7 +116,10 @@ def _ask_claude_batch(
             sym, iv, snap,
             gate_result=fr.gate_result or _default_gate,
             quality=fr.quality or _default_quality,
-            mode=derive_mode(sym, pead_ok=False),
+            mode=derive_mode(
+                sym,
+                pead_ok="PEAD_EXTENDED_WINDOW" in (fr.quality.unlocks if fr.quality else frozenset()),
+            ),
             entry_time=now,
             existing_pos=existing_pos,
             atr_suggested_tp_pct=compute_atr_tp_pct(iv.atr, iv.current_price, _atr_mult),
@@ -310,7 +313,7 @@ def _ask_claude_exit_batch(
             max_tokens=150 * len(exit_candidates),
             system=system_blocks,
             messages=[{"role": "user", "content": user_msg}],
-            thinking={"type": "adaptive"},
+            output_config={"effort": "medium"},
         )
     except anthropic.APIStatusError as exc:
         if exc.status_code in (402, 429):
