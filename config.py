@@ -153,7 +153,7 @@ VWAP_OVEREXTENSION_GATE = True # block price > VWAP+2σ
 PARABOLIC_5DAY_RETURN_PCT = 15.0  # 5-day return % to flag as parabolic
 PARABOLIC_ENTRY_BLOCK     = True  # block parabolic=True entries
 
-MAX_ENTRY_PRICE        = 400   # hard block: stocks > $400 excluded
+MAX_ENTRY_PRICE        = 750   # hard block: stocks > $750 excluded (covers CIEN ~$590, META ~$600)
 SECTOR_ENTRY_MIN_SCORE = 0     # soft flag threshold: sector NLP sentiment
 SWING_NEWS_MIN_SCORE   = 50    # soft flag: news sentiment for swing candidates
 MIN_MARKET_CAP_B       = 25    # screener pre-filter: $25B minimum market cap

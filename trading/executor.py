@@ -151,7 +151,7 @@ def execute_buy(
     if gate.flags:
         logger.info("ENTRY %s flagged: %s", symbol, ", ".join(gate.flags))
 
-    eff_gate = effective_composite_gate(iv, regime, params=params)
+    eff_gate = effective_composite_gate(iv, regime, params=params, staleness_guard=guard)
     if iv.composite_score < eff_gate:
         logger.info("SKIP %s — composite=%+.1f below effective gate %d (regime=%s)", symbol, iv.composite_score, eff_gate, regime)
         return None

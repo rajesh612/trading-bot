@@ -246,9 +246,15 @@ class TestEvaluateGapAction:
         from trading.swing_manager import _evaluate_gap_action
         assert _evaluate_gap_action(self._pos(), current_price=92.0) == "CLOSE_GAP_DOWN"
 
-    def test_gap_down_2_to_5pct_returns_tighten(self):
+    def test_large_gap_below_tighten_threshold_returns_close(self):
+        # gap=-4.0% (price=96) is below SWING_GAP_TIGHTEN_THRESHOLD=-2.0 → close to prevent further loss
         from trading.swing_manager import _evaluate_gap_action
-        assert _evaluate_gap_action(self._pos(), current_price=96.0) == "TIGHTEN_STOP"
+        assert _evaluate_gap_action(self._pos(), current_price=96.0) == "CLOSE_GAP_DOWN"
+
+    def test_moderate_gap_above_tighten_threshold_returns_tighten(self):
+        # gap=-1.5% (price=98.5) is between SWING_GAP_TIGHTEN_THRESHOLD=-2.0 and gap_close_threshold=-1.0 → tighten stop
+        from trading.swing_manager import _evaluate_gap_action
+        assert _evaluate_gap_action(self._pos(), current_price=98.5) == "TIGHTEN_STOP"
 
     def test_gap_up_3pct_returns_take_tp1(self):
         from trading.swing_manager import _evaluate_gap_action
@@ -463,9 +469,12 @@ class TestSwingManagerOrchestration:
         })
         from trading.swing_manager import _evaluate_gap_action
         pos = {"entry_price": 100.0, "stop_loss_pct": 7.0, "tp1_hit": False}
-        # Gap down 3% (from 100 to 97) — between -7% stop and -2% threshold → TIGHTEN_STOP
+        # Gap down 3% (from 100 to 97) is below SWING_GAP_TIGHTEN_THRESHOLD=-2% → CLOSE_GAP_DOWN
+        # A -1.5% gap (price=98.5) is moderate → TIGHTEN_STOP and uses SWING_GAP_TIGHTEN_SL_PCT
         action = _evaluate_gap_action(pos, current_price=97.0)
-        assert action == "TIGHTEN_STOP"
+        assert action == "CLOSE_GAP_DOWN"
+        action_moderate = _evaluate_gap_action(pos, current_price=98.5)
+        assert action_moderate == "TIGHTEN_STOP"
 
 
 class TestSwingPromotionFromTPSLTable:

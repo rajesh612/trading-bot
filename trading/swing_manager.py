@@ -72,10 +72,11 @@ def _evaluate_gap_action(position: dict, current_price: float) -> str:
 
     if gap_pct <= -sl_pct:
         return "CLOSE_GAP_DOWN"
-    elif config.SWING_GAP_TIGHTEN_THRESHOLD < gap_pct < gap_close_threshold:
-        # Moderate adverse gap below tier threshold but above tighten zone → close early
-        return "CLOSE_GAP_DOWN"
     elif -sl_pct < gap_pct <= config.SWING_GAP_TIGHTEN_THRESHOLD:
+        # Large adverse gap (beyond tighten zone but within SL) → close before it worsens
+        return "CLOSE_GAP_DOWN"
+    elif gap_pct < gap_close_threshold:
+        # Moderate adverse gap (above tighten zone, below tier threshold) → tighten stop only
         return "TIGHTEN_STOP"
     elif gap_pct >= config.SWING_GAP_TP1_THRESHOLD and not position.get("tp1_hit"):
         return "TAKE_TP1_GAP_UP"

@@ -977,7 +977,7 @@ def test_journal_stores_atr_pct(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
     monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "daily_closed.json")
     monkeypatch.setattr("trading.executor.check_all_gates", lambda **kwargs: type("G", (), {"passed": True, "reason": "", "flags": []})())
-    monkeypatch.setattr("trading.executor.effective_composite_gate", lambda iv, regime, params=None: 0)
+    monkeypatch.setattr("trading.executor.effective_composite_gate", lambda iv, regime, params=None, staleness_guard=None: 0)
     monkeypatch.setattr("trading.executor.get_intraday_bars", lambda *a, **kw: None)
     monkeypatch.setattr("trading.executor.derive_mode", lambda sym, pead_ok=False, existing_swing_pos=False, catalyst_active=False: "DAY_TRADE")
     monkeypatch.setattr("signals.tp_scaler.compute_tp_sl", lambda **kw: (5.0, 2.0))

@@ -214,7 +214,11 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
                 "hard_deadline":       None,
                 "claude_reasoning":    pos.get("claude_reasoning", ""),
                 "order_id":            pos.get("order_id"),
-                "mode_at_entry":       "HYBRID" if not capitulation else "SHORT_TERM",
+                "mode_at_entry":       "SWING",
+                # Preserve quality fields so T2 gates and monitor can read them
+                "quality_tier":        pos.get("quality_tier", "MEDIUM"),
+                "quality_unlocks":     pos.get("quality_unlocks", []),
+                "entry_sector_sentiment": pos.get("entry_sector_sentiment", entry_sector_score),
             }
 
             if not _promote_to_swing(symbol, swing_pos, pnl_pct):
