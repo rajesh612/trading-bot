@@ -228,19 +228,21 @@ SWING_PROMOTE_MIN_PNL_PCT = 0.5     # default/documentation anchor for standard 
 # tighter for CONVICTION (high-confidence entries tolerate less adverse drift before exiting).
 # Replaces the previous per-regime dict + CONVICTION_TIGHT subtraction.
 SWING_SL_FLOOR_PARAMS: dict[tuple[str, str], float] = {
-    # NORMAL: spread across tiers captures variance differences by stock quality
-    ("NORMAL",         "LOW"):        4.0,
-    ("NORMAL",         "MEDIUM"):     3.5,
+    # NORMAL: MEDIUM raised 3.5→4.5 — 90d backtest showed all 13 worst SWING_SL hits
+    # were MEDIUM at exactly -3.55% (floor + slippage), not genuine reversals.
+    # LOW raised above MEDIUM to preserve tier ordering (lower quality = wider overnight stop).
+    ("NORMAL",         "LOW"):        5.0,
+    ("NORMAL",         "MEDIUM"):     4.5,
     ("NORMAL",         "HIGH"):       3.0,
     ("NORMAL",         "CONVICTION"): 2.5,
-    # BULL_TREND: same quality spread; trend provides SL cushion for CONVICTION
-    ("BULL_TREND",     "LOW"):        4.0,
-    ("BULL_TREND",     "MEDIUM"):     3.5,
+    # BULL_TREND: MEDIUM raised 3.5→4.5 (trend regime needs room for intraday retracements)
+    ("BULL_TREND",     "LOW"):        5.0,
+    ("BULL_TREND",     "MEDIUM"):     4.5,
     ("BULL_TREND",     "HIGH"):       3.0,
     ("BULL_TREND",     "CONVICTION"): 2.5,
-    # OPPORTUNITY: same as NORMAL
-    ("OPPORTUNITY",    "LOW"):        4.0,
-    ("OPPORTUNITY",    "MEDIUM"):     3.5,
+    # OPPORTUNITY: MEDIUM raised 3.5→4.5 (same reasoning as NORMAL)
+    ("OPPORTUNITY",    "LOW"):        5.0,
+    ("OPPORTUNITY",    "MEDIUM"):     4.5,
     ("OPPORTUNITY",    "HIGH"):       3.0,
     ("OPPORTUNITY",    "CONVICTION"): 2.5,
     # CRASH_RECOVERY: wider across all tiers (post-crash variance is elevated)
@@ -270,18 +272,21 @@ SWING_SL_FLOOR_PARAMS: dict[tuple[str, str], float] = {
 # profit_lock lowered so more positions stay as swings when profitable.
 # min_pnl lowered so more positions qualify for EOD promotion.
 SWING_HOLD_PARAMS: dict[tuple[str, str], tuple[int, float, float]] = {
-    ("NORMAL",         "LOW"):        (4,  3.0, 0.8),
-    ("NORMAL",         "MEDIUM"):     (5,  2.0, 0.3),
-    ("NORMAL",         "HIGH"):       (6,  1.5, 0.2),
-    ("NORMAL",         "CONVICTION"): (7,  1.0, 0.1),
-    ("BULL_TREND",     "LOW"):        (5,  2.5, 0.3),
-    ("BULL_TREND",     "MEDIUM"):     (6,  1.5, 0.2),
-    ("BULL_TREND",     "HIGH"):       (8,  1.0, 0.1),
-    ("BULL_TREND",     "CONVICTION"): (10, 0.8, 0.1),
-    ("OPPORTUNITY",    "LOW"):        (4,  3.0, 0.5),
-    ("OPPORTUNITY",    "MEDIUM"):     (6,  2.0, 0.3),
-    ("OPPORTUNITY",    "HIGH"):       (7,  1.5, 0.2),
-    ("OPPORTUNITY",    "CONVICTION"): (8,  1.0, 0.1),
+    # max_days raised for MEDIUM to let winners run longer.
+    # profit_lock_pct lowered so more positions pass the profit-lock bypass (1.5% instead of 2.0%).
+    # min_pnl_pct raised for MEDIUM (0.3→0.8) to avoid overnight risk on near-flat positions.
+    ("NORMAL",         "LOW"):        (5,  3.0, 1.0),
+    ("NORMAL",         "MEDIUM"):     (7,  1.5, 0.8),
+    ("NORMAL",         "HIGH"):       (7,  1.2, 0.2),
+    ("NORMAL",         "CONVICTION"): (8,  1.0, 0.1),
+    ("BULL_TREND",     "LOW"):        (6,  2.5, 0.5),
+    ("BULL_TREND",     "MEDIUM"):     (8,  1.2, 0.5),
+    ("BULL_TREND",     "HIGH"):       (9,  0.8, 0.1),
+    ("BULL_TREND",     "CONVICTION"): (12, 0.5, 0.1),
+    ("OPPORTUNITY",    "LOW"):        (5,  3.0, 0.7),
+    ("OPPORTUNITY",    "MEDIUM"):     (7,  1.5, 0.6),
+    ("OPPORTUNITY",    "HIGH"):       (8,  1.2, 0.2),
+    ("OPPORTUNITY",    "CONVICTION"): (9,  1.0, 0.1),
     ("CRASH_RECOVERY", "LOW"):        (3,  3.5, 1.0),
     ("CRASH_RECOVERY", "MEDIUM"):     (4,  2.5, 0.7),
     ("CRASH_RECOVERY", "HIGH"):       (5,  2.0, 0.3),

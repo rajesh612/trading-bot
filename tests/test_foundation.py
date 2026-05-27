@@ -720,15 +720,15 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
     @pytest.mark.unit
     def test_normal_min_pnl_gate_blocks_below_threshold(self):
-        # NORMAL MEDIUM min_pnl_pct is 0.3; use 0.2 to test below-threshold blocking
+        # NORMAL MEDIUM min_pnl_pct is 0.8; use 0.2 to test below-threshold blocking
         ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.2)
         assert not ok
         assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
     def test_normal_passes_at_min_pnl_threshold(self):
-        # NORMAL MEDIUM min_pnl_pct is 0.3; 0.5 still comfortably passes
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=0.5)
+        # NORMAL MEDIUM min_pnl_pct is 0.8; 1.0% comfortably passes
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=1.0)
         assert ok
 
     @pytest.mark.unit
@@ -750,11 +750,11 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
     @pytest.mark.unit
     def test_bull_trend_relaxed_min_pnl_threshold(self):
-        # BULL_TREND MEDIUM min_pnl_pct is 0.2; 0.3 passes, 0.1 blocks
-        ok_at_0_3, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.3)
-        ok_at_0_1, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.1)
-        assert ok_at_0_3
-        assert not ok_at_0_1
+        # BULL_TREND MEDIUM min_pnl_pct is 0.5; 0.6 passes, 0.4 blocks
+        ok_at_0_6, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.6)
+        ok_at_0_4, _ = self._call(regime="BULL_TREND", current_pnl_pct=0.4)
+        assert ok_at_0_6
+        assert not ok_at_0_4
 
     @pytest.mark.unit
     def test_opportunity_vetoes_when_sector_goes_negative(self):
@@ -928,14 +928,14 @@ class TestQualifiesForEodHold:
         assert "CRISIS" in reason
 
     def test_min_pnl_gate_blocks_flat_position(self, monkeypatch):
-        # NORMAL MEDIUM min_pnl_pct is 0.3; use 0.2 to test below-threshold blocking
+        # NORMAL MEDIUM min_pnl_pct is 0.8; use 0.2 to test below-threshold blocking
         result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.2)
         assert result is False
         assert "insufficient" in reason.lower() or "P&L" in reason
 
     def test_min_pnl_gate_passes_at_threshold(self, monkeypatch):
-        # NORMAL MEDIUM min_pnl_pct is 0.3; 0.5 still comfortably passes
-        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.5)
+        # NORMAL MEDIUM min_pnl_pct is 0.8; 1.0 comfortably passes
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=1.0)
         assert result is True
         assert reason == ""
 
@@ -1267,7 +1267,7 @@ class TestSwingSLFloors:
     def test_swing_sl_floors_loaded_from_config(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
-        assert p.sl_floor_pct == 3.5
+        assert p.sl_floor_pct == 4.5
 
     def test_swing_sl_conviction_tighter(self):
         from utils.regime_params import get_tp_sl_params
@@ -1281,7 +1281,7 @@ class TestSwingSLFloors:
         low = get_tp_sl_params("NORMAL", "LOW", "SWING")
         medium = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
         assert low.sl_floor_pct > medium.sl_floor_pct
-        assert low.sl_floor_pct == 4.0  # low-quality stocks need wider overnight room
+        assert low.sl_floor_pct == 5.0  # low-quality stocks need widest overnight room
 
     def test_highvol_swing_sl_wider(self):
         from utils.regime_params import get_tp_sl_params
@@ -1291,12 +1291,12 @@ class TestSwingSLFloors:
     def test_swing_maxdays_increased_normal(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
-        assert p.max_days == 5
+        assert p.max_days == 7
 
     def test_swing_maxdays_increased_bull_trend(self):
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("BULL_TREND", "CONVICTION", "SWING")
-        assert p.max_days == 10
+        assert p.max_days == 12
 
     def test_eod_holds_respects_tier(self):
         """CONVICTION profit_lock for CHOPPY is 1.0; MEDIUM is disabled (falls back to 2.5).
