@@ -128,7 +128,7 @@ def check_all_gates(
         return GateResult(False, f"{symbol} is SL-blacklisted (hit stop-loss recently)")
 
     # 2. Per-cycle entry cap
-    if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE:
+    if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE_BURST:
         return GateResult(False, "per-cycle entry cap reached")
 
     # 3. Already closed today or already open

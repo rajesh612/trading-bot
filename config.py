@@ -111,7 +111,20 @@ ENTRY_LATE_COMPOSITE_MIN = 55   # composite threshold for entries after ENTRY_LA
 MARKET_OPEN_HOUR   = 9    # NYSE market open hour (ET)
 MARKET_OPEN_MINUTE = 30   # NYSE market open minute (ET)
 TRADING_MINUTES_PER_DAY = 390  # 6.5 hours × 60 — used for session-fraction calculations
-MAX_ENTRIES_PER_CYCLE  = 1    # one BUY per trading cycle maximum
+# ── Concurrency ──────────────────────────────────────────────────────────────
+MAX_ENTRIES_PER_CYCLE_BURST: int = 3   # max new entries within one 10-min cycle
+SWING_HEALTH_MIN_PNL_PCT:    float = -2.0  # swing book P&L floor; below → gate fires
+REGIME_HEAT_CEILING: dict[str, float] = {
+    "BULL_TREND":     0.50,
+    "OPPORTUNITY":    0.45,
+    "NORMAL":         0.35,
+    "CRASH_RECOVERY": 0.25,
+    "HIGH_VOL":       0.25,
+    "CHOPPY":         0.20,
+    "DEFENSIVE":      0.10,
+    "CAPITULATION":   0.10,
+    "CRISIS":         0.00,
+}
 
 RSI_BUY_MAX            = 72   # Max RSI for BUY entry (unified across all gate layers)
 RSI_BUY_MAX_HIGH_VOL   = 65   # Tighter gate in high-volatility regimes
