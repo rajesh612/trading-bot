@@ -1047,8 +1047,14 @@ def test_execute_buy_forces_swing_false_when_regime_stale(monkeypatch, tmp_path)
     monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
     monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "closed.json")
 
+    def _fake_load_json(path, default=None):
+        """Return {} for open-positions file, [] for all others (daily_closed, etc.)."""
+        if str(path) == str(tmp_path / "open.json"):
+            return {}
+        return []
+
     with patch("trading.executor.check_all_gates", side_effect=fake_check_all_gates), \
-         patch("trading.executor.load_json", return_value=[]), \
+         patch("trading.executor.load_json", side_effect=_fake_load_json), \
          patch("trading.executor.get_intraday_bars", return_value=None), \
          patch("trading.executor.telegram_notify", MagicMock()):
         from trading.executor import execute_buy

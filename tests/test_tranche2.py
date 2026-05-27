@@ -285,6 +285,7 @@ class TestT1Sizing:
 
         monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "op.json")
         monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "dc.json")
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "sp.json")
         monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "tj.json")
         monkeypatch.setattr(config, "ALPACA_API_KEY", "test")
         monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test")
@@ -295,6 +296,16 @@ class TestT1Sizing:
         monkeypatch.setattr(exe, "compute_position_size_for_mode", lambda *a, **kw: 100)
         monkeypatch.setattr(exe, "apply_regime_multiplier", lambda qty, mult: qty)
         monkeypatch.setattr(exe, "apply_sentiment_multiplier", lambda qty, s: qty)
+        # Bypass concurrency guard so T1 sizing tests reach the sizing chain unchanged.
+        # The concurrency guard is tested separately in TestExecuteBuyConcurrencyGuard.
+        from utils.regime_params import ConcurrencyParams, EntryParams
+        monkeypatch.setattr(exe, "get_concurrency_params",
+            lambda *a, **kw: ConcurrencyParams(max_open=999, size_mult=1.0,
+                                               heat_weight=0.0, swing_health_gate=False))
+        # max_position_pct=1.0 disables the post-regime qty clamp so the mocked
+        # compute_position_size_for_mode(→100) flows through to T1 sizing unchanged.
+        monkeypatch.setattr(exe, "get_entry_params",
+            lambda regime: EntryParams(30, 74, 13, 1.0))
         monkeypatch.setattr(rm, "correct_bracket_after_fill", lambda *a, **kw: None)
         monkeypatch.setattr(tg, "notify_buy", lambda **kw: None)
         monkeypatch.setattr(jrn, "append_trade", lambda entry: None)

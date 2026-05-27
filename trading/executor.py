@@ -19,6 +19,7 @@ from utils.ticker_quality import TickerQuality
 from trading.journal import _POSITIONS_LOCK, append_trade
 from utils.ticker_quality import derive_mode
 from signals.entry_gates import is_catalyst_active
+from utils.regime_params import get_concurrency_params, get_entry_params
 from trading.position_sizer import (
     compute_position_size_for_mode,
     apply_regime_multiplier,
@@ -129,6 +130,66 @@ def execute_buy(
             logger.info("SKIP %s — CATALYST at position limit (%d/%d)", symbol, cat_count, config.CATALYST_MAX_POSITIONS)
             return None
 
+    # ── Concurrency + heat guard ─────────────────────────────────────────────
+    try:
+        _q_tier = quality.tier if quality else "MEDIUM"
+        cp = get_concurrency_params(regime, _q_tier, mode)
+
+        # A. Max-open check — re-read disk inside lock (avoids stale in-memory state)
+        with _POSITIONS_LOCK:
+            disk_positions = load_json(config.OPEN_POSITIONS_FILE, {})
+        intraday_open  = [p for p in disk_positions.values() if not p.get("is_swing")]
+        intraday_count = len(intraday_open)
+
+        effective_max_open = cp.max_open
+        if cp.swing_health_gate:
+            swing_pnl = _compute_swing_book_pnl({symbol: iv.current_price}, portfolio_value)
+            if swing_pnl < config.SWING_HEALTH_MIN_PNL_PCT:
+                effective_max_open = min(effective_max_open, 1)
+                logger.info(
+                    "CONCURRENCY %s — swing book stressed (%.1f%%) → max_open capped at 1",
+                    symbol, swing_pnl,
+                )
+
+        if intraday_count >= effective_max_open:
+            logger.info(
+                "SKIP %s — concurrency limit %d/%d (regime=%s tier=%s)",
+                symbol, intraday_count, effective_max_open, regime, _q_tier,
+            )
+            return None
+
+        # B. Heat ceiling check — worst-case: max_position_pct × portfolio
+        if portfolio_value > 0 and iv.current_price > 0:
+            max_pct      = get_entry_params(regime).max_position_pct
+            proj_heat    = max_pct * cp.heat_weight
+            current_heat = sum(
+                p.get("qty", 0) * p.get("entry_price", 0) for p in intraday_open
+            ) / portfolio_value
+            ceiling = config.REGIME_HEAT_CEILING.get(regime, 0.20)
+            if current_heat + proj_heat > ceiling:
+                logger.info(
+                    "SKIP %s — heat ceiling %.0f%% would be breached "
+                    "(current=%.1f%% + projected=%.1f%%)",
+                    symbol, ceiling * 100, current_heat * 100, proj_heat * 100,
+                )
+                return None
+
+        # C. Daily-loss downshift — near loss limit → cap at 1 concurrent position
+        if daily_pnl_pct <= -(config.DAILY_LOSS_WARN_PCT * 100):
+            if intraday_count >= 1:
+                logger.info(
+                    "SKIP %s — near daily loss limit (%.2f%%), allowing max 1 position",
+                    symbol, daily_pnl_pct,
+                )
+                return None
+
+    except Exception as exc:
+        logger.warning(
+            "Concurrency guard raised unexpectedly for %s — blocking entry: %s", symbol, exc,
+        )
+        return None
+    # ── end concurrency guard ─────────────────────────────────────────────────
+
     symbol_sentiment = research.get(symbol, {}).get("sentiment_score", 0)
 
     try:
@@ -177,8 +238,15 @@ def execute_buy(
         logger.info("SKIP %s — composite=%+.1f below effective gate %d (regime=%s)", symbol, iv.composite_score, eff_gate, regime)
         return None
 
-    qty = compute_position_size_for_mode(portfolio_value, iv.current_price, iv.atr, iv.bot_herding_score, iv.squeeze_setup, regime=regime)
+    qty = compute_position_size_for_mode(
+        portfolio_value, iv.current_price, iv.atr,
+        iv.bot_herding_score, iv.squeeze_setup, regime=regime,
+    )
     qty = apply_regime_multiplier(qty, pos_mult)
+    qty = max(1, int(round(qty * cp.size_mult)))
+    if iv.current_price > 0:
+        _max_qty = int((portfolio_value * get_entry_params(regime).max_position_pct) / iv.current_price)
+        qty = min(qty, max(1, _max_qty))
     if isinstance(symbol_sentiment, (int, float)):
         qty = apply_sentiment_multiplier(qty, int(symbol_sentiment))
     qty = max(1, int(qty * config.TRANCHE1_SIZE_PCT))  # T1 = 60% of full size
