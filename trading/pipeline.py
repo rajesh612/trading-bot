@@ -116,6 +116,7 @@ def _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value
         advance_decline_ratio=snap.advance_decline_ratio,
         suppress_notify=True, major_event_today=snap.major_event_today,
         staleness_guard=snap.staleness_guard,
+        snap=snap,
     )
 
 
@@ -179,8 +180,9 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
             kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
                                         pos_mult, spy_ret5d, rsi_max, now,
                                         entries_so_far + new_entries, daily_pnl_pct)
+            pead_ok_flag = "PEAD_EXTENDED_WINDOW" in (quality.unlocks if quality else frozenset())
             pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=0.0,
-                                   quality=quality, **kwargs)
+                                   quality=quality, pead_ok=pead_ok_flag, **kwargs)
             if pos_data is not None:
                 new_entries += 1
                 buying_power -= iv.current_price * pos_data["qty"]
@@ -214,9 +216,12 @@ def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
                 kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
                                             pos_mult, spy_ret5d, rsi_max, now,
                                             entries_so_far + new_entries, daily_pnl_pct)
+                _q = _quality_map.get(symbol)
                 pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision,
                                        symbol_ret5d=symbol_ret5d,
-                                       quality=_quality_map.get(symbol), **kwargs)
+                                       quality=_q,
+                                       pead_ok="PEAD_EXTENDED_WINDOW" in (_q.unlocks if _q else frozenset()),
+                                       **kwargs)
                 if pos_data is not None:
                     new_entries += 1
                     buying_power -= iv.current_price * pos_data["qty"]
