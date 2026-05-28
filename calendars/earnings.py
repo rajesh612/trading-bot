@@ -127,8 +127,9 @@ def _fetch_earnings_day_reaction(symbol: str, report_date: str) -> dict:
 
 def refresh_earnings_calendar(symbols: list[str]) -> None:
     """Build earnings_calendar.json keyed by symbol. Called at 8:00 AM daily."""
-    from utils.data_health import _tracker
+    from utils.data_health import _tracker, get_staleness_guard
     from utils.io_utils import mark_stale, clear_stale
+    import notifications.telegram as telegram_notify
     try:
         today = datetime.now(ET).strftime("%Y-%m-%d")
         cache: dict = {}
@@ -155,7 +156,24 @@ def refresh_earnings_calendar(symbols: list[str]) -> None:
         save_json(config.EARNINGS_CALENDAR_FILE, {"date": today, "symbols": cache})
         logger.info(f"Earnings calendar refreshed for {len(symbols)} symbols.")
         clear_stale(config.EARNINGS_CALENDAR_FILE)
-        _tracker.record_success("earnings")
+
+        # Detect systematic failures (e.g. Yahoo 401): if most symbols have no date,
+        # record a failure so the staleness guard can block entries and alert.
+        none_count = sum(
+            1 for entry in cache.values()
+            if entry.get("next_earnings_date") is None
+        )
+        failure_rate = none_count / max(len(symbols), 1)
+        if failure_rate >= config.DATA_EARNINGS_FAILURE_RATE_THRESHOLD:
+            _tracker.record_failure("earnings")
+            guard = get_staleness_guard(tracker=_tracker)
+            telegram_notify.notify_data_degraded("earnings", guard)
+            logger.warning(
+                "Earnings calendar degraded: %d/%d symbols have no date (%.0f%% failure — likely 401)",
+                none_count, len(symbols), failure_rate * 100,
+            )
+        else:
+            _tracker.record_success("earnings")
     except Exception as exc:
         logger.error("refresh_earnings_calendar failed: %s", exc)
         mark_stale(config.EARNINGS_CALENDAR_FILE, "earnings")

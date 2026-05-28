@@ -481,6 +481,7 @@ DATA_DISABLE_T2                      = frozenset({"regime"})
 DATA_REGIME_CANOPEN_MAX_MINUTES      = 480   # 8h covers full day from 8:55 AM to 4:55 PM
 DATA_SWING_STALE_FALLBACK_REGIME     = "NORMAL"
 DATA_SCREENER_FAILURE_RATE_THRESHOLD = 0.80
+DATA_EARNINGS_FAILURE_RATE_THRESHOLD = 0.80
 DATA_WATCH_LIST_HEALTH_FILE          = STATE_DIR / "watch_list_health.json"
 
 # ── Dynamic Regime × Tier System ──────────────────────────────────────────────

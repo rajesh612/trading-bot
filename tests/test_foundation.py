@@ -1641,3 +1641,47 @@ class TestT2WindowFix:
         assert not hasattr(m, "evaluate_t2_trigger"), (
             "evaluate_t2_trigger is dead code (never called) with contradictory P0-1 logic — remove it"
         )
+
+
+# ── Earnings 401 detection ────────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_earnings_calendar_detects_mass_401_failure(monkeypatch, tmp_path):
+    """refresh_earnings_calendar() must record_failure and call notify_data_degraded
+    when all symbols return None (simulating a systematic Yahoo Finance 401)."""
+    import config
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import _tracker
+
+    monkeypatch.setattr(config, "EARNINGS_CALENDAR_FILE", tmp_path / "earnings_calendar.json")
+    monkeypatch.setattr(config, "DATA_EARNINGS_FAILURE_RATE_THRESHOLD", 0.80)
+
+    # Reset tracker state for earnings so prior test runs don't contaminate this one
+    _tracker._state.pop("earnings", None)
+
+    notify_calls = []
+
+    with (
+        patch("calendars.earnings._fetch_next_earnings_date", return_value=None),
+        patch("calendars.earnings._fetch_earnings_history", return_value=None),
+        patch(
+            "notifications.telegram.notify_data_degraded",
+            side_effect=lambda *a, **kw: notify_calls.append(a),
+        ),
+    ):
+        from calendars.earnings import refresh_earnings_calendar
+        refresh_earnings_calendar(["AAPL", "MSFT", "NVDA"])
+
+    # tracker must have recorded at least one failure attempt
+    status = _tracker.get_status("earnings")
+    assert status.attempts_today >= 1, (
+        f"Expected attempts_today >= 1, got {status.attempts_today}"
+    )
+
+    # notify_data_degraded must have been called with "earnings"
+    assert len(notify_calls) == 1, (
+        f"Expected notify_data_degraded called once, got {len(notify_calls)}"
+    )
+    assert notify_calls[0][0] == "earnings", (
+        f"Expected source_id='earnings', got {notify_calls[0][0]!r}"
+    )
