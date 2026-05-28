@@ -464,10 +464,10 @@ DATA_RETRY_BACKOFF_INTRADAY          = [1, 2, 5]   # minutes; during market hour
 DATA_STALE_THRESHOLD_MINUTES: dict[str, int] = {
     "regime":             420,   # regime fetched once at 8:55 AM; 7h covers full session
     "research":           360,
-    "screener":            90,
+    "screener":           480,   # screener runs at 8:45 AM; 480 min covers full session to 4:45 PM
     "earnings":           480,
     "economic_calendar":  480,
-    "watch_list":          90,
+    "watch_list":         480,   # watch_list runs at 9:00 AM; 480 min covers full session to 5:00 PM
 }
 DATA_COMPOSITE_PENALTY: dict[str, int] = {
     "regime":    10,
