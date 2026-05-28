@@ -916,11 +916,6 @@ class TestBacktestSimulatorConstants:
         assert simulator.SWING_EVAL_H == config.EOD_HOLDS_EVAL_HOUR
         assert simulator.SWING_EVAL_M == config.EOD_HOLDS_EVAL_MINUTE
 
-    def test_simulator_swing_composite_min_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.SWING_COMPOSITE_MIN == config.BACKTEST_SWING_COMPOSITE_MIN
-
 
 # ── TestDrawdownAlertThreadSafety ─────────────────────────────────────────────
 

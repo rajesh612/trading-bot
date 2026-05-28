@@ -720,22 +720,23 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
     @pytest.mark.unit
     def test_normal_min_pnl_gate_blocks_below_threshold(self):
-        # NORMAL MEDIUM min_pnl_pct is 0.8; use 0.2 to test below-threshold blocking
-        ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.2)
+        # NORMAL MEDIUM min_pnl_pct is 1.2; use 0.5 to test below-threshold blocking
+        ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.5)
         assert not ok
         assert "insufficient" in reason.lower() or "P&L" in reason
 
     @pytest.mark.unit
     def test_normal_passes_at_min_pnl_threshold(self):
-        # NORMAL MEDIUM min_pnl_pct is 0.8; 1.0% comfortably passes
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=1.0)
+        # NORMAL MEDIUM min_pnl_pct is 1.2; 1.5% comfortably passes
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=1.5)
         assert ok
 
     @pytest.mark.unit
     def test_normal_sector_reversal_vetoes(self):
         """Sector reversed: current < -20 AND entry was > +10."""
+        # Use 1.3% (between min_pnl=1.2 and profit_lock=1.5) to test sector veto before profit-lock bypass
         ok, reason = self._call(
-            regime="NORMAL", entry_sector_sentiment=25.0, current_sector_sentiment=-25.0
+            regime="NORMAL", entry_sector_sentiment=25.0, current_sector_sentiment=-25.0, current_pnl_pct=1.3
         )
         assert not ok
         assert "sector" in reason.lower()
@@ -743,8 +744,9 @@ class TestQualifiesForEodHoldRegimeMatrix:
     @pytest.mark.unit
     def test_normal_sector_soft_drop_does_not_veto(self):
         """Sector dropped but not reversed — no veto."""
+        # Use 1.3% (between min_pnl=1.2 and profit_lock=1.5) to test sector gates
         ok, _ = self._call(
-            regime="NORMAL", entry_sector_sentiment=15.0, current_sector_sentiment=5.0
+            regime="NORMAL", entry_sector_sentiment=15.0, current_sector_sentiment=5.0, current_pnl_pct=1.3
         )
         assert ok
 
@@ -805,13 +807,13 @@ class TestQualifiesForEodHoldRegimeMatrix:
     @pytest.mark.unit
     def test_non_tier1_no_longer_vetoes(self):
         """is_tier1 gate removed — non-tier1 symbols now qualify in NORMAL."""
-        ok, _ = self._call(regime="NORMAL", current_pnl_pct=1.0)
+        ok, _ = self._call(regime="NORMAL", current_pnl_pct=1.5)
         assert ok
 
     @pytest.mark.unit
     def test_event_risk_tomorrow_no_longer_vetoes(self):
         """event_risk_tomorrow gate removed — only earnings_tomorrow matters."""
-        ok, _ = self._call(regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.0)
+        ok, _ = self._call(regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.5)
         assert ok
 
 
@@ -928,14 +930,14 @@ class TestQualifiesForEodHold:
         assert "CRISIS" in reason
 
     def test_min_pnl_gate_blocks_flat_position(self, monkeypatch):
-        # NORMAL MEDIUM min_pnl_pct is 0.8; use 0.2 to test below-threshold blocking
-        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.2)
+        # NORMAL MEDIUM min_pnl_pct is 1.2; use 0.5 to test below-threshold blocking
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.5)
         assert result is False
         assert "insufficient" in reason.lower() or "P&L" in reason
 
     def test_min_pnl_gate_passes_at_threshold(self, monkeypatch):
-        # NORMAL MEDIUM min_pnl_pct is 0.8; 1.0 comfortably passes
-        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=1.0)
+        # NORMAL MEDIUM min_pnl_pct is 1.2; 1.5 comfortably passes
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=1.5)
         assert result is True
         assert reason == ""
 

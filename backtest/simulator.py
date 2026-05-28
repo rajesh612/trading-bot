@@ -33,7 +33,6 @@ FORCE_CLOSE_M       = config.EOD_FORCE_CLOSE_MINUTE
 SWING_EVAL_H        = config.EOD_HOLDS_EVAL_HOUR
 SWING_EVAL_M        = config.EOD_HOLDS_EVAL_MINUTE
 SWING_ENABLED       = True
-SWING_COMPOSITE_MIN = config.BACKTEST_SWING_COMPOSITE_MIN
 # ── Live-bot params — single source of truth is config.py ────────────────────
 STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
@@ -247,7 +246,7 @@ def _evaluate_swing_promotion(
         standard_qualify = (
             (sp.eligible or choppy_conviction_ok)
             and pnl_pct >= p.min_pnl_pct
-            and pos2.get("composite", 0) >= SWING_COMPOSITE_MIN
+            # TODO Task 5: replace with get_swing_gate_params(regime).composite_min
             and n_swings < SWING_MAX_POSITIONS
         )
         if profit_lock_bypass or standard_qualify:

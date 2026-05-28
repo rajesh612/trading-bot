@@ -190,6 +190,7 @@ MACRO_HEALTH_BULL_THRESHOLD = 20   # score above this → bullish regimes eligib
 MACRO_HEALTH_BEAR_THRESHOLD = -20  # score below this → defensive regimes eligible
 CONSECUTIVE_BULL_DAYS       = 3    # consecutive green closes to qualify BULL_TREND
 CONSECUTIVE_BEAR_DAYS       = 3    # consecutive red closes to qualify DEFENSIVE
+CRASH_RECOVERY_MIN_GREEN_DAYS = 2  # min consecutive green closes to exit CRASH_RECOVERY
 CHOPPY_MIN_SIGN_ALTS        = 3    # min sign alternations in last 5 days for CHOPPY
 CHOPPY_MAX_NET_MOVE_PCT     = 0.5  # max |net 5-day SPY move| % to confirm CHOPPY
 REGIME_ADAPTIVE_LOGIC       = True # enable directional strategy layer (beyond threshold adjustment)
@@ -286,9 +287,9 @@ SWING_SL_FLOOR_PARAMS: dict[tuple[str, str], float] = {
 SWING_HOLD_PARAMS: dict[tuple[str, str], tuple[int, float, float]] = {
     # max_days raised for MEDIUM to let winners run longer.
     # profit_lock_pct lowered so more positions pass the profit-lock bypass (1.5% instead of 2.0%).
-    # min_pnl_pct raised for MEDIUM (0.3→0.8) to avoid overnight risk on near-flat positions.
+    # min_pnl_pct raised for NORMAL MEDIUM (0.8→1.2) to avoid overnight risk on marginal positions.
     ("NORMAL",         "LOW"):        (5,  3.0, 1.0),
-    ("NORMAL",         "MEDIUM"):     (7,  1.5, 0.8),
+    ("NORMAL",         "MEDIUM"):     (7,  1.5, 1.2),
     ("NORMAL",         "HIGH"):       (7,  1.2, 0.2),
     ("NORMAL",         "CONVICTION"): (8,  1.0, 0.1),
     ("BULL_TREND",     "LOW"):        (6,  2.5, 0.5),
@@ -449,7 +450,6 @@ TRANCHE2_SECTOR_WEAK_PCT = -1.0  # Sector ETF must not be down more than 1% for 
 BACKTEST_STARTING_CAPITAL    = 100_000.0  # initial portfolio value for simulation
 BACKTEST_SLIPPAGE_PCT        = 0.0005     # 0.05% slippage on entry and exit fills
 BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in simulation
-BACKTEST_SWING_COMPOSITE_MIN = 50.0      # composite threshold for EOD swing promotion (lowered from 50 to promote more swings)
 BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
 BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY
 

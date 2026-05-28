@@ -208,3 +208,25 @@ def test_burst_cap_greater_than_one():
     assert config.MAX_ENTRIES_PER_CYCLE_BURST > 1, (
         f"MAX_ENTRIES_PER_CYCLE_BURST={config.MAX_ENTRIES_PER_CYCLE_BURST} — expected > 1"
     )
+
+
+@pytest.mark.unit
+def test_backtest_swing_composite_min_retired():
+    """BACKTEST_SWING_COMPOSITE_MIN must be removed — callers use get_swing_gate_params()."""
+    assert not hasattr(config, "BACKTEST_SWING_COMPOSITE_MIN"), (
+        "BACKTEST_SWING_COMPOSITE_MIN still exists — delete it from config.py"
+    )
+
+
+@pytest.mark.unit
+def test_swing_hold_params_normal_medium_min_pnl():
+    """NORMAL MEDIUM min_pnl_pct raised to 1.2% to filter marginal overnight positions."""
+    _, _, min_pnl = config.SWING_HOLD_PARAMS[("NORMAL", "MEDIUM")]
+    assert min_pnl == 1.2, f"Expected 1.2, got {min_pnl}"
+
+
+@pytest.mark.unit
+def test_crash_recovery_min_green_days_exists():
+    """CRASH_RECOVERY_MIN_GREEN_DAYS must exist and be set to 2."""
+    assert hasattr(config, "CRASH_RECOVERY_MIN_GREEN_DAYS")
+    assert config.CRASH_RECOVERY_MIN_GREEN_DAYS == 2
