@@ -1,6 +1,6 @@
 # Architecture Gap Remediation Design
 **Date:** 2026-05-27
-**Status:** Approved
+**Status:** Approved (patched after code cross-reference)
 
 ## Overview
 
@@ -22,7 +22,9 @@ Three architecture gaps identified via 45d/75d backtest analysis and pipeline au
 Live `macro/regime_classifier.py` `classify_regime()` additionally requires:
 - `post_crisis_recovery == True` AND `consecutive_green_days >= 2`
 
-During Apr–May 2026 tariff recovery, VIX was declining from ~45 but consecutive green SPY days were only achieved after day 3–4. Backtest triggered CRASH_RECOVERY 1–2 days early (VIX was still elevated); live bot waited for `consecutive_green_days >= 2`, entering at better confirmation. This explains the -37% alpha gap in the 75d backtest.
+During Apr–May 2026 tariff recovery, VIX was declining from ~45 but consecutive green SPY days were only achieved after day 3–4. Backtest triggered CRASH_RECOVERY 1–2 days early (VIX criteria met before market confirmed recovery); live bot waited for `consecutive_green_days >= 2`. This explains the -37% alpha gap in the 75d backtest.
+
+**Out-of-scope note:** The backtest classifier only ever returns 4 regimes (CRISIS / CRASH_RECOVERY / HIGH_VOL / NORMAL). The live bot returns 9. BULL_TREND is entirely absent from backtest — the bot ran the Apr 2026 rally under NORMAL/HIGH_VOL. This is the next gap after this spec.
 
 ### Fix
 
@@ -31,12 +33,30 @@ During Apr–May 2026 tariff recovery, VIX was declining from ~45 but consecutiv
 CRASH_RECOVERY_MIN_GREEN_DAYS: int = 2
 ```
 
-**`backtest/data.py`** — in `_build_regime_series()` (or equivalent daily-data assembly step):
-1. Compute `consecutive_green_days` as a rolling column: reset to 0 on any day where `spy_close <= spy_close_prev`; increment by 1 on green days
-2. Pass `consecutive_green_days` into `_classify_vix_day()` as a parameter
-3. Gate CRASH_RECOVERY on `consecutive_green_days >= config.CRASH_RECOVERY_MIN_GREEN_DAYS` alongside existing VIX criteria
+**`backtest/data.py`** — inside `_classify_vix_day()` (which already receives `past_spy`):
 
-No changes to live bot path — the live `classify_regime()` already enforces this.
+Compute consecutive green days directly from the existing `past_spy` list — no signature change required:
+```python
+# Count trailing consecutive green SPY days (each close > prior close)
+green_streak = 0
+for i in range(len(past_spy) - 1, 0, -1):
+    if past_spy[i][1] > past_spy[i - 1][1]:
+        green_streak += 1
+    else:
+        break
+```
+
+Gate CRASH_RECOVERY on `green_streak >= config.CRASH_RECOVERY_MIN_GREEN_DAYS` alongside the existing VIX criteria:
+```python
+is_crash_recovery = (
+    vix_current >= config.BACKTEST_CRISIS_VIX_THRESHOLD
+    and not vix_rising
+    and vix_drop_pct >= config.BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT
+    and green_streak >= config.CRASH_RECOVERY_MIN_GREEN_DAYS   # ← new
+)
+```
+
+No changes to live bot path — `classify_regime()` already enforces this.
 
 ---
 
@@ -44,15 +64,14 @@ No changes to live bot path — the live `classify_regime()` already enforces th
 
 ### Root Cause
 
-`BACKTEST_SWING_COMPOSITE_MIN = 50` is flat — identical for all regimes and tiers. No RSI cap exists at promotion time.
+`BACKTEST_SWING_COMPOSITE_MIN = 50` is flat — identical for all regimes and tiers. No RSI cap exists at promotion time. The live bot's `qualifies_for_eod_hold()` in `trading/eod_holds.py` has **no composite check at all** — only profit_lock bypass, eligible flag, min_pnl_pct, and sector-reversal vetos.
 
-The NORMAL MEDIUM floor sits at -4.55% (SL floor + slippage). All losing swings cluster at exactly this level — late-momentum longs (RSI 68–74, composite 50–55) promoted at 3:50 PM, fading overnight.
-
-`SWING_HOLD_PARAMS` already has regime×tier granularity for hold-duration criteria but composite and RSI are not in that table.
+The NORMAL MEDIUM SL floor sits at -4.55% (floor + slippage). Losing swings cluster exactly there — late-momentum longs (RSI 68–74, composite 50–55) promoted at 3:50 PM, fading overnight.
 
 ### Fix
 
-**New frozen dataclass in `utils/regime_params.py`**:
+#### New frozen dataclass — `utils/regime_params.py`
+
 ```python
 @dataclass(frozen=True)
 class SwingGateParams:
@@ -60,7 +79,7 @@ class SwingGateParams:
     rsi_ceiling: int
 ```
 
-**`_SWING_GATE_TABLE` keyed on `(regime, tier)`**:
+#### `_SWING_GATE_TABLE` keyed on `(regime, tier)`
 
 | regime | tier | composite_min | rsi_ceiling |
 |---|---|---|---|
@@ -85,20 +104,82 @@ class SwingGateParams:
 | CAPITULATION | MEDIUM | 60 | 63 |
 | CAPITULATION | LOW | 63 | 60 |
 
-CHOPPY / DEFENSIVE / HIGH_VOL / CRISIS: swing is ineligible (`SwingParams.eligible=False`) — `SwingGateParams` does not apply.
+CHOPPY / DEFENSIVE / HIGH_VOL / CRISIS: swing ineligible (`SwingParams.eligible=False`) — `SwingGateParams` does not apply. Fallback for unknown combos: NORMAL MEDIUM (`composite_min=58, rsi_ceiling=70`).
 
-**`get_swing_gate_params(regime: str, tier: str) -> SwingGateParams`** — sole lookup function. Falls back to NORMAL MEDIUM (`composite_min=58, rsi_ceiling=70`) for unknown combos.
+**`get_swing_gate_params(regime: str, tier: str) -> SwingGateParams`** — sole lookup, sole authority (Rule 24/29).
 
-**Callsites** — both use `get_swing_gate_params(regime, tier)`:
-- `backtest/simulator.py` `_evaluate_swing_promotion()`: replace `composite >= BACKTEST_SWING_COMPOSITE_MIN` with `composite >= sgp.composite_min` and add `iv.rsi < sgp.rsi_ceiling`
-- `trading/swing_manager.py` `evaluate_eod_holds()`: same gate using the position's quality tier
+#### RSI source — live vs backtest
 
-**`config.SWING_HOLD_PARAMS`** — update NORMAL MEDIUM `min_pnl_pct` from 0.8 → 1.2%:
+**Live bot** (`trading/eod_holds.py`): `executor.py` already persists `"entry_indicators": asdict(iv)` in the position record, which contains `rsi`. At promotion time, read `entry_rsi = pos.get("entry_indicators", {}).get("rsi", 100.0)`. No new BUY-time field required.
+
+**Backtest** (`backtest/simulator.py`): `simulate_day()` builds `precomp[sym][ts]` — the bar's full `IndicatorValues` at the swing eval timestamp (~3:50 PM). Pass `precomp` into `_evaluate_swing_promotion()` as a new parameter; use `precomp.get(sym, {}).get(ts)` for EOD RSI. This gives a more accurate gate (current RSI, not entry RSI) and matches how the backtest already uses precomp for T2 gates.
+
+Note: live uses entry RSI; backtest uses EOD RSI. Acceptable asymmetry — both prevent late-momentum promotions; EOD RSI in backtest is stricter, which is conservative.
+
+#### Callsite changes
+
+**`trading/eod_holds.py` `qualifies_for_eod_hold()`** — add two params and one gate block:
 ```python
-("NORMAL",  "MEDIUM"): (7, 1.5, 1.2),   # was (7, 1.5, 0.8)
+def qualifies_for_eod_hold(
+    ...,
+    entry_rsi: float = 100.0,
+    entry_composite: float = 0.0,
+) -> tuple[bool, str]:
+```
+Gate inserted **after** profit_lock bypass, **before** min_pnl_pct (fail-fast on quality first):
+```python
+from utils.regime_params import get_swing_gate_params
+sgp = get_swing_gate_params(regime, tier)
+if entry_rsi >= sgp.rsi_ceiling:
+    return False, f"RSI {entry_rsi:.0f} >= ceiling {sgp.rsi_ceiling} for {regime}/{tier}"
+if entry_composite < sgp.composite_min:
+    return False, f"composite {entry_composite:.0f} < min {sgp.composite_min} for {regime}/{tier}"
 ```
 
-**Retirement** — `config.BACKTEST_SWING_COMPOSITE_MIN` is deleted. Any reference must use `get_swing_gate_params()` instead.
+**`trading/eod_holds.py` `evaluate_eod_holds()`** — pass values from position record:
+```python
+entry_indicators = pos.get("entry_indicators", {})
+qualifies, reason = qualifies_for_eod_hold(
+    ...,
+    entry_rsi=float(entry_indicators.get("rsi", 100.0)),
+    entry_composite=float(pos.get("entry_composite_score", 0.0)),
+)
+```
+
+**`backtest/simulator.py` `_evaluate_swing_promotion()`** — add `precomp` param, use EOD RSI:
+```python
+def _evaluate_swing_promotion(
+    state, day_bars, ts, regime, n_swings,
+    quality_map=None, precomp=None,   # ← precomp added
+) -> int:
+```
+Replace flat composite gate and add RSI gate:
+```python
+sgp = get_swing_gate_params(regime, tier)
+iv_eod = (precomp or {}).get(sym2, {}).get(ts)
+eod_rsi = getattr(iv_eod, "rsi", 100.0) if iv_eod else 100.0
+standard_qualify = (
+    (sp.eligible or choppy_conviction_ok)
+    and pnl_pct >= p.min_pnl_pct
+    and pos2.get("composite", 0) >= sgp.composite_min    # regime×tier (was flat SWING_COMPOSITE_MIN)
+    and eod_rsi < sgp.rsi_ceiling                        # new RSI cap
+    and n_swings < SWING_MAX_POSITIONS
+)
+```
+Update `simulate_day()` call at line ~473:
+```python
+n_swings = _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings,
+                                      precomp=precomp)
+```
+
+#### Config update
+
+**`config.SWING_HOLD_PARAMS`** — update NORMAL MEDIUM `min_pnl_pct` 0.8 → 1.2% and fix inline comment:
+```python
+("NORMAL", "MEDIUM"): (7, 1.5, 1.2),   # max_days=7, profit_lock=1.5%, min_pnl=1.2%
+```
+
+**Retire** `config.BACKTEST_SWING_COMPOSITE_MIN` — delete the constant; all callers use `get_swing_gate_params()`.
 
 ---
 
@@ -106,11 +187,28 @@ CHOPPY / DEFENSIVE / HIGH_VOL / CRISIS: swing is ineligible (`SwingParams.eligib
 
 ### Instrumentation Only (analyse first)
 
-At BUY time in `trading/executor.py`, write `"entry_hour": datetime.now(ET).hour` into the position dict saved to `open_positions.json`.
+**`trading/executor.py`** — add to `position_data` dict:
+```python
+"entry_hour": now.hour,
+```
 
-At `force_close_all()` in `trading/closer.py`, read `entry_hour` from the open position record and include it in the closed-trade record written to `trade_journal.json`.
+**`trading/closer.py` `force_close_all()`** — add to `append_trade()` call:
+```python
+"entry_hour": pos.get("entry_hour"),
+```
 
-No analysis logic in this pass. Enables future correlation: which entry hours produce the most FORCE_CLOSE exits.
+**`trading/closer.py` `close_position()`** — add to `append_trade()` call for SL/TP closes too:
+```python
+"entry_hour": pos.get("entry_hour"),
+```
+
+**`backtest/simulator.py` `Trade` dataclass** — add field:
+```python
+entry_hour: int = 0
+```
+Populate in `_close_trade()` from `pos.get("entry_ts")` → `datetime.fromisoformat(...).astimezone(ET).hour`.
+
+No analysis logic in this pass. Enables future correlation: which entry hours produce the most FORCE_CLOSE exits in both live and backtest.
 
 ---
 
@@ -118,17 +216,19 @@ No analysis logic in this pass. Enables future correlation: which entry hours pr
 
 | File | Change |
 |---|---|
-| `config.py` | Add `CRASH_RECOVERY_MIN_GREEN_DAYS`; update `SWING_HOLD_PARAMS` NORMAL MEDIUM; delete `BACKTEST_SWING_COMPOSITE_MIN` |
-| `utils/regime_params.py` | Add `SwingGateParams` dataclass, `_SWING_GATE_TABLE`, `get_swing_gate_params()` |
-| `backtest/data.py` | Compute `consecutive_green_days`; pass to `_classify_vix_day()`; gate CRASH_RECOVERY |
-| `backtest/simulator.py` | Replace flat composite gate + add RSI cap using `get_swing_gate_params()` |
-| `trading/swing_manager.py` | Add RSI cap + regime×tier composite gate using `get_swing_gate_params()` |
-| `trading/executor.py` | Write `entry_hour` into open position record |
-| `trading/closer.py` | Copy `entry_hour` from open position into closed-trade record |
+| `config.py` | Add `CRASH_RECOVERY_MIN_GREEN_DAYS`; update `SWING_HOLD_PARAMS` NORMAL MEDIUM to `(7, 1.5, 1.2)`; delete `BACKTEST_SWING_COMPOSITE_MIN` |
+| `utils/regime_params.py` | Add `SwingGateParams` dataclass, `_SWING_GATE_TABLE` (20 entries), `get_swing_gate_params()` with NORMAL MEDIUM fallback |
+| `backtest/data.py` | Add `green_streak` counter inside `_classify_vix_day()`; gate CRASH_RECOVERY on `green_streak >= CRASH_RECOVERY_MIN_GREEN_DAYS` |
+| `backtest/simulator.py` | `_evaluate_swing_promotion()`: add `precomp` param, replace flat composite gate + add RSI cap via `get_swing_gate_params()`; update call site in `simulate_day()`; add `entry_hour` to `Trade` dataclass; populate in `_close_trade()` |
+| `trading/eod_holds.py` | `qualifies_for_eod_hold()`: add `entry_rsi` + `entry_composite` params, insert composite + RSI gate after profit_lock bypass; `evaluate_eod_holds()`: pass values from position record |
+| `trading/executor.py` | Add `"entry_hour": now.hour` to position_data dict |
+| `trading/closer.py` | Add `"entry_hour": pos.get("entry_hour")` to both `force_close_all()` and `close_position()` journal records |
 
 ## Tests
 
-- `test_config_coherence.py` — assert `BACKTEST_SWING_COMPOSITE_MIN` removed; assert `SwingGateParams` fallback == NORMAL MEDIUM; assert all swing-eligible regimes have full tier coverage in `_SWING_GATE_TABLE`
-- `test_pipeline.py` — assert CRASH_RECOVERY fires on day 2+ of green SPY, not day 0
-- `test_signals.py` or `test_foundation.py` — assert swing promotion blocked when `rsi >= sgp.rsi_ceiling`; assert swing promotion blocked when `composite < sgp.composite_min`; assert NORMAL MEDIUM `min_pnl_pct == 1.2`
-- `test_trading_lifecycle.py` — assert `entry_hour` present in FORCE_CLOSE trade record
+| File | What to assert |
+|---|---|
+| `test_config_coherence.py` | `BACKTEST_SWING_COMPOSITE_MIN` removed; `get_swing_gate_params` fallback == NORMAL MEDIUM (58, 70); all swing-eligible regimes × 4 tiers present in table |
+| `test_pipeline.py` | CRASH_RECOVERY fires on day 2+ consecutive green SPY, not day 0; NORMAL returned on day 1 |
+| `test_foundation.py` | `qualifies_for_eod_hold()` blocked when `entry_rsi >= sgp.rsi_ceiling`; blocked when `entry_composite < sgp.composite_min`; passes when both within bounds; NORMAL MEDIUM `min_pnl_pct == 1.2` from `SWING_HOLD_PARAMS` |
+| `test_trading_lifecycle.py` | `entry_hour` present in FORCE_CLOSE trade record; `entry_hour` present in SL-close trade record; backtest `Trade.entry_hour` populated correctly |
