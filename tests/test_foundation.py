@@ -1685,3 +1685,83 @@ def test_earnings_calendar_detects_mass_401_failure(monkeypatch, tmp_path):
     assert notify_calls[0][0] == "earnings", (
         f"Expected source_id='earnings', got {notify_calls[0][0]!r}"
     )
+
+
+@pytest.mark.unit
+def test_research_agent_records_failure_on_usage_limit_400(monkeypatch, tmp_path):
+    """run_research_agent aborts early and calls record_failure when API usage limit is hit."""
+    import config
+    import anthropic
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import _tracker
+
+    monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "research_report.json")
+    monkeypatch.setattr(config, "DATA_RESEARCH_FAILURE_RATE_THRESHOLD", 0.50)
+
+    _tracker._state.pop("research", None)
+
+    exc_400 = anthropic.APIStatusError(
+        "You have reached your specified API usage limits.",
+        response=MagicMock(status_code=400),
+        body={"error": {"message": "You have reached your specified API usage limits."}},
+    )
+
+    notify_calls = []
+
+    with (
+        patch("research.fetchers._fetch_market_news", return_value=[]),
+        patch("research.fetchers._fetch_stock_news", return_value=[]),
+        patch("research.fetchers._fetch_stocktwits", return_value={"available": False}),
+        patch("research.fetchers._fetch_reddit", return_value={"available": False}),
+        patch("research.fetchers._fetch_x_posts", return_value={"available": False}),
+        patch("research.agent._quick_sentiment_result", return_value=None),
+        patch("research.agent._analyze_stock", side_effect=exc_400),
+        patch(
+            "notifications.telegram.notify_data_degraded",
+            side_effect=lambda *a, **kw: notify_calls.append(a),
+        ),
+    ):
+        from research.agent import run_research_agent
+        run_research_agent(["AAPL", "MSFT", "NVDA"])
+
+    status = _tracker.get_status("research")
+    assert status.attempts_today >= 1, f"Expected attempts_today >= 1, got {status.attempts_today}"
+
+    assert len(notify_calls) == 1, f"Expected notify_data_degraded once, got {len(notify_calls)}"
+    assert notify_calls[0][0] == "research"
+
+
+@pytest.mark.unit
+def test_research_agent_records_success_when_rule_based_only(monkeypatch, tmp_path):
+    """run_research_agent calls record_success when all symbols use rule-based sentiment."""
+    import config
+    from unittest.mock import patch
+    from utils.data_health import _tracker
+
+    monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "research_report.json")
+    monkeypatch.setattr(config, "DATA_RESEARCH_FAILURE_RATE_THRESHOLD", 0.80)
+
+    _tracker._state.pop("research", None)
+
+    rule_based = {
+        "news_sentiment_score": 10, "news_sentiment_label": "NEUTRAL",
+        "social_sentiment_score": 20, "social_sentiment_label": "BULLISH",
+        "combined_sentiment_score": 15, "combined_sentiment_label": "BULLISH",
+        "key_catalyst": None, "risk_flag": None,
+        "summary": "OK.", "strategy": "Buy.",
+    }
+
+    with (
+        patch("research.fetchers._fetch_market_news", return_value=[]),
+        patch("research.fetchers._fetch_stock_news", return_value=[]),
+        patch("research.fetchers._fetch_stocktwits", return_value={"available": True, "bullish_pct": 60}),
+        patch("research.fetchers._fetch_reddit", return_value={"available": False}),
+        patch("research.fetchers._fetch_x_posts", return_value={"available": False}),
+        patch("research.agent._quick_sentiment_result", return_value=rule_based),
+        patch("notifications.telegram.notify_data_degraded"),
+    ):
+        from research.agent import run_research_agent
+        run_research_agent(["AAPL"])
+
+    status = _tracker.get_status("research")
+    assert status.last_success_at is not None, "Expected record_success to have been called"

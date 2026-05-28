@@ -127,9 +127,9 @@ def run_trading_cycle() -> None:
     entry_start = now.replace(hour=params["entry_start_hour"], minute=0, second=0, microsecond=0)
     entry_end   = now.replace(hour=min(params["entry_end_hour"], hard_close_h), minute=0, second=0, microsecond=0)
     if not (entry_start <= now < entry_end):
-        logger.debug(
-            "Outside entry window (%d–%d ET, regime hard close %d) — no new entries.",
-            params["entry_start_hour"], hard_close_h, hard_close_h,
+        logger.info(
+            "Outside entry window (%02d:00–%02d:00 ET, regime=%s hard_close=%d) — no new entries.",
+            params["entry_start_hour"], hard_close_h, regime, hard_close_h,
         )
         can_open = False
 

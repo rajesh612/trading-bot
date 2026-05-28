@@ -51,6 +51,26 @@ def _fetch_daily_bars_for_cap_check(symbols: list[str]) -> dict:
 _RESEARCH_LOCK = threading.Lock()
 
 
+def _make_report_entry(analysis: dict, stocktwits: dict, reddit_data: dict, x_data: dict) -> dict:
+    return {
+        "timestamp":               datetime.now(ET).isoformat(),
+        "sentiment_score":         analysis.get("combined_sentiment_score", 0),
+        "sentiment_label":         analysis.get("combined_sentiment_label", "NEUTRAL"),
+        "news_sentiment_score":    analysis.get("news_sentiment_score", 0),
+        "news_sentiment_label":    analysis.get("news_sentiment_label", "NEUTRAL"),
+        "social_sentiment_score":  analysis.get("social_sentiment_score", 0),
+        "social_sentiment_label":  analysis.get("social_sentiment_label", "NEUTRAL"),
+        "key_catalyst":            analysis.get("key_catalyst"),
+        "risk_flag":               analysis.get("risk_flag"),
+        "summary":                 analysis.get("summary", ""),
+        "strategy":                analysis.get("strategy", ""),
+        "stocktwits_message_count": stocktwits.get("message_count", 0),
+        "stocktwits_bullish_pct":   stocktwits.get("bullish_pct"),
+        "reddit_post_count":        reddit_data.get("post_count", 0),
+        "x_tweet_count":            x_data.get("tweet_count", 0),
+    }
+
+
 def run_research_agent(watch_list: list[str]) -> dict:
     if not _RESEARCH_LOCK.acquire(blocking=False):
         logger.info("Research agent already running — skipping duplicate invocation.")
@@ -104,8 +124,21 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
         ]
 
         report: dict = {}
+        _neutral_defaults = {
+            "news_sentiment_score": 0, "news_sentiment_label": "NEUTRAL",
+            "social_sentiment_score": 0, "social_sentiment_label": "NEUTRAL",
+            "combined_sentiment_score": 0, "combined_sentiment_label": "NEUTRAL",
+            "key_catalyst": None, "risk_flag": "Research error",
+            "summary": "Research unavailable.",
+            "strategy": "No data — trade cautiously.",
+        }
+        _api_failures = 0
+        _api_limit_hit = False
 
         for symbol in watch_list:
+            stocktwits  = {}
+            reddit_data = {}
+            x_data      = {}
             try:
                 stock_news  = _fetch_stock_news(symbol)
                 stocktwits  = _fetch_stocktwits(symbol)
@@ -123,41 +156,23 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
                     analysis = _analyze_stock(
                         symbol, stock_news, market_context_block, stocktwits, reddit_data, x_data, ai, cached_system
                     )
+            except anthropic.APIStatusError as exc:
+                _api_failures += 1
+                if exc.status_code == 400 and "usage limits" in (exc.message or "").lower():
+                    logger.warning(
+                        "Research: API usage limit hit at %s (%d/%d done) — aborting remaining symbols.",
+                        symbol, _api_failures, len(watch_list),
+                    )
+                    _api_limit_hit = True
+                    report[symbol] = _make_report_entry(dict(_neutral_defaults), stocktwits, reddit_data, x_data)
+                    break
+                logger.warning(f"  {symbol}: research API error {exc.status_code} — {exc}")
+                analysis = dict(_neutral_defaults)
             except Exception as exc:
                 logger.warning(f"  {symbol}: research failed, using neutral defaults — {exc}")
-                analysis = {
-                    "news_sentiment_score": 0, "news_sentiment_label": "NEUTRAL",
-                    "social_sentiment_score": 0, "social_sentiment_label": "NEUTRAL",
-                    "combined_sentiment_score": 0, "combined_sentiment_label": "NEUTRAL",
-                    "key_catalyst": None, "risk_flag": "Research error",
-                    "summary": "Research unavailable.",
-                    "strategy": "No data — trade cautiously.",
-                }
-                stocktwits  = {}
-                reddit_data = {}
-                x_data      = {}
+                analysis = dict(_neutral_defaults)
 
-            report[symbol] = {
-                "timestamp":               datetime.now(ET).isoformat(),
-                # Combined (used by trading agent)
-                "sentiment_score":         analysis.get("combined_sentiment_score", 0),
-                "sentiment_label":         analysis.get("combined_sentiment_label", "NEUTRAL"),
-                # Broken out for learning agent / journal
-                "news_sentiment_score":    analysis.get("news_sentiment_score", 0),
-                "news_sentiment_label":    analysis.get("news_sentiment_label", "NEUTRAL"),
-                "social_sentiment_score":  analysis.get("social_sentiment_score", 0),
-                "social_sentiment_label":  analysis.get("social_sentiment_label", "NEUTRAL"),
-                # Signals
-                "key_catalyst":            analysis.get("key_catalyst"),
-                "risk_flag":               analysis.get("risk_flag"),
-                "summary":                 analysis.get("summary", ""),
-                "strategy":                analysis.get("strategy", ""),
-                # Raw social stats
-                "stocktwits_message_count": stocktwits.get("message_count", 0),
-                "stocktwits_bullish_pct":   stocktwits.get("bullish_pct"),
-                "reddit_post_count":        reddit_data.get("post_count", 0),
-                "x_tweet_count":            x_data.get("tweet_count", 0),
-            }
+            report[symbol] = _make_report_entry(analysis, stocktwits, reddit_data, x_data)
 
             logger.info(
                 f"    {symbol}: news={analysis.get('news_sentiment_label')}({analysis.get('news_sentiment_score'):+d}) | "
@@ -169,6 +184,21 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
             save_json(config.RESEARCH_REPORT_FILE, report)
 
             time.sleep(0.3)
+
+        # ── Failure-rate gate (mirrors earnings calendar pattern) ──────────────
+        failure_rate = _api_failures / max(len(watch_list), 1)
+        if _api_limit_hit or failure_rate >= config.DATA_RESEARCH_FAILURE_RATE_THRESHOLD:
+            logger.warning(
+                "Research degraded: %d/%d symbols failed (%.0f%%) — record_failure.",
+                _api_failures, len(watch_list), failure_rate * 100,
+            )
+            import notifications.telegram as _tg
+            from utils.data_health import get_staleness_guard as _gsg
+            _tracker.record_failure("research")
+            _tg.notify_data_degraded("research", _gsg(tracker=_tracker))
+        else:
+            clear_stale(config.RESEARCH_REPORT_FILE)
+            _tracker.record_success("research")
 
         # ── Write __meta__ block ────────────────────────────────────────────────
         macro_shock_score  = _compute_macro_shock_score(market_news)
@@ -197,8 +227,6 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
             f"sectors={list(sector_sentiment.keys())} | "
             f"capitulation_candidates={capitulation_candidates}"
         )
-        clear_stale(config.RESEARCH_REPORT_FILE)
-        _tracker.record_success("research")
         return report
     except Exception as exc:
         logger.error("run_research_agent failed: %s", exc)
