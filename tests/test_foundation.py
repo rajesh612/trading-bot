@@ -463,6 +463,54 @@ def test_apply_technical_filter_ignores_high_gap_pct(monkeypatch):
     assert "AAPL" in result, "Symbol with high gap_pct but clean RSI/Stoch should pass filter"
 
 
+@pytest.mark.unit
+def test_watch_list_handles_api_400_gracefully(monkeypatch, tmp_path):
+    """run_watch_list_agent() must return [] and call notify_data_degraded on APIStatusError."""
+    import anthropic
+    import httpx
+    import config
+    import notifications.telegram as telegram_notify
+    from unittest.mock import patch
+
+    # Point all file paths to tmp_path to avoid touching real state
+    monkeypatch.setattr(config, "DAILY_TRADEABLE_FILE", tmp_path / "daily_tradeable.txt")
+    monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", tmp_path / "strategy_memory.md")
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", tmp_path / "watch_list.txt")
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "watch_list_health.json")
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "test-key")
+
+    # Write a minimal tradeable list so the agent has at least one ticker
+    (tmp_path / "daily_tradeable.txt").write_text("AAPL\n")
+
+    # Build a real APIStatusError with status 400
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    resp = httpx.Response(400, request=req)
+    api_exc = anthropic.APIStatusError(
+        "You have reached your specified API usage limits.", response=resp, body=None
+    )
+
+    # Fake scored data so we don't need a real Alpaca client
+    fake_scored = [{"symbol": "AAPL", "price": 200.0, "vol_spike": 1.5, "atr_pct": 2.0, "prev_gap_pct": 0.1}]
+
+    notify_calls = []
+
+    with (
+        patch("agents.watch_list.AlpacaClient"),
+        patch("agents.watch_list.telegram_notify.notify_data_degraded", side_effect=lambda *a, **kw: notify_calls.append(a)),
+        patch("agents.watch_list.telegram_notify.notify_watch_list"),
+        patch("agents.watch_list._score_stock", return_value=fake_scored[0]),
+        patch("anthropic.Anthropic") as mock_anthropic_cls,
+    ):
+        mock_anthropic_cls.return_value.messages.create.side_effect = api_exc
+
+        from agents.watch_list import run_watch_list_agent
+        result = run_watch_list_agent()
+
+    assert result == [], f"Expected [] on API error, got {result!r}"
+    assert len(notify_calls) == 1, "notify_data_degraded must be called exactly once"
+    assert notify_calls[0][0] == "watch_list"
+
+
 # ── Plan 7: metrics JSONL ─────────────────────────────────────────────────────
 
 @pytest.mark.unit

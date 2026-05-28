@@ -136,17 +136,34 @@ def run_watch_list_agent() -> list[str]:
     )
 
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    response = ai.messages.create(
-        model=config.CLAUDE_MODEL,
-        max_tokens=1024,
-        system=_build_watch_list_system(strategy_memory),
-        messages=[
-            {
-                "role": "user",
-                "content": f"Stock metrics:\n{json.dumps(scored, indent=2)}\n\nPick the best 10–15 for today.",
-            }
-        ],
-    )
+    try:
+        response = ai.messages.create(
+            model=config.CLAUDE_MODEL,
+            max_tokens=1024,
+            system=_build_watch_list_system(strategy_memory),
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Stock metrics:\n{json.dumps(scored, indent=2)}\n\nPick the best 10–15 for today.",
+                }
+            ],
+        )
+    except anthropic.APIStatusError as exc:
+        logger.warning("Watch-list Claude API error (status=%s): %s", exc.status_code, exc.message)
+        from utils.io_utils import save_json
+        from datetime import datetime
+        from utils.constants import ET
+        save_json(config.DATA_WATCH_LIST_HEALTH_FILE, {
+            "stale": True,
+            "stale_since": datetime.now(ET).isoformat(),
+            "reason": f"Claude API error {exc.status_code}: {(exc.message or '')[:120]}",
+        })
+        from utils.data_health import _tracker
+        _tracker.record_failure("watch_list")
+        from utils.data_health import get_staleness_guard
+        guard = get_staleness_guard(tracker=_tracker)
+        telegram_notify.notify_data_degraded("watch_list", guard)
+        return []
 
     try:
         usage = response.usage
