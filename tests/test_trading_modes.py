@@ -155,11 +155,14 @@ class TestExecuteBuyConcurrencyGuard:
         s.sector_etf_cache  = {}
         return s
 
-    def _call_execute_buy(self, tmp_path, *, regime="NORMAL", daily_pnl_pct=0.0,
+    def _call_execute_buy(self, tmp_path, monkeypatch, *, regime="NORMAL", daily_pnl_pct=0.0,
                           quality=None, price=100.0):
         import datetime, zoneinfo
+        import notifications.telegram as _tg
         from trading.executor import execute_buy
         from unittest.mock import MagicMock
+        # Rule 18: patch all telegram side-effects before calling production entry point
+        monkeypatch.setattr(_tg, "notify_daily_loss_warning", lambda *a, **kw: None)
         alpaca = MagicMock()
         # Raise on order placement so tests that pass the guard return None without
         # hitting asdict(iv) on the SimpleNamespace iv fixture.
@@ -187,7 +190,7 @@ class TestExecuteBuyConcurrencyGuard:
             "MSFT": {"entry_price": 300.0, "qty": 1, "is_swing": False},
         })
         quality = TickerQuality(tier="HIGH", score=75, unlocks=frozenset(), quality_gaps=(), component_scores={})
-        result = self._call_execute_buy(tmp_path, regime="NORMAL", quality=quality)
+        result = self._call_execute_buy(tmp_path, monkeypatch, regime="NORMAL", quality=quality)
         assert result is None, "Concurrency limit should block 4th entry"
 
     def test_heat_ceiling_blocks_entry(self, tmp_path, monkeypatch):
@@ -196,7 +199,7 @@ class TestExecuteBuyConcurrencyGuard:
             "TSLA": {"entry_price": 340.0, "qty": 100, "is_swing": False},
         })
         # portfolio=100k; TSLA = 34k = 34%. new entry projects max_position_pct=5% → 39% > 35%
-        result = self._call_execute_buy(tmp_path, regime="NORMAL", price=100.0)
+        result = self._call_execute_buy(tmp_path, monkeypatch, regime="NORMAL", price=100.0)
         assert result is None, "Heat ceiling should block this entry"
 
     def test_swing_health_gate_collapses_max_open(self, tmp_path, monkeypatch):
@@ -210,7 +213,7 @@ class TestExecuteBuyConcurrencyGuard:
         # NVDA current_price not in stock_data_prices → falls back to entry_price → 0% pnl
         # So gate does NOT fire here (0% > -2%). NORMAL×MEDIUM max_open=2; 1 existing position
         # → 2nd entry allowed if swing is healthy. We just verify no crash.
-        result = self._call_execute_buy(tmp_path, regime="NORMAL", price=100.0)
+        result = self._call_execute_buy(tmp_path, monkeypatch, regime="NORMAL", price=100.0)
         # May be None for other gate reasons (composite too low etc.) — just no crash
         assert isinstance(result, (dict, type(None)))
 
@@ -221,7 +224,7 @@ class TestExecuteBuyConcurrencyGuard:
         )
         import config
         (tmp_path / "swing.json").write_text("not-json{{")
-        result = self._call_execute_buy(tmp_path, regime="NORMAL", price=100.0)
+        result = self._call_execute_buy(tmp_path, monkeypatch, regime="NORMAL", price=100.0)
         assert result is None, "Corrupt swing file → -999 → gate fires → entry blocked"
 
     def test_daily_loss_downshift_blocks_second_entry(self, tmp_path, monkeypatch):
@@ -231,7 +234,7 @@ class TestExecuteBuyConcurrencyGuard:
         self._setup_files(tmp_path, monkeypatch,
             open_pos={"TSLA": {"entry_price": 100.0, "qty": 1, "is_swing": False}},
         )
-        result = self._call_execute_buy(tmp_path, regime="NORMAL", daily_pnl_pct=-1.6)
+        result = self._call_execute_buy(tmp_path, monkeypatch, regime="NORMAL", daily_pnl_pct=-1.6)
         assert result is None, "Daily loss downshift should block 2nd entry"
 
 
