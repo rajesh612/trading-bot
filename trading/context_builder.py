@@ -346,6 +346,19 @@ def build_dynamic_user_context(now: datetime, portfolio_gain_pct: float = 0.0) -
         else "Flash crash: clear"
     )
 
+    # Concurrency state — computed from open_pos and regime already in scope
+    from utils.regime_params import get_concurrency_params
+    _intraday_positions = [p for p in open_pos.values() if not p.get("is_swing")]
+    _open_count = len(_intraday_positions)
+    _cp_ctx = get_concurrency_params(regime, "MEDIUM", "DAY_TRADE")
+    _available = max(0, _cp_ctx.max_open - _open_count)
+    _ceiling_pct = config.REGIME_HEAT_CEILING.get(regime, 0.20) * 100
+    _concurrency_line = (
+        f"Open intraday positions: {_open_count} "
+        f"| Available slots (MEDIUM tier): {_available} "
+        f"| Heat ceiling: {_ceiling_pct:.0f}% (regime={regime})"
+    )
+
     return (
         f"MARKET SNAPSHOT ({now.strftime('%H:%M')} ET):\n"
         f"{intraday_lines}\n"
@@ -353,5 +366,6 @@ def build_dynamic_user_context(now: datetime, portfolio_gain_pct: float = 0.0) -
         f"Event risk: {event_line}\n"
         f"{conc_line}\n"
         f"{window_line}\n"
-        f"{flash_line}"
+        f"{flash_line}\n"
+        f"{_concurrency_line}"
     )
