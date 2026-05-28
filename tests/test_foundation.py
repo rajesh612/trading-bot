@@ -820,6 +820,58 @@ class TestQualifiesForEodHoldRegimeMatrix:
         ok, _ = self._call(regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.5)
         assert ok
 
+    @pytest.mark.unit
+    def test_profit_lock_bypass_blocked_below_composite_floor(self):
+        """Even with profit-lock P&L, entry composite below SWING_PROFIT_LOCK_MIN_COMPOSITE blocks swing."""
+        import config
+        from trading.eod_holds import qualifies_for_eod_hold
+        ok, reason = qualifies_for_eod_hold(
+            symbol="TEST", regime="NORMAL", earnings_tomorrow=False,
+            current_pnl_pct=3.0,
+            entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+            consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=55.0,
+        )
+        assert not ok
+        assert "composite" in reason.lower()
+
+    @pytest.mark.unit
+    def test_profit_lock_bypass_passes_above_composite_floor(self):
+        """Profit-lock P&L with composite >= SWING_PROFIT_LOCK_MIN_COMPOSITE passes."""
+        from trading.eod_holds import qualifies_for_eod_hold
+        ok, _ = qualifies_for_eod_hold(
+            symbol="TEST", regime="NORMAL", earnings_tomorrow=False,
+            current_pnl_pct=3.0,
+            entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+            consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=65.0,
+        )
+        assert ok
+
+    @pytest.mark.unit
+    def test_normal_medium_composite_gate_raised_to_65(self):
+        """NORMAL/MEDIUM requires composite >= 65 for standard swing promotion."""
+        from trading.eod_holds import qualifies_for_eod_hold
+        from utils.ticker_quality import TickerQuality
+        med_q = TickerQuality(tier="MEDIUM", score=50, unlocks=frozenset(),
+                              quality_gaps=(), component_scores={})
+        ok_64, reason = qualifies_for_eod_hold(
+            symbol="TEST", regime="NORMAL", earnings_tomorrow=False,
+            current_pnl_pct=1.5, quality=med_q,
+            entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+            consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=64.0,
+        )
+        assert not ok_64, f"composite=64 should be blocked for NORMAL/MEDIUM, got: {reason}"
+        ok_65, _ = qualifies_for_eod_hold(
+            symbol="TEST", regime="NORMAL", earnings_tomorrow=False,
+            current_pnl_pct=1.5, quality=med_q,
+            entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
+            consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=65.0,
+        )
+        assert ok_65
+
 
 # ── utils/regime_params ───────────────────────────────────────────────────────
 
@@ -1385,7 +1437,7 @@ class TestQualifiesForEodHoldGate:
             vix_trend="stable",
             quality=SimpleNamespace(tier="MEDIUM"),
             entry_rsi=65.0,             # default: within NORMAL MEDIUM ceiling (70)
-            entry_composite=60.0,       # default: above NORMAL MEDIUM min (58)
+            entry_composite=66.0,       # default: above NORMAL MEDIUM min (65)
         )
         defaults.update(overrides)
         return qualifies_for_eod_hold(**defaults)
@@ -1400,18 +1452,19 @@ class TestQualifiesForEodHoldGate:
         assert ok
 
     def test_composite_below_min_blocks_promotion(self):
-        ok, reason = self._call(entry_composite=57.0)   # < 58
+        ok, reason = self._call(entry_composite=64.0)   # < 65 (NORMAL MEDIUM min)
         assert not ok
         assert "composite" in reason
 
-    def test_profit_lock_bypass_ignores_rsi_and_composite(self):
-        """Strongly profitable positions skip quality gate entirely."""
-        ok, _ = self._call(
+    def test_profit_lock_bypass_blocked_if_composite_below_floor(self):
+        """Strongly profitable positions are still blocked if composite is below the profit-lock floor."""
+        ok, reason = self._call(
             current_pnl_pct=10.0,   # well above any profit_lock threshold
             entry_rsi=85.0,          # would fail RSI gate
-            entry_composite=40.0,    # would fail composite gate
+            entry_composite=40.0,    # below SWING_PROFIT_LOCK_MIN_COMPOSITE (62)
         )
-        assert ok
+        assert not ok
+        assert "composite" in reason.lower()
 
 
 @pytest.mark.unit
@@ -1442,7 +1495,7 @@ class TestBacktestSwingPromotion:
         from backtest.simulator import _evaluate_swing_promotion
 
         ts = pd.Timestamp("2026-05-27 19:50:00", tz="UTC")
-        state = self._make_state(composite=62.0, rsi=70.0, tier="MEDIUM")
+        state = self._make_state(composite=66.0, rsi=70.0, tier="MEDIUM")
         df = pd.DataFrame({"close": [102.0]}, index=[ts])
         day_bars = {"AAPL": df}
         precomp = self._make_precomp(rsi=70.0, ts=ts)
@@ -1457,8 +1510,8 @@ class TestBacktestSwingPromotion:
         from backtest.simulator import _evaluate_swing_promotion
 
         ts = pd.Timestamp("2026-05-27 19:50:00", tz="UTC")
-        # NORMAL MEDIUM: composite_min=58, rsi_ceiling=70; min_pnl=1.2%
-        state = self._make_state(composite=62.0, rsi=65.0, tier="MEDIUM")
+        # NORMAL MEDIUM: composite_min=65, rsi_ceiling=70; min_pnl=1.2%
+        state = self._make_state(composite=66.0, rsi=65.0, tier="MEDIUM")
         state.positions["AAPL"]["entry"] = 100.0
         df = pd.DataFrame({"close": [102.0]}, index=[ts])   # pnl_pct=2.0% >= 1.2%
         day_bars = {"AAPL": df}

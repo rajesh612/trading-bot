@@ -84,8 +84,15 @@ def qualifies_for_eod_hold(
                 f"composite {entry_composite:.0f} < min {sgp.composite_min} for {regime}/{tier} swing"
             )
 
-    # Profit-lock bypass: sufficiently profitable positions qualify in any non-CRISIS regime
+    # Profit-lock bypass: sufficiently profitable positions qualify in any non-CRISIS regime,
+    # provided the entry composite meets the minimum floor (avoids promoting weak setups
+    # that happened to run early).
     if current_pnl_pct >= profit_lock:
+        if entry_composite < config.SWING_PROFIT_LOCK_MIN_COMPOSITE:
+            return False, (
+                f"profit-lock entry composite {entry_composite:.0f} < floor "
+                f"{config.SWING_PROFIT_LOCK_MIN_COMPOSITE} — low-quality setup"
+            )
         return True, ""
 
     # Disabled tier combo or non-eligible regime — block new swing promotions

@@ -236,6 +236,7 @@ EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small
 PROFIT_LOCK_SWING_PCT    = 2.5       # default/documentation anchor for profit-lock bypass threshold
 SWING_PROMOTE_MIN_PNL_PCT = 0.5     # default/documentation anchor for standard promotion min P&L
+SWING_PROFIT_LOCK_MIN_COMPOSITE  = 62    # minimum composite even for PROFIT-LOCK promoted swings
 
 # Overnight swing SL floors per (regime, tier) — wider for LOW-quality (higher overnight variance),
 # tighter for CONVICTION (high-confidence entries tolerate less adverse drift before exiting).
