@@ -181,3 +181,30 @@ class TestFredSchemaContract:
         legacy_fallbacks = {"cpi_trend"}   # read as fallback; not in schema by design
         missing = FRED_KEYS_CONSUMED - FRED_SCHEMA_KEYS - legacy_fallbacks
         assert not missing, f"context_builder reads keys not produced by FRED: {missing}"
+
+
+@pytest.mark.unit
+def test_regime_heat_ceiling_covers_all_regimes():
+    """REGIME_HEAT_CEILING must have an entry for every regime in REGIMES tuple."""
+    import config
+    from utils.regime_params import REGIMES
+    missing = set(REGIMES) - set(config.REGIME_HEAT_CEILING.keys())
+    assert not missing, f"REGIME_HEAT_CEILING missing entries for: {missing}"
+
+
+@pytest.mark.unit
+def test_swing_health_min_pnl_is_negative():
+    """SWING_HEALTH_MIN_PNL_PCT must be negative — it is a loss threshold."""
+    import config
+    assert config.SWING_HEALTH_MIN_PNL_PCT < 0, (
+        f"SWING_HEALTH_MIN_PNL_PCT={config.SWING_HEALTH_MIN_PNL_PCT} must be < 0"
+    )
+
+
+@pytest.mark.unit
+def test_burst_cap_greater_than_one():
+    """MAX_ENTRIES_PER_CYCLE_BURST must be > 1 — the point of the change."""
+    import config
+    assert config.MAX_ENTRIES_PER_CYCLE_BURST > 1, (
+        f"MAX_ENTRIES_PER_CYCLE_BURST={config.MAX_ENTRIES_PER_CYCLE_BURST} — expected > 1"
+    )
