@@ -45,8 +45,8 @@ def qualifies_for_eod_hold(
     vix_trend: str,
     quality=None,         # TickerQuality | None — enables tier-based profit lock
     regime_stale: bool = False,
-    entry_rsi: float = 0.0,
-    entry_composite: float = 100.0,
+    entry_rsi: float = 100.0,
+    entry_composite: float = 0.0,
 ) -> tuple[bool, str]:
     """Return (True, '') if position qualifies for overnight swing hold, (False, reason) otherwise.
 

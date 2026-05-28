@@ -682,7 +682,7 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
     def _call(self, regime="NORMAL", earnings_tomorrow=False, current_pnl_pct=1.0,
               entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
-              consecutive_red_days=0, vix_trend="stable"):
+              consecutive_red_days=0, vix_trend="stable", entry_rsi=50.0, entry_composite=65.0):
         from trading.eod_holds import qualifies_for_eod_hold
         return qualifies_for_eod_hold(
             symbol="TEST", regime=regime, earnings_tomorrow=earnings_tomorrow,
@@ -691,6 +691,8 @@ class TestQualifiesForEodHoldRegimeMatrix:
             current_sector_sentiment=current_sector_sentiment,
             consecutive_red_days=consecutive_red_days,
             vix_trend=vix_trend,
+            entry_rsi=entry_rsi,
+            entry_composite=entry_composite,
         )
 
     @pytest.mark.unit
@@ -785,12 +787,14 @@ class TestQualifiesForEodHoldRegimeMatrix:
             current_pnl_pct=-4.9, quality=high_q,
             entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
             consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=65.0,
         )
         ok_at_minus_5_1, _ = qualifies_for_eod_hold(
             symbol="TEST", regime="CAPITULATION", earnings_tomorrow=False,
             current_pnl_pct=-5.1, quality=high_q,
             entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
             consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=65.0,
         )
         assert ok_at_minus_4_9
         assert not ok_at_minus_5_1
@@ -910,6 +914,7 @@ class TestQualifiesForEodHold:
             symbol="AAPL", regime="NORMAL", earnings_tomorrow=False,
             current_pnl_pct=1.0, entry_sector_sentiment=10.0,
             current_sector_sentiment=5.0, consecutive_red_days=0, vix_trend="stable",
+            entry_rsi=50.0, entry_composite=65.0,
         )
         defaults.update(kwargs)
         return qualifies_for_eod_hold(**defaults)
@@ -1235,6 +1240,8 @@ class TestTierBasedSwingPromotion:
             consecutive_red_days=0,
             vix_trend="stable",
             quality=quality,
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert qualifies, f"Expected swing qualification, got: {reason}"
 
@@ -1316,6 +1323,7 @@ class TestSwingSLFloors:
             entry_sector_sentiment=10.0, current_sector_sentiment=5.0,
             consecutive_red_days=0, vix_trend="stable",
             quality=conviction_proxy,
+            entry_rsi=50.0, entry_composite=65.0,
         )
         ok_medium, reason = qualifies_for_eod_hold(
             symbol="TEST", regime="CHOPPY", earnings_tomorrow=False,
@@ -1323,6 +1331,7 @@ class TestSwingSLFloors:
             entry_sector_sentiment=10.0, current_sector_sentiment=5.0,
             consecutive_red_days=0, vix_trend="stable",
             quality=medium_proxy,
+            entry_rsi=50.0, entry_composite=65.0,
         )
         assert ok_conviction is True
         assert ok_medium is False

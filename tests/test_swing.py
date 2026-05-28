@@ -173,6 +173,8 @@ class TestSwingManager:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is True
         assert reason == ""
@@ -187,6 +189,8 @@ class TestSwingManager:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is False
         assert "regime" in reason
@@ -201,6 +205,8 @@ class TestSwingManager:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is False
         assert "earnings" in reason
@@ -215,6 +221,8 @@ class TestSwingManager:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is False
         assert "insufficient" in reason.lower() or "P&L" in reason
@@ -230,6 +238,8 @@ class TestSwingManager:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is True, f"NORMAL regime should be swing-eligible, got: {reason}"
 
@@ -403,6 +413,8 @@ class TestSwingManagerOrchestration:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is False
         assert "earnings" in reason
@@ -424,6 +436,8 @@ class TestSwingManagerOrchestration:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is True
         assert reason == ""
@@ -439,6 +453,8 @@ class TestSwingManagerOrchestration:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is True
 
@@ -454,6 +470,8 @@ class TestSwingManagerOrchestration:
             current_sector_sentiment=15.0,
             consecutive_red_days=0,
             vix_trend="stable",
+            entry_rsi=50.0,
+            entry_composite=65.0,
         )
         assert ok is False
         assert "insufficient" in reason.lower() or "P&L" in reason
