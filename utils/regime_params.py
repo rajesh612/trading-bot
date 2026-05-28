@@ -293,6 +293,42 @@ class ConcurrencyParams:
     swing_health_gate: bool
 
 
+@dataclass(frozen=True)
+class SwingGateParams:
+    composite_min: int
+    rsi_ceiling: int
+
+
+_SWING_GATE_FALLBACK = SwingGateParams(composite_min=58, rsi_ceiling=70)
+
+_SWING_GATE_TABLE: dict[tuple[str, str], SwingGateParams] = {
+    ("BULL_TREND",     "CONVICTION"): SwingGateParams(50, 75),
+    ("BULL_TREND",     "HIGH"):       SwingGateParams(53, 73),
+    ("BULL_TREND",     "MEDIUM"):     SwingGateParams(55, 72),
+    ("BULL_TREND",     "LOW"):        SwingGateParams(58, 69),
+    ("NORMAL",         "CONVICTION"): SwingGateParams(52, 73),
+    ("NORMAL",         "HIGH"):       SwingGateParams(55, 71),
+    ("NORMAL",         "MEDIUM"):     SwingGateParams(58, 70),
+    ("NORMAL",         "LOW"):        SwingGateParams(62, 67),
+    ("OPPORTUNITY",    "CONVICTION"): SwingGateParams(50, 75),
+    ("OPPORTUNITY",    "HIGH"):       SwingGateParams(53, 73),
+    ("OPPORTUNITY",    "MEDIUM"):     SwingGateParams(56, 71),
+    ("OPPORTUNITY",    "LOW"):        SwingGateParams(60, 68),
+    ("CRASH_RECOVERY", "CONVICTION"): SwingGateParams(52, 70),
+    ("CRASH_RECOVERY", "HIGH"):       SwingGateParams(55, 68),
+    ("CRASH_RECOVERY", "MEDIUM"):     SwingGateParams(58, 66),
+    ("CRASH_RECOVERY", "LOW"):        SwingGateParams(62, 63),
+    ("CAPITULATION",   "CONVICTION"): SwingGateParams(54, 68),
+    ("CAPITULATION",   "HIGH"):       SwingGateParams(57, 65),
+    ("CAPITULATION",   "MEDIUM"):     SwingGateParams(60, 63),
+    ("CAPITULATION",   "LOW"):        SwingGateParams(63, 60),
+}
+
+
+def get_swing_gate_params(regime: str, tier: str) -> SwingGateParams:
+    return _SWING_GATE_TABLE.get((regime, tier), _SWING_GATE_FALLBACK)
+
+
 _CONCURRENCY_DISABLED     = ConcurrencyParams(max_open=0,   size_mult=1.0, heat_weight=1.0, swing_health_gate=True)
 _CONCURRENCY_CONSERVATIVE = ConcurrencyParams(max_open=1,   size_mult=1.0, heat_weight=1.0, swing_health_gate=True)
 

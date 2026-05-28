@@ -230,3 +230,36 @@ def test_crash_recovery_min_green_days_exists():
     """CRASH_RECOVERY_MIN_GREEN_DAYS must exist and be set to 2."""
     assert hasattr(config, "CRASH_RECOVERY_MIN_GREEN_DAYS")
     assert config.CRASH_RECOVERY_MIN_GREEN_DAYS == 2
+
+
+@pytest.mark.unit
+def test_swing_gate_params_fallback_is_normal_medium():
+    """Unknown regime/tier combo falls back to NORMAL MEDIUM values."""
+    from utils.regime_params import get_swing_gate_params
+    sgp = get_swing_gate_params("UNKNOWN_REGIME", "UNKNOWN_TIER")
+    assert sgp.composite_min == 58
+    assert sgp.rsi_ceiling == 70
+
+
+@pytest.mark.unit
+def test_swing_gate_table_covers_all_swing_eligible_regimes():
+    """All swing-eligible regimes have entries for all 4 tiers."""
+    from utils.regime_params import get_swing_gate_params
+    swing_eligible = ["BULL_TREND", "NORMAL", "OPPORTUNITY", "CRASH_RECOVERY", "CAPITULATION"]
+    tiers = ["CONVICTION", "HIGH", "MEDIUM", "LOW"]
+    for regime in swing_eligible:
+        for tier in tiers:
+            sgp = get_swing_gate_params(regime, tier)
+            assert sgp.composite_min > 0, f"{regime}/{tier} composite_min is 0"
+            assert sgp.rsi_ceiling > 0, f"{regime}/{tier} rsi_ceiling is 0"
+
+
+@pytest.mark.unit
+def test_swing_gate_params_bull_trend_more_permissive_than_normal():
+    """BULL_TREND thresholds are lower (more permissive) than NORMAL for the same tier."""
+    from utils.regime_params import get_swing_gate_params
+    for tier in ["CONVICTION", "HIGH", "MEDIUM", "LOW"]:
+        bull = get_swing_gate_params("BULL_TREND", tier)
+        normal = get_swing_gate_params("NORMAL", tier)
+        assert bull.composite_min <= normal.composite_min, f"{tier}: BULL_TREND composite not <= NORMAL"
+        assert bull.rsi_ceiling >= normal.rsi_ceiling, f"{tier}: BULL_TREND rsi_ceiling not >= NORMAL"
