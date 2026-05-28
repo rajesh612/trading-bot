@@ -120,11 +120,17 @@ def _classify_vix_day(
     if len(past_spy) >= 2:
         spy_change = (past_spy[-1][1] - past_spy[-2][1]) / past_spy[-2][1] * 100
 
-    # Detect CRASH_RECOVERY: VIX in crisis territory but falling significantly from recent peak
+    # 5-day SPY return for BULL_TREND detection
+    spy_5d_return = 0.0
+    if len(past_spy) >= 6:
+        spy_5d_return = (past_spy[-1][1] - past_spy[-6][1]) / past_spy[-6][1] * 100
+
+    # VIX peak over last 5 days — used for CRASH_RECOVERY
+    # (peak may be above 35 even if current VIX has already recovered below 35)
     vix_peak_5d = max(c for _, c in past_vix[-6:-1]) if len(past_vix) >= 6 else vix_current
     vix_drop_pct = (vix_peak_5d - vix_current) / vix_peak_5d * 100 if vix_peak_5d > 0 else 0.0
 
-    # Count consecutive green SPY days (each close > prior close) ending at today
+    # Count consecutive green SPY days ending at today
     green_streak = 0
     for i in range(len(past_spy) - 1, 0, -1):
         if past_spy[i][1] > past_spy[i - 1][1]:
@@ -132,19 +138,31 @@ def _classify_vix_day(
         else:
             break
 
+    # CRISIS: VIX elevated vs avg, rising, SPY dropping hard
+    if vix_current > vix_avg_90d and vix_rising and spy_change < -1.0:
+        return "CRISIS"
+
+    # CRASH_RECOVERY: recent peak was crisis-level, VIX now declining, SPY recovering
     is_crash_recovery = (
-        vix_current >= config.BACKTEST_CRISIS_VIX_THRESHOLD
+        vix_peak_5d >= config.BACKTEST_CRISIS_VIX_THRESHOLD
         and not vix_rising
         and vix_drop_pct >= config.BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT
         and green_streak >= config.CRASH_RECOVERY_MIN_GREEN_DAYS
     )
-
-    if vix_current > vix_avg_90d and vix_rising and spy_change < -1.0:
-        return "CRISIS"
     if is_crash_recovery:
         return "CRASH_RECOVERY"
+
+    # HIGH_VOL: VIX above 90d average
     if vix_current > vix_avg_90d:
         return "HIGH_VOL"
+
+    # BULL_TREND: VIX below avg, consecutive green days, SPY trending up
+    if (
+        green_streak >= config.CONSECUTIVE_BULL_DAYS
+        and spy_5d_return >= config.BACKTEST_BULL_TREND_SPY_5D_PCT
+    ):
+        return "BULL_TREND"
+
     return "NORMAL"
 
 

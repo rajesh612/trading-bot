@@ -326,3 +326,49 @@ class TestYahooParseGuard:
         result = _yahoo_bars("NVDA", interval="5m", period="1d")
         assert isinstance(result, pd.DataFrame)
         assert result.empty
+
+
+@pytest.mark.unit
+def test_classify_vix_day_bull_trend():
+    """VIX below 90d avg, 2+ green SPY days, SPY 5d return > 1.5% → BULL_TREND."""
+    from backtest.data import _classify_vix_day
+    spy_prices = [400.0 * (1.01 ** i) for i in range(7)]
+    past_vix = [(i, 22.0) for i in range(90)] + [(90, 15.0)]
+    past_spy = [(i, p) for i, p in enumerate(spy_prices)]
+    result = _classify_vix_day(past_vix, past_spy)
+    assert result == "BULL_TREND", f"expected BULL_TREND, got {result}"
+
+
+@pytest.mark.unit
+def test_classify_vix_day_crash_recovery_vix_already_below_threshold():
+    """CRASH_RECOVERY fires when 5d VIX PEAK was >=35, even if current VIX is below 35."""
+    from backtest.data import _classify_vix_day
+    past_vix = [(i, 15.0) for i in range(85)] + [
+        (85, 25.0), (86, 35.0), (87, 40.0), (88, 34.0), (89, 30.0), (90, 28.0)
+    ]
+    past_spy = [(i, 400.0) for i in range(89)] + [(89, 402.0), (90, 404.0)]
+    result = _classify_vix_day(past_vix, past_spy)
+    assert result == "CRASH_RECOVERY", f"expected CRASH_RECOVERY, got {result}"
+
+
+@pytest.mark.unit
+def test_classify_vix_day_bull_trend_not_triggered_below_spy_return():
+    """BULL_TREND requires SPY 5d return > threshold; flat SPY → NORMAL."""
+    from backtest.data import _classify_vix_day
+    spy_prices = [400.0, 400.5, 401.0, 401.5, 402.0, 402.0, 402.0]
+    past_vix = [(i, 22.0) for i in range(90)] + [(90, 15.0)]
+    past_spy = [(i, p) for i, p in enumerate(spy_prices)]
+    result = _classify_vix_day(past_vix, past_spy)
+    assert result == "NORMAL", f"expected NORMAL (SPY flat), got {result}"
+
+
+@pytest.mark.unit
+def test_classify_vix_day_bull_trend_one_green_day_insufficient():
+    """BULL_TREND requires green_streak >= 2; streak=1 → NORMAL."""
+    from backtest.data import _classify_vix_day
+    # streak=1: last price up from prior, but one before that was down
+    spy_prices = [400.0, 402.0, 401.0, 410.0, 412.0, 414.0, 413.0, 415.0]
+    past_vix = [(i, 22.0) for i in range(90)] + [(90, 15.0)]
+    past_spy = [(i, p) for i, p in enumerate(spy_prices)]
+    result = _classify_vix_day(past_vix, past_spy)
+    assert result == "NORMAL", f"expected NORMAL (streak=1), got {result}"

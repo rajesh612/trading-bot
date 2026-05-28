@@ -188,7 +188,7 @@ MAX_SAME_SECTOR_POSITIONS = 2   # block entry if >= this many open positions sha
 
 MACRO_HEALTH_BULL_THRESHOLD = 20   # score above this → bullish regimes eligible
 MACRO_HEALTH_BEAR_THRESHOLD = -20  # score below this → defensive regimes eligible
-CONSECUTIVE_BULL_DAYS       = 3    # consecutive green closes to qualify BULL_TREND
+CONSECUTIVE_BULL_DAYS       = 2    # consecutive green closes to qualify BULL_TREND
 CONSECUTIVE_BEAR_DAYS       = 3    # consecutive red closes to qualify DEFENSIVE
 CRASH_RECOVERY_MIN_GREEN_DAYS = 2  # min consecutive green closes to exit CRASH_RECOVERY
 CHOPPY_MIN_SIGN_ALTS        = 3    # min sign alternations in last 5 days for CHOPPY
@@ -452,6 +452,7 @@ BACKTEST_SLIPPAGE_PCT        = 0.0005     # 0.05% slippage on entry and exit fil
 BACKTEST_MAX_POSITIONS       = 5         # max simultaneous open positions in simulation
 BACKTEST_CRISIS_VIX_THRESHOLD        = 35.0  # VIX above this is considered crisis-territory for recovery detection
 BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT = 10.0  # % VIX drop from 5d peak → classify as CRASH_RECOVERY
+BACKTEST_BULL_TREND_SPY_5D_PCT        = 1.5   # SPY 5-day return threshold for backtest BULL_TREND
 
 # ── Data Resilience ──────────────────────────────────────────────────────────
 DATA_RETRY_MAX                       = 3
