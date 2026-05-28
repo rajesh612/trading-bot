@@ -344,8 +344,9 @@ BUDGET_ROLLOVER_MINUTE   = 30    # ET minute to evaluate rollover
 ENTRY_BUDGET_WARNING_PCT = 0.75  # alert when entry budget spend reaches this fraction of ceiling
 
 CLAUDE_BATCH_SIZE  = 10          # Stocks per batched Claude call — matches typical watch-list size
-CLAUDE_CB_402_TTL  = 1800.0      # circuit breaker cooldown (s) on 402 Payment Required
-CLAUDE_CB_429_TTL  = 300.0       # circuit breaker cooldown (s) on 429 Rate Limited
+CLAUDE_CB_402_TTL   = 1800.0      # circuit breaker cooldown (s) on 402 Payment Required
+CLAUDE_CB_429_TTL   = 300.0       # circuit breaker cooldown (s) on 429 Rate Limited
+CLAUDE_CB_LIMIT_TTL = 86400.0     # circuit breaker cooldown (s) on 400 "usage limits" (monthly cap)
 
 # ── LEARNING & MEMORY ─────────────────────────────────────────────────────────
 
