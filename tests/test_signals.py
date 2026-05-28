@@ -385,11 +385,12 @@ class TestVixClassifier:
 
     @pytest.mark.unit
     def test_crash_recovery_when_vix_elevated_but_falling_from_peak(self):
-        """VIX above CRISIS threshold but dropping >=10% from 5d peak → CRASH_RECOVERY."""
+        """VIX above CRISIS threshold but dropping >=10% from 5d peak → CRASH_RECOVERY.
+        Requires >= 2 consecutive green SPY days for live-bot parity."""
         from backtest.data import _classify_vix_day
         # VIX was 50 (peak), now 43 — that's a 14% drop from peak; still above avg 20
         vix = self._make_vix([20] * 90 + [50, 50, 50, 50, 50, 43])
-        spy = self._make_spy([500, 505])
+        spy = self._make_spy([500, 505, 510])  # 2 consecutive green days
         result = _classify_vix_day(vix, spy)
         assert result == "CRASH_RECOVERY"
 

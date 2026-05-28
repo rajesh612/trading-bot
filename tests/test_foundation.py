@@ -1326,3 +1326,33 @@ class TestSwingSLFloors:
         )
         assert ok_conviction is True
         assert ok_medium is False
+
+
+@pytest.mark.unit
+class TestBacktestCrashRecoveryGate:
+    """_classify_vix_day must require >= 2 consecutive green SPY days for CRASH_RECOVERY."""
+
+    def _vix_crash_recovery(self):
+        """VIX series that satisfies the VIX-only CRASH_RECOVERY criteria.
+        vix_current=38, vix_prev=40 (not rising), peak_5d=44 → drop=13.6% >= 10%.
+        vix_avg_90d ≈ 43 (all 90 historical bars at 44), so vix_current < avg → no HIGH_VOL fallback.
+        """
+        historical = [(i, 44.0) for i in range(1, 92)]   # 91 bars of VIX=44
+        return historical + [(92, 40.0), (93, 38.0)]      # last two: prev=40, current=38
+
+    def _spy_green_streak(self, n: int):
+        """SPY series with exactly n consecutive green days ending at the last bar."""
+        base = [(i, 400.0) for i in range(1, 10)]
+        red_break = [(10, 398.0)]                          # one red day to reset streak
+        green_days = [(10 + j + 1, 399.0 + j * 0.5) for j in range(n)]
+        return base + red_break + green_days
+
+    def test_two_green_days_triggers_crash_recovery(self):
+        from backtest.data import _classify_vix_day
+        result = _classify_vix_day(self._vix_crash_recovery(), self._spy_green_streak(2))
+        assert result == "CRASH_RECOVERY", f"Expected CRASH_RECOVERY with 2 green days, got {result}"
+
+    def test_one_green_day_does_not_trigger_crash_recovery(self):
+        from backtest.data import _classify_vix_day
+        result = _classify_vix_day(self._vix_crash_recovery(), self._spy_green_streak(1))
+        assert result != "CRASH_RECOVERY", f"CRASH_RECOVERY must not fire with only 1 green day, got {result}"

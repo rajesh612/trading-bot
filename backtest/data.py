@@ -123,10 +123,20 @@ def _classify_vix_day(
     # Detect CRASH_RECOVERY: VIX in crisis territory but falling significantly from recent peak
     vix_peak_5d = max(c for _, c in past_vix[-6:-1]) if len(past_vix) >= 6 else vix_current
     vix_drop_pct = (vix_peak_5d - vix_current) / vix_peak_5d * 100 if vix_peak_5d > 0 else 0.0
+
+    # Count consecutive green SPY days (each close > prior close) ending at today
+    green_streak = 0
+    for i in range(len(past_spy) - 1, 0, -1):
+        if past_spy[i][1] > past_spy[i - 1][1]:
+            green_streak += 1
+        else:
+            break
+
     is_crash_recovery = (
         vix_current >= config.BACKTEST_CRISIS_VIX_THRESHOLD
         and not vix_rising
         and vix_drop_pct >= config.BACKTEST_CRISIS_VIX_RECOVERY_DROP_PCT
+        and green_streak >= config.CRASH_RECOVERY_MIN_GREEN_DAYS
     )
 
     if vix_current > vix_avg_90d and vix_rising and spy_change < -1.0:
