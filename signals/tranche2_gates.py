@@ -18,61 +18,6 @@ class T2GateResult:
     reason: str = ""
 
 
-@dataclass(frozen=True)
-class T2TriggerResult:
-    trigger: bool
-    reason: str = ""
-
-
-def evaluate_t2_trigger(
-    symbol: str,
-    position: dict,
-    current_price: float,
-    composite_score: float,
-    sector_etf_chg: float | None,
-) -> T2TriggerResult:
-    """Simplified T2 entry-point for the 4 new safety pre-checks.
-
-    These run before the full 11-gate check and protect against:
-    P1-1: None sector_etf_chg (defaults to -2.0)
-    P0-2: Corrupted entry_time (explicit fail)
-    P0-1: T1 underwater (no T2 on losing T1)
-    P1-6: T2 drop >= T1 SL (SL fires before T2 helps)
-    """
-    # Fix P1-1: None sector_etf_chg → assume weak
-    if sector_etf_chg is None:
-        sector_etf_chg = -2.0
-
-    # Fix P0-2: entry_time parse guard
-    timestamp_str = position.get("timestamp") or position.get("entry_time", "")
-    try:
-        from zoneinfo import ZoneInfo
-        entry_dt = datetime.fromisoformat(timestamp_str)
-        if entry_dt.tzinfo is None:
-            entry_dt = entry_dt.replace(tzinfo=ZoneInfo("America/New_York"))
-    except Exception:
-        return T2TriggerResult(False, "entry_time missing or invalid — cannot evaluate hold gate")
-
-    # Fix P1-6: T2 drop must not exceed T1 SL (SL fires first — check before underwater)
-    t1_entry = position.get("tranche_1_entry", position.get("entry_price", 0))
-    if t1_entry > 0:
-        price_drop_pct = (t1_entry - current_price) / t1_entry * 100
-        t1_sl_pct = position.get("stop_loss_pct", config.STOP_LOSS_PCT)
-        if price_drop_pct >= t1_sl_pct:
-            return T2TriggerResult(False, f"T2 drop {price_drop_pct:.1f}% >= T1 SL {t1_sl_pct:.1f}% — SL fires before T2 adds value")
-
-    # Fix P0-1: T1 must be profitable before T2 fires
-    if t1_entry > 0:
-        t1_pnl_pct = (current_price - t1_entry) / t1_entry * 100
-        if t1_pnl_pct < 0:
-            return T2TriggerResult(False, f"T1 underwater ({t1_pnl_pct:+.1f}%) — no T2 on losing position")
-
-    # Sector ETF gate
-    if sector_etf_chg < config.TRANCHE2_SECTOR_WEAK_PCT:
-        return T2TriggerResult(False, f"sector ETF {sector_etf_chg:.1f}% — sector leading the drop")
-
-    return T2TriggerResult(True, "pre-checks passed")
-
 
 def check_tranche2_gates(
     symbol: str,

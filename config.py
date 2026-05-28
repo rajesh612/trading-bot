@@ -436,13 +436,13 @@ PEAD_FWD_REVISION_MIN   = 3.0   # forward EPS revision % to qualify as 6th condi
 # ── Tranche-2 scaled entry ────────────────────────────────────────────────────
 TRANCHE1_SIZE_PCT        = 0.60   # T1 = 60% of computed position size
 TRANCHE2_SIZE_PCT        = 0.40   # T2 = 40% of fresh size computed at T2 price/ATR
-TRANCHE2_DROP_MIN_PCT    = 1.5    # T2 triggers when price ≥ 1.5% below T1 entry (pullback zone, above SL)
+TRANCHE2_DROP_MIN_PCT    = 0.8    # T2 triggers when price ≥ 0.8% below T1 entry (widens window vs 2% SL ceiling)
 TRANCHE2_DROP_MAX_PCT    = 3.5    # T2 blocked if drop > 3.5% (approaching SL — likely breakdown)
 TRANCHE2_RSI_MAX         = 60     # RSI ceiling at trigger (pullback, not necessarily deeply oversold)
 TRANCHE2_COMPOSITE_MIN   = 10     # Composite floor at trigger (drops naturally on price decline; just avoid deeply negative)
 TRANCHE2_SL_PCT          = 5.5    # Blended SL: 5.5% below T2 fill price
 TRANCHE2_CUTOFF_HOUR     = 14     # No T2 triggers after 2:00 PM ET
-TRANCHE2_MIN_HOLD_MIN    = 60     # T1 must be held ≥ 60 min before T2 eligible
+TRANCHE2_MIN_HOLD_MIN    = 30     # T1 must be held ≥ 30 min before T2 eligible
 TRANCHE2_MIN_SENTIMENT   = 20     # Symbol sentiment score floor for T2
 TRANCHE2_SECTOR_WEAK_PCT = -1.0  # Sector ETF must not be down more than 1% for T2
 

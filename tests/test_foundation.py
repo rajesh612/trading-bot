@@ -1520,3 +1520,35 @@ class TestBacktestSwingPromotion:
         n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, precomp=precomp)
         assert n == 1, "AAPL should be promoted: RSI and composite within bounds"
         assert state.positions["AAPL"].get("is_swing")
+
+
+class TestT2WindowFix:
+    """T2 trigger window must be wide enough to fire before SL hits."""
+
+    @pytest.mark.unit
+    def test_t2_drop_min_leaves_meaningful_window(self):
+        """T2 window (sl_ceiling - DROP_MIN) must be >= 0.8% to be practical."""
+        import config
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("NORMAL", "MEDIUM", "DAY_TRADE")
+        window = p.sl_ceiling_pct - config.TRANCHE2_DROP_MIN_PCT
+        assert window >= 0.8, (
+            f"T2 window={window:.1f}% (sl_ceiling={p.sl_ceiling_pct}% - drop_min={config.TRANCHE2_DROP_MIN_PCT}%) "
+            "is too narrow — T2 almost never fires"
+        )
+
+    @pytest.mark.unit
+    def test_t2_min_hold_allows_entry_within_session(self):
+        """TRANCHE2_MIN_HOLD_MIN must be <= 90 so 10:30 entries can T2 before 2 PM."""
+        import config
+        assert config.TRANCHE2_MIN_HOLD_MIN <= 90, (
+            f"MIN_HOLD_MIN={config.TRANCHE2_MIN_HOLD_MIN} leaves almost no T2 window for 10:30 entries"
+        )
+
+    @pytest.mark.unit
+    def test_evaluate_t2_trigger_does_not_exist(self):
+        """evaluate_t2_trigger is dead code and must be removed."""
+        import signals.tranche2_gates as m
+        assert not hasattr(m, "evaluate_t2_trigger"), (
+            "evaluate_t2_trigger is dead code (never called) with contradictory P0-1 logic — remove it"
+        )

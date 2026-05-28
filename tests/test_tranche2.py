@@ -165,24 +165,24 @@ class TestCheckTranche2Gates:
     def test_gate5_hold_time_blocked_when_too_fresh(self, monkeypatch):
         from datetime import timedelta
         ref = _t2_now()
-        fresh_entry = (ref - timedelta(minutes=30)).isoformat()
+        fresh_entry = (ref - timedelta(minutes=15)).isoformat()
         pos = _t2_pos(entry_time=fresh_entry)
         result = self._call(pos=pos, monkeypatch=monkeypatch)
         assert result.passed is False
         assert "hold" in result.reason
 
-    def test_gate5_hold_time_passes_at_60min(self, monkeypatch):
+    def test_gate5_hold_time_passes_at_30min(self, monkeypatch):
         from datetime import timedelta
         ref = _t2_now()
-        old_entry = (ref - timedelta(minutes=61)).isoformat()
+        old_entry = (ref - timedelta(minutes=31)).isoformat()
         pos = _t2_pos(entry_time=old_entry)
         result = self._call(pos=pos, monkeypatch=monkeypatch)
         assert result.passed is True
 
     # Gate 6: price drop window
     def test_gate6_drop_too_small_blocked(self, monkeypatch):
-        # price at 99 → only 1% below T1 entry of 100 → below DROP_MIN (1.5%)
-        result = self._call(iv=_t2_iv(current_price=99.0), monkeypatch=monkeypatch)
+        # price at 99.5 → only 0.5% below T1 entry of 100 → below DROP_MIN (0.8%)
+        result = self._call(iv=_t2_iv(current_price=99.5), monkeypatch=monkeypatch)
         assert result.passed is False
         assert "drop" in result.reason
 
@@ -193,7 +193,7 @@ class TestCheckTranche2Gates:
         assert "drop" in result.reason
 
     def test_gate6_drop_in_window_passes(self, monkeypatch):
-        # price at 97.5 → 2.5% below T1 entry of 100 → within 1.5–3.5%
+        # price at 97.5 → 2.5% below T1 entry of 100 → within 0.8–3.5%
         result = self._call(iv=_t2_iv(current_price=97.5), monkeypatch=monkeypatch)
         assert result.passed is True
 
