@@ -161,8 +161,15 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
         )
         return 0, buying_power, []
     new_entries = 0
+    entries_this_cycle = 0
     batch: list[dict] = []
     for symbol, iv, quality in auto_execute:
+        if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE_BURST:
+            logger.info(
+                "[BURST-CAP] %d entries this cycle — remaining auto-execute candidates skipped",
+                entries_this_cycle,
+            )
+            break
         if not can_open or buying_power < config.MIN_BUYING_POWER:
             continue
         try:
@@ -184,6 +191,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
                                    quality=quality, pead_ok=pead_ok_flag, **kwargs)
             if pos_data is not None:
                 new_entries += 1
+                entries_this_cycle += 1
                 buying_power -= iv.current_price * pos_data["qty"]
                 batch.append({
                     "symbol": symbol, "qty": pos_data["qty"], "price": pos_data["entry_price"],
@@ -203,6 +211,7 @@ def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
     """Phase 4: Claude-decided BUYs and CLOSEs. Returns (entries, closes, buying_power, batch)."""
     new_entries = 0
     new_closes = 0
+    entries_this_cycle = 0
     batch: list[dict] = []
     _quality_map = quality_map or {}
     for symbol, iv, existing_pos, symbol_ret5d in stock_data:
@@ -212,6 +221,12 @@ def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
                 continue
             action = decision.get("action", "HOLD").upper()
             if action == "BUY" and not existing_pos and buying_power >= config.MIN_BUYING_POWER and can_open:
+                if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE_BURST:
+                    logger.info(
+                        "[BURST-CAP] %d entries this cycle — remaining Claude candidates skipped",
+                        entries_this_cycle,
+                    )
+                    continue
                 kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
                                             pos_mult, spy_ret5d, rsi_max, now, daily_pnl_pct)
                 _q = _quality_map.get(symbol)
@@ -222,6 +237,7 @@ def _execute_claude_entries(stock_data, decisions, snap, alpaca, open_positions,
                                        **kwargs)
                 if pos_data is not None:
                     new_entries += 1
+                    entries_this_cycle += 1
                     buying_power -= iv.current_price * pos_data["qty"]
                     batch.append({
                         "symbol": symbol, "qty": pos_data["qty"], "price": pos_data["entry_price"],
@@ -296,11 +312,22 @@ class TradingPipeline:
         auto_execute: list[tuple[str, IndicatorValues, TickerQuality | None]] = []
         quality_map: dict[str, TickerQuality | None] = {}
         ts_str = now.isoformat()
+        # Pre-compute intraday count for concurrency pre-skip (saves Claude budget)
+        from utils.regime_params import get_concurrency_params as _gcp
+        _intraday_open = [p for p in open_positions.values() if not p.get("is_swing")]
+        _intraday_count = len(_intraday_open)
         for symbol, iv, existing_pos, _ in stock_data:
             if existing_pos:
                 _ep = existing_pos.get("entry_price", 0)
                 pnl_pct = (iv.current_price - _ep) / _ep * 100 if _ep > 0 else 0.0
                 logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
+                continue
+            # Concurrency pre-skip: save Claude budget when MEDIUM-tier slots are full
+            _cp_pre = _gcp(regime, "MEDIUM", "DAY_TRADE")
+            if _intraday_count >= _cp_pre.max_open and _cp_pre.max_open > 0:
+                logger.info("SKIP-CONCURRENCY %s: intraday=%d >= max_open=%d for regime=%s",
+                            symbol, _intraday_count, _cp_pre.max_open, regime)
+                _record_telemetry(ts_str, symbol, "SKIP", "concurrency_pre_skip", iv)
                 continue
             _catalyst_active = is_catalyst_active(symbol, snap)
             filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed,

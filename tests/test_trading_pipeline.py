@@ -190,6 +190,57 @@ class TestPipelinePerCycleCap:
         assert "symbol" in sig.parameters
         assert "entries_this_cycle" not in sig.parameters
 
+    def test_burst_cap_constant_is_3(self):
+        import config
+        assert config.MAX_ENTRIES_PER_CYCLE_BURST == 3
+
+    def test_burst_cap_limiting_in_auto_execute(self, monkeypatch):
+        """_execute_auto_entries stops after MAX_ENTRIES_PER_CYCLE_BURST regardless of more candidates."""
+        import config
+        monkeypatch.setattr(config, "MAX_ENTRIES_PER_CYCLE_BURST", 2)
+        from trading.pipeline import _execute_auto_entries
+        from unittest.mock import MagicMock, patch
+        import types, datetime
+        from zoneinfo import ZoneInfo
+
+        def _iv():
+            return types.SimpleNamespace(
+                current_price=100.0, composite_score=60.0, atr=1.0,
+                vwap_slope=1.0, rsi=50.0, stoch_d=50.0,
+                vwap_std2_upper=120.0, stop_hunt_zone=False,
+                parabolic=False, momentum_exhaustion=False,
+                bot_herding_score=0, squeeze_setup=False,
+                prev_close=100.0, relative_volume=1.2, or_position="outside",
+            )
+
+        candidates = [("SYM1", _iv(), None), ("SYM2", _iv(), None),
+                      ("SYM3", _iv(), None), ("SYM4", _iv(), None)]
+        mock_snap = MagicMock()
+        mock_snap.regime = "BULL_TREND"
+        mock_snap.staleness_guard.auto_execute_allowed = True
+        mock_snap.intraday_news = {}
+        mock_snap.research = {}
+
+        executed = []
+        def fake_execute_buy(**kw):
+            executed.append(kw["symbol"])
+            return {"qty": 1, "entry_price": 100.0, "stop_loss_price": 96.0,
+                    "take_profit_price": 105.0, "mode_at_entry": "DAY_TRADE"}
+
+        with patch("trading.pipeline.execute_buy", side_effect=fake_execute_buy):
+            new_entries, _, _ = _execute_auto_entries(
+                auto_execute=candidates, snap=mock_snap,
+                alpaca=MagicMock(), open_positions={},
+                portfolio_value=100_000.0, buying_power=50_000.0,
+                pos_mult=1.0, spy_ret5d=0.0, rsi_max=74, atr_tp_mult=2.0,
+                can_open=True,
+                now=datetime.datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York")),
+                daily_pnl_pct=0.0,
+            )
+
+        assert new_entries == 2, f"Burst cap=2 but got {new_entries} entries"
+        assert len(executed) == 2
+
     def test_5day_return_exactly_6_rows(self):
         import pandas as pd
         from trading.pipeline import _compute_symbol_5day_return
