@@ -1086,6 +1086,47 @@ def test_screener_skips_market_cap_filter_on_api_failure(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _fetch_market_cap — zero-cap edge cases
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_fetch_market_cap_returns_none_for_zero_raw(monkeypatch):
+    """raw=0 (integer) must return None — 0.0 is not a real market cap."""
+    from unittest.mock import patch
+    from agents.volatility_screener import _fetch_market_cap
+
+    fake_response = {"quoteSummary": {"result": [{"price": {"marketCap": {"raw": 0}}}]}}
+    with patch("agents.volatility_screener.yahoo_get", return_value=fake_response):
+        result = _fetch_market_cap("AAPL")
+    assert result is None
+
+
+@pytest.mark.unit
+def test_fetch_market_cap_returns_none_for_zero_string_raw(monkeypatch):
+    """raw='0' (string) must return None — float('0') == 0.0 is not a real market cap."""
+    from unittest.mock import patch
+    from agents.volatility_screener import _fetch_market_cap
+
+    fake_response = {"quoteSummary": {"result": [{"price": {"marketCap": {"raw": "0"}}}]}}
+    with patch("agents.volatility_screener.yahoo_get", return_value=fake_response):
+        result = _fetch_market_cap("AAPL")
+    assert result is None
+
+
+@pytest.mark.unit
+def test_fetch_market_cap_returns_value_for_real_cap(monkeypatch):
+    """raw=3000000000000 must return the float value (3 trillion)."""
+    from unittest.mock import patch
+    from agents.volatility_screener import _fetch_market_cap
+
+    raw_value = 3_000_000_000_000
+    fake_response = {"quoteSummary": {"result": [{"price": {"marketCap": {"raw": raw_value}}}]}}
+    with patch("agents.volatility_screener.yahoo_get", return_value=fake_response):
+        result = _fetch_market_cap("AAPL")
+    assert result == float(raw_value)
+
+
+# ---------------------------------------------------------------------------
 # watch_loader — held-ticker merge tests
 # ---------------------------------------------------------------------------
 

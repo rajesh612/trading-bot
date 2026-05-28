@@ -26,7 +26,7 @@ def _fetch_market_cap(symbol: str) -> float | None:
         if not result:
             return None
         raw = result[0].get("price", {}).get("marketCap", {}).get("raw")
-        return float(raw) if raw else None
+        return float(raw) or None
     except Exception:
         return None
 
