@@ -77,8 +77,28 @@ def _default_hold(symbol: str) -> dict:
 
 
 def _is_usage_limit_error(exc: anthropic.APIStatusError) -> bool:
-    """Return True when a 400 indicates a monthly usage-cap hit (not a malformed request)."""
+    """Return True when a 400 indicates a monthly usage-cap hit (not a malformed request).
+
+    # Matches: "You have reached your specified API usage limits. You will regain access on..."
+    """
     return exc.status_code == 400 and "usage limits" in (exc.message or "").lower()
+
+
+def _trip_circuit_breaker(ttl: float, reason: str, notify_telegram: bool = True) -> None:
+    """Trip the circuit breaker for the given TTL and reason; optionally notify Telegram.
+
+    Caller is responsible for computing the final TTL before calling this helper.
+    """
+    global _CLAUDE_DISABLED_REASON, _CLAUDE_DISABLED_UNTIL
+    with _CLAUDE_LOCK:
+        _CLAUDE_DISABLED_REASON = reason[:120]
+        _CLAUDE_DISABLED_UNTIL = time.monotonic() + ttl
+        _CLAUDE_DISABLED.set()
+    logger.error(
+        "CLAUDE API ERROR — circuit breaker tripped for %.0fs: %s", ttl, reason[:120]
+    )
+    if notify_telegram:
+        telegram_notify.notify_claude_disabled(reason[:120])
 
 
 def _estimate_batch_call_cost(batch_size: int) -> float:
@@ -195,31 +215,21 @@ def _ask_claude_batch(
         )
     except anthropic.APIStatusError as exc:
         if _is_usage_limit_error(exc):
-            new_ttl = config.CLAUDE_CB_LIMIT_TTL
-            with _CLAUDE_LOCK:
-                _CLAUDE_DISABLED_REASON = f"HTTP 400 usage limit — {exc.message[:200]}"
-                _CLAUDE_DISABLED_UNTIL = time.monotonic() + new_ttl
-                _CLAUDE_DISABLED.set()
-            logger.error(
-                "CLAUDE API ERROR — monthly usage limit hit; circuit breaker tripped for %.0fs: %s",
-                new_ttl, _CLAUDE_DISABLED_REASON,
+            _trip_circuit_breaker(
+                ttl=config.CLAUDE_CB_LIMIT_TTL,
+                reason=f"HTTP 400 usage limit — {exc.message[:200]}",
             )
-            telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
         elif exc.status_code in (402, 429):
             base_ttl = config.CLAUDE_CB_402_TTL if exc.status_code == 402 else config.CLAUDE_CB_429_TTL
+            now_m = time.monotonic()
             with _CLAUDE_LOCK:
-                now_m = time.monotonic()
                 remaining = max(0.0, _CLAUDE_DISABLED_UNTIL - now_m)
-                new_ttl = min(max(base_ttl, remaining * 2), config.CLAUDE_CB_402_TTL)
-                _CLAUDE_DISABLED_REASON = f"HTTP {exc.status_code} — {exc.message[:120]}"
-                _CLAUDE_DISABLED_UNTIL = now_m + new_ttl
-                _CLAUDE_DISABLED.set()
-            logger.error(
-                "CLAUDE API ERROR — circuit breaker tripped for %.0fs: %s",
-                new_ttl, _CLAUDE_DISABLED_REASON,
+            new_ttl = min(max(base_ttl, remaining * 2), config.CLAUDE_CB_402_TTL)
+            _trip_circuit_breaker(
+                ttl=new_ttl,
+                reason=f"HTTP {exc.status_code} — {exc.message[:120]}",
+                notify_telegram=(exc.status_code == 402),
             )
-            if exc.status_code == 402:
-                telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
         else:
             logger.error("Claude API error HTTP %d: %s", exc.status_code, exc.message[:200])
         return {sym: _default_hold(sym) for sym in symbols}
@@ -333,28 +343,23 @@ def _ask_claude_exit_batch(
         )
     except anthropic.APIStatusError as exc:
         if _is_usage_limit_error(exc):
-            new_ttl = config.CLAUDE_CB_LIMIT_TTL
-            with _CLAUDE_LOCK:
-                _CLAUDE_DISABLED_REASON = f"HTTP 400 usage limit — {exc.message[:200]}"
-                _CLAUDE_DISABLED_UNTIL = time.monotonic() + new_ttl
-                _CLAUDE_DISABLED.set()
-            logger.error(
-                "CLAUDE API ERROR — monthly usage limit hit; circuit breaker tripped for %.0fs: %s",
-                new_ttl, _CLAUDE_DISABLED_REASON,
+            _trip_circuit_breaker(
+                ttl=config.CLAUDE_CB_LIMIT_TTL,
+                reason=f"HTTP 400 usage limit — {exc.message[:200]}",
             )
-            telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
         elif exc.status_code in (402, 429):
             base_ttl = config.CLAUDE_CB_402_TTL if exc.status_code == 402 else config.CLAUDE_CB_429_TTL
+            now_m = time.monotonic()
             with _CLAUDE_LOCK:
-                now_m = time.monotonic()
                 remaining = max(0.0, _CLAUDE_DISABLED_UNTIL - now_m)
-                new_ttl = min(max(base_ttl, remaining * 2), config.CLAUDE_CB_402_TTL)
-                _CLAUDE_DISABLED_REASON = f"HTTP {exc.status_code} — {exc.message[:120]}"
-                _CLAUDE_DISABLED_UNTIL = now_m + new_ttl
-                _CLAUDE_DISABLED.set()
-            if exc.status_code == 402:
-                telegram_notify.notify_claude_disabled(_CLAUDE_DISABLED_REASON)
-        logger.error("Claude exit API error HTTP %d: %s", exc.status_code, exc.message[:200])
+            new_ttl = min(max(base_ttl, remaining * 2), config.CLAUDE_CB_402_TTL)
+            _trip_circuit_breaker(
+                ttl=new_ttl,
+                reason=f"HTTP {exc.status_code} — {exc.message[:120]}",
+                notify_telegram=(exc.status_code == 402),
+            )
+        else:
+            logger.error("Claude exit API error HTTP %d: %s", exc.status_code, exc.message[:200])
         return {sym: _default_hold(sym) for sym in symbols}
     except Exception as exc:
         logger.error("Claude exit API unexpected error: %s: %s", type(exc).__name__, exc)

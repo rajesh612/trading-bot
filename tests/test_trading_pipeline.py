@@ -1384,3 +1384,76 @@ def test_plain_400_does_not_trip_circuit_breaker(monkeypatch):
     # Result must still be HOLD (graceful degradation)
     assert result == {"AAPL": cc._default_hold("AAPL")}
 
+
+@pytest.mark.unit
+def test_usage_limit_400_exit_batch_trips_circuit_breaker(monkeypatch):
+    """A 400 'usage limits' error in _ask_claude_exit_batch must trip the CB and notify Telegram."""
+    from unittest.mock import MagicMock
+    from trading.claude_caller import _ask_claude_exit_batch, _CLAUDE_DISABLED, _CLAUDE_LOCK
+    import trading.claude_caller as cc
+
+    # Reset circuit breaker state before the test
+    with _CLAUDE_LOCK:
+        _CLAUDE_DISABLED.clear()
+        cc._CLAUDE_DISABLED_UNTIL = 0.0
+        cc._CLAUDE_DISABLED_REASON = ""
+
+    exc = _make_usage_limit_exc(
+        "You have reached your specified API usage limits. "
+        "You will regain access on 2026-06-01 at 00:00 UTC."
+    )
+
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.regime_info = {"vix_current": 18.0}
+    snap.strategy_memory = ""
+    snap.research = {}
+    snap.research_meta = {}
+    snap.fred_cache = {}
+    snap.weights = {}
+    snap.params = {}
+    snap.portfolio_gain_pct = 0.0
+    snap.intraday_news = {}
+
+    monkeypatch.setattr("trading.claude_caller.build_exit_stock_block", lambda *a, **kw: "EXIT_BLOCK")
+    monkeypatch.setattr("trading.claude_caller.risk_manager.check_exit_budget", lambda cost, count, regime: True)
+    monkeypatch.setattr("trading.claude_caller.risk_manager.record_usage", lambda **kw: None)
+
+    notify_calls = []
+    monkeypatch.setattr(
+        "trading.claude_caller.telegram_notify.notify_claude_disabled",
+        lambda reason: notify_calls.append(reason),
+    )
+
+    monkeypatch.setattr(config, "CLAUDE_CB_LIMIT_TTL", 86400.0)
+
+    ai_mock = MagicMock()
+    ai_mock.messages.create.side_effect = exc
+
+    iv = MagicMock()
+    iv.composite_score = 55.0
+    iv.current_price = 100.0
+    pos = {"entry_price": 98.0, "stop_loss_price": 94.0, "take_profit_price": 103.0}
+
+    result = _ask_claude_exit_batch([("AAPL", iv, pos)], snap, ai_mock)
+
+    # Circuit breaker must be set
+    assert _CLAUDE_DISABLED.is_set(), "Circuit breaker was not tripped for usage-limit 400 in exit batch"
+
+    # TTL must be approximately CLAUDE_CB_LIMIT_TTL
+    import time
+    remaining = cc._CLAUDE_DISABLED_UNTIL - time.monotonic()
+    assert remaining > 86400.0 - 5, f"Expected ~86400s remaining, got {remaining:.1f}s"
+
+    # Telegram must have been notified
+    assert notify_calls, "notify_claude_disabled was not called for usage-limit 400 in exit batch"
+    assert "usage limit" in notify_calls[0].lower()
+
+    # Result must be HOLD
+    assert result == {"AAPL": cc._default_hold("AAPL")}
+
+    # Cleanup
+    with _CLAUDE_LOCK:
+        _CLAUDE_DISABLED.clear()
+        cc._CLAUDE_DISABLED_UNTIL = 0.0
+        cc._CLAUDE_DISABLED_REASON = ""
