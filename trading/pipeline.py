@@ -312,7 +312,6 @@ class TradingPipeline:
         auto_execute: list[tuple[str, IndicatorValues, TickerQuality | None]] = []
         quality_map: dict[str, TickerQuality | None] = {}
         ts_str = now.isoformat()
-        # Pre-compute intraday count for concurrency pre-skip (saves Claude budget)
         from utils.regime_params import get_concurrency_params as _gcp
         _intraday_open = [p for p in open_positions.values() if not p.get("is_swing")]
         _intraday_count = len(_intraday_open)
@@ -322,13 +321,6 @@ class TradingPipeline:
                 pnl_pct = (iv.current_price - _ep) / _ep * 100 if _ep > 0 else 0.0
                 logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
                 continue
-            # Concurrency pre-skip: save Claude budget when MEDIUM-tier slots are full
-            _cp_pre = _gcp(regime, "MEDIUM", "DAY_TRADE")
-            if _intraday_count >= _cp_pre.max_open and _cp_pre.max_open > 0:
-                logger.info("SKIP-CONCURRENCY %s: intraday=%d >= max_open=%d for regime=%s",
-                            symbol, _intraday_count, _cp_pre.max_open, regime)
-                _record_telemetry(ts_str, symbol, "SKIP", "concurrency_pre_skip", iv)
-                continue
             _catalyst_active = is_catalyst_active(symbol, snap)
             filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed,
                                            catalyst_active=_catalyst_active)
@@ -336,7 +328,18 @@ class TradingPipeline:
             if filt.decision == "SKIP":
                 logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 _record_telemetry(ts_str, symbol, "SKIP", filt.reason, iv)
-            elif filt.decision == "AUTO_EXECUTE":
+                continue
+            # Concurrency pre-skip: save Claude budget when this tier's slots are full.
+            # Uses actual tier (from filter) so CONVICTION (max_open=4) is not blocked by
+            # MEDIUM's limit (max_open=2) when only MEDIUM slots are exhausted.
+            _tier_pre = filt.quality.tier if filt.quality else "MEDIUM"
+            _cp_pre = _gcp(regime, _tier_pre, "DAY_TRADE")
+            if _cp_pre.max_open > 0 and _intraday_count >= _cp_pre.max_open:
+                logger.info("SKIP-CONCURRENCY %s: intraday=%d >= max_open=%d for regime=%s tier=%s",
+                            symbol, _intraday_count, _cp_pre.max_open, regime, _tier_pre)
+                _record_telemetry(ts_str, symbol, "SKIP", "concurrency_pre_skip", iv)
+                continue
+            if filt.decision == "AUTO_EXECUTE":
                 auto_execute.append((symbol, iv, filt.quality))
                 logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 _record_telemetry(ts_str, symbol, "AUTO_EXECUTE", filt.reason, iv)

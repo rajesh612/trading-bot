@@ -578,6 +578,109 @@ class TestPipelinePhase2Tiers:
             )
         mock_claude.assert_not_called()
 
+    @pytest.mark.unit
+    def test_conviction_not_blocked_by_medium_concurrency_limit(self, monkeypatch, tmp_path):
+        """CONVICTION tier (max_open=4) must reach Claude even when MEDIUM slots (max_open=2) are full.
+
+        The old pre-skip used MEDIUM tier for ALL symbols, wrongly blocking CONVICTION entries
+        when 2 positions were open. The fix: use the actual tier from apply_pre_claude_filter.
+        """
+        from trading.pipeline import TradingPipeline
+        from trading.pre_claude_filter import FilterResult
+        from utils.ticker_quality import TickerQuality
+        import config
+
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "daily_closed.json")
+
+        iv = self._make_iv("AAPL", composite=80.0, rsi=60.0)
+
+        # Simulate 2 intraday positions already open — MEDIUM max_open=2 is reached
+        two_positions = {
+            "A": {"entry_price": 100, "qty": 10, "is_swing": False},
+            "B": {"entry_price": 200, "qty": 5,  "is_swing": False},
+        }
+
+        conviction_quality = TickerQuality(
+            tier="CONVICTION", score=90, unlocks=frozenset(),
+            quality_gaps=(), component_scores={},
+        )
+        conviction_filter = FilterResult(
+            decision="CLAUDE", reason="high conviction", quality=conviction_quality
+        )
+
+        claude_called_symbols: list[str] = []
+
+        def fake_ask_claude(batch, snap, ai):
+            claude_called_symbols.extend(sym for sym, *_ in batch)
+            return {}
+
+        with patch("trading.pipeline._fetch_symbol_data", return_value=("AAPL", iv, None, 0.0)), \
+             patch("trading.pipeline._ask_claude_batch", side_effect=fake_ask_claude), \
+             patch("trading.pipeline.load_open_positions", return_value=two_positions), \
+             patch("trading.pipeline.apply_pre_claude_filter", return_value=conviction_filter), \
+             patch("trading.executor.execute_buy", return_value=None):
+            TradingPipeline().run(
+                symbols=["AAPL"], snap=self._snap(),
+                ai=MagicMock(), now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+                alpaca=MagicMock(), portfolio_value=100_000, buying_power=50_000,
+                can_open=True,
+            )
+
+        assert "AAPL" in claude_called_symbols, (
+            "CONVICTION-tier AAPL should reach Claude even when 2 MEDIUM positions are open"
+        )
+
+    @pytest.mark.unit
+    def test_medium_skipped_when_medium_concurrency_limit_reached(self, monkeypatch, tmp_path):
+        """MEDIUM tier (max_open=2) is correctly blocked when 2 positions are already open."""
+        from trading.pipeline import TradingPipeline
+        from trading.pre_claude_filter import FilterResult
+        from utils.ticker_quality import TickerQuality
+        import config
+
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        monkeypatch.setattr(config, "API_BUDGET_FILE", tmp_path / "api_budget.json")
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "daily_closed.json")
+
+        iv = self._make_iv("AAPL", composite=60.0, rsi=60.0)
+
+        two_positions = {
+            "A": {"entry_price": 100, "qty": 10, "is_swing": False},
+            "B": {"entry_price": 200, "qty": 5,  "is_swing": False},
+        }
+
+        medium_quality = TickerQuality(
+            tier="MEDIUM", score=60, unlocks=frozenset(),
+            quality_gaps=(), component_scores={},
+        )
+        medium_filter = FilterResult(
+            decision="CLAUDE", reason="medium quality", quality=medium_quality
+        )
+
+        claude_called_symbols: list[str] = []
+
+        def fake_ask_claude(batch, snap, ai):
+            claude_called_symbols.extend(sym for sym, *_ in batch)
+            return {}
+
+        with patch("trading.pipeline._fetch_symbol_data", return_value=("AAPL", iv, None, 0.0)), \
+             patch("trading.pipeline._ask_claude_batch", side_effect=fake_ask_claude), \
+             patch("trading.pipeline.load_open_positions", return_value=two_positions), \
+             patch("trading.pipeline.apply_pre_claude_filter", return_value=medium_filter), \
+             patch("trading.executor.execute_buy", return_value=None):
+            TradingPipeline().run(
+                symbols=["AAPL"], snap=self._snap(),
+                ai=MagicMock(), now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+                alpaca=MagicMock(), portfolio_value=100_000, buying_power=50_000,
+                can_open=True,
+            )
+
+        assert "AAPL" not in claude_called_symbols, (
+            "MEDIUM-tier AAPL must be blocked when 2 positions (MEDIUM max_open=2) are already open"
+        )
+
 
 # ─── entry_exhausted_flag day-reset (Task 2: Fix 1) ──────────────────────────
 

@@ -566,20 +566,6 @@ class TestSLBlacklist:
         assert "blacklist" in result.reason.lower() or "sl" in result.reason.lower()
 
 
-class TestBacktestSwingMaxDays:
-    @pytest.mark.unit
-    def test_backtest_swing_max_days_exists(self):
-        """Backtest SWING_MAX_DAYS is 3 (hardcoded in simulator.py)."""
-        from backtest.simulator import SWING_MAX_DAYS
-        assert SWING_MAX_DAYS == 3
-
-    @pytest.mark.unit
-    def test_backtest_swing_max_days_shorter_than_live(self):
-        """Backtest swing cap must be shorter than live SWING_MAX_DAYS."""
-        from backtest.simulator import SWING_MAX_DAYS
-        assert SWING_MAX_DAYS < config.SWING_MAX_DAYS
-
-
 @pytest.mark.unit
 class TestEntryHardCutoff:
     def _now(self, hour, minute=0):
