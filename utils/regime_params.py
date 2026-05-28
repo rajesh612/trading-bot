@@ -465,7 +465,7 @@ def _filter_table() -> dict[tuple[str, str], FilterParams]:
         "CAPITULATION":   (config.COMPOSITE_MIN_NORMAL, -15, -10),
         "CRISIS":         (999, 0, 0),
     }
-    offsets = {"LOW": +15, "MEDIUM": 0, "HIGH": -5, "CONVICTION": -10}
+    offsets = {"LOW": +5, "MEDIUM": 0, "HIGH": -5, "CONVICTION": -10}
     table = {}
     for regime, (base_comp, sent_block, intra_block) in base.items():
         for tier, offset in offsets.items():

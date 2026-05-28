@@ -136,7 +136,7 @@ class TestPreClaudeFilter:
     def test_skip_bearish_sentiment_hard_block(self):
         from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(research={"TEST": {"sentiment_score": -20}})
-        # composite=65 reaches NORMAL+LOW tier (negative sentiment), composite_min=60, 65>60 passes gate
+        # composite=65 reaches NORMAL+LOW tier (negative sentiment), composite_min=55, 65>55 passes gate
         result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "SKIP"
         assert "sentiment" in result.reason
