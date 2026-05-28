@@ -1412,3 +1412,58 @@ class TestQualifiesForEodHoldGate:
             entry_composite=40.0,    # would fail composite gate
         )
         assert ok
+
+
+@pytest.mark.unit
+class TestBacktestSwingPromotion:
+    """_evaluate_swing_promotion must enforce regime×tier gate via get_swing_gate_params()."""
+
+    def _make_state(self, composite: float, rsi: float, tier: str = "MEDIUM") -> "SimState":
+        from backtest.simulator import SimState
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = {
+            "qty": 10,
+            "entry": 100.0,
+            "entry_ts": "2026-05-27T14:30:00+00:00",
+            "composite": composite,
+            "quality_tier": tier,
+            "is_swing": False,
+        }
+        return state
+
+    def _make_precomp(self, rsi: float, ts):
+        """Minimal precomp dict with an IV-like object at the given timestamp."""
+        from types import SimpleNamespace
+        return {"AAPL": {ts: SimpleNamespace(rsi=rsi)}}
+
+    def test_high_rsi_blocks_swing_promotion(self):
+        """RSI at ceiling (70 for NORMAL MEDIUM) must block standard promotion."""
+        import pandas as pd
+        from backtest.simulator import _evaluate_swing_promotion
+
+        ts = pd.Timestamp("2026-05-27 19:50:00", tz="UTC")
+        state = self._make_state(composite=62.0, rsi=70.0, tier="MEDIUM")
+        df = pd.DataFrame({"close": [102.0]}, index=[ts])
+        day_bars = {"AAPL": df}
+        precomp = self._make_precomp(rsi=70.0, ts=ts)
+
+        n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, precomp=precomp)
+        assert n == 0, "AAPL should NOT be promoted: RSI at ceiling"
+        assert not state.positions["AAPL"].get("is_swing")
+
+    def test_low_rsi_high_composite_allows_swing_promotion(self):
+        """RSI below ceiling and composite above min allows standard promotion."""
+        import pandas as pd
+        from backtest.simulator import _evaluate_swing_promotion
+
+        ts = pd.Timestamp("2026-05-27 19:50:00", tz="UTC")
+        # NORMAL MEDIUM: composite_min=58, rsi_ceiling=70; min_pnl=1.2%
+        state = self._make_state(composite=62.0, rsi=65.0, tier="MEDIUM")
+        state.positions["AAPL"]["entry"] = 100.0
+        df = pd.DataFrame({"close": [102.0]}, index=[ts])   # pnl_pct=2.0% >= 1.2%
+        day_bars = {"AAPL": df}
+        precomp = self._make_precomp(rsi=65.0, ts=ts)
+
+        n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, precomp=precomp)
+        assert n == 1, "AAPL should be promoted: RSI and composite within bounds"
+        assert state.positions["AAPL"].get("is_swing")

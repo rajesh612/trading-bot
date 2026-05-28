@@ -247,6 +247,7 @@ class TestBacktestChoppySwingUnlock:
     def test_choppy_conviction_unlocked(self):
         """CONVICTION tier with SWING_CHOPPY unlock MUST be promoted in CHOPPY."""
         from backtest.simulator import SimState, _evaluate_swing_promotion
+        from types import SimpleNamespace
         import pandas as pd
         state = SimState(cash=100_000.0)
         state.positions["AAPL"] = {
@@ -258,7 +259,9 @@ class TestBacktestChoppySwingUnlock:
         # P&L = 1.5% — above the CHOPPY swing min_pnl threshold (0.5%)
         day_bars = {"AAPL": pd.DataFrame({"close": [101.5], "high": [102.0], "low": [100.0], "open": [100.5]}, index=[ts])}
         quality_map = {"AAPL": self._make_conviction_quality()}
-        n = _evaluate_swing_promotion(state, day_bars, ts, "CHOPPY", 0, quality_map)
+        # RSI must be below the swing gate ceiling (70 for CHOPPY fallback) to pass the RSI gate
+        precomp = {"AAPL": {ts: SimpleNamespace(rsi=65.0)}}
+        n = _evaluate_swing_promotion(state, day_bars, ts, "CHOPPY", 0, quality_map, precomp=precomp)
         assert n == 1
         assert state.positions["AAPL"].get("is_swing", False)
 

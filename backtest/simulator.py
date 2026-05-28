@@ -16,7 +16,7 @@ from signals.atr_tp import compute_atr_tp_pct
 from signals.entry_gates import effective_composite_gate
 from trading.tiered_tp import evaluate_tiered_tp_action
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_tp_sl_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params
+from utils.regime_params import get_swing_params, get_tp_sl_params, get_entry_params, get_t2_params, get_filter_params, get_gate_params, get_swing_gate_params
 from signals.tp_scaler import compute_tp_sl as _compute_tp_sl
 from utils.ticker_quality import TickerQuality, compute_ticker_quality
 
@@ -33,7 +33,6 @@ FORCE_CLOSE_M       = config.EOD_FORCE_CLOSE_MINUTE
 SWING_EVAL_H        = config.EOD_HOLDS_EVAL_HOUR
 SWING_EVAL_M        = config.EOD_HOLDS_EVAL_MINUTE
 SWING_ENABLED       = True
-_SWING_COMPOSITE_MIN_TEMP = 50  # temporary until Task 5 replaces with get_swing_gate_params()
 # ── Live-bot params — single source of truth is config.py ────────────────────
 STOP_LOSS_PCT = config.STOP_LOSS_PCT
 MAX_DAILY_LOSS = config.MAX_DAILY_LOSS_PCT
@@ -212,6 +211,7 @@ def _init_tiered_swing_fields(pos: dict, regime: str) -> None:
 def _evaluate_swing_promotion(
     state: SimState, day_bars: dict, ts, regime: str, n_swings: int,
     quality_map: "dict[str, TickerQuality] | None" = None,
+    precomp: "dict | None" = None,
 ) -> int:
     qmap = quality_map or {}
     for sym2 in list(state.positions.keys()):
@@ -230,6 +230,18 @@ def _evaluate_swing_promotion(
         if p.is_disabled:
             continue
 
+        sgp = get_swing_gate_params(regime, tier)
+        iv_eod = (precomp or {}).get(sym2, {}).get(ts)
+        eod_rsi = getattr(iv_eod, "rsi", 100.0) if iv_eod else 100.0
+
+        # Mirror live-bot quality gate: block late-momentum promotions for moderate wins.
+        # Strongly profitable positions (>= PROFIT_LOCK_SWING_PCT) bypass the RSI/composite gate.
+        if pnl_pct < config.PROFIT_LOCK_SWING_PCT:
+            if eod_rsi >= sgp.rsi_ceiling:
+                continue
+            if pos2.get("composite", 0) < sgp.composite_min:
+                continue
+
         quality = qmap.get(sym2)
         choppy_conviction_ok = (
             regime == "CHOPPY"
@@ -247,7 +259,6 @@ def _evaluate_swing_promotion(
         standard_qualify = (
             (sp.eligible or choppy_conviction_ok)
             and pnl_pct >= p.min_pnl_pct
-            and pos2.get("composite", 0) >= _SWING_COMPOSITE_MIN_TEMP
             and n_swings < SWING_MAX_POSITIONS
         )
         if profit_lock_bypass or standard_qualify:
@@ -470,7 +481,8 @@ def simulate_day(
         if SWING_ENABLED and not swing_evaluated and ts_et >= swing_eval_ts:
             swing_evaluated = True
             n_swings = sum(1 for p in state.positions.values() if p.get("is_swing"))
-            n_swings = _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings)
+            n_swings = _evaluate_swing_promotion(state, day_bars, ts, regime, n_swings,
+                                                  precomp=precomp)
 
         for sym in list(state.positions.keys()):
             df_sym = day_bars.get(sym)
