@@ -160,9 +160,9 @@ class TestPreClaudeFilter:
     @pytest.mark.unit
     def test_auto_execute_strong_signal(self):
         from trading.pre_claude_filter import apply_pre_claude_filter
-        # composite=72 > NORMAL+MEDIUM AE threshold (ep.min=50 + offset=20 = 70), intra_sent=25 > 20
+        # composite=76 > NORMAL+MEDIUM AE threshold (ep.min=55 + offset=20 = 75), intra_sent=25 > 20
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 25}})
-        result = apply_pre_claude_filter("TEST", self._iv(composite=72.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=76.0), snap)
         assert result.decision == "AUTO_EXECUTE"
 
     @pytest.mark.unit
@@ -175,16 +175,16 @@ class TestPreClaudeFilter:
 
     @pytest.mark.unit
     def test_auto_execute_not_triggered_below_new_sentiment_threshold(self):
-        """composite=72 > AE threshold but intra_sent=19 < sentiment_min=20 → CLAUDE."""
+        """composite=76 > AE threshold but intra_sent=19 < sentiment_min=20 → CLAUDE."""
         from trading.pre_claude_filter import apply_pre_claude_filter
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 19}})
-        result = apply_pre_claude_filter("TEST", self._iv(composite=72.0), snap)
+        result = apply_pre_claude_filter("TEST", self._iv(composite=76.0), snap)
         assert result.decision == "CLAUDE"
 
     @pytest.mark.unit
     def test_claude_path_moderate_signal(self):
         from trading.pre_claude_filter import apply_pre_claude_filter
-        # composite=65 → MEDIUM tier, passes composite gate (50), below AE threshold (70) → CLAUDE
+        # composite=65 → MEDIUM tier, passes composite gate (55), below AE threshold (75) → CLAUDE
         snap = self._snap(intraday_news={"TEST": {"shock_score": 0, "sentiment_score": 5}})
         result = apply_pre_claude_filter("TEST", self._iv(composite=65.0), snap)
         assert result.decision == "CLAUDE"
@@ -999,8 +999,8 @@ class TestAutoExecuteWhenBudgetExhausted:
         from trading.pipeline import TradingPipeline
         from trading import risk_manager
 
-        # composite=75, sentiment=25 → NORMAL+HIGH tier, AE threshold=45, sentiment_min=20 → AUTO_EXECUTE
-        composite = 75.0
+        # composite=76, sentiment=25 → NORMAL+MEDIUM tier, AE threshold=75 (55+20), sentiment_min=20 → AUTO_EXECUTE
+        composite = 76.0
         sentiment = 25
         iv = self._make_iv("AUTO", composite=composite)
         snap = self._snap(

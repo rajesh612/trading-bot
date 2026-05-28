@@ -7,9 +7,9 @@
 ./stop.sh                               # graceful stop
 .venv/bin/python3 main.py              # foreground (dev)
 .venv/bin/python -m pytest tests/ -m unit -q  # run tests
-.venv/bin/python3 backtest.py          # last 30 trading days (default)
-.venv/bin/python3 backtest.py --days 60
-.venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30
+.venv/bin/python3 backtest.py 2>&1 | tee /tmp/bt_30d.txt          # last 30 trading days
+.venv/bin/python3 backtest.py --days 60 2>&1 | tee /tmp/bt_60d.txt
+.venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30 2>&1 | tee /tmp/bt_custom.txt
 ```
 
 Bot runs weekdays 9:30 AM – 3:55 PM ET. Auto-start: `./scripts/setup_launchagent.sh` (macOS) or `./scripts/setup_cron.sh` (Linux).

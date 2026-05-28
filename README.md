@@ -393,16 +393,18 @@ All state files live under `data/state/`.
 ## Backtesting
 
 ```bash
-# Last 30 trading days (default)
-.venv/bin/python3 backtest.py
+# Last 30 trading days (default) — always tee to a file so the full output is preserved
+.venv/bin/python3 backtest.py 2>&1 | tee /tmp/bt_30d.txt
 
 # Last N trading days (60d recommended for validation — covers multiple regime transitions)
-.venv/bin/python3 backtest.py --days 60
+.venv/bin/python3 backtest.py --days 60 2>&1 | tee /tmp/bt_60d.txt
 
 # Specific date range
-.venv/bin/python3 backtest.py --start 2026-04-01
-.venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30
+.venv/bin/python3 backtest.py --start 2026-04-01 2>&1 | tee /tmp/bt_custom.txt
+.venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30 2>&1 | tee /tmp/bt_custom.txt
 ```
+
+Output is saved to `/tmp/bt_*.txt` so you can re-read any section without re-running.
 
 Weekends and NYSE holidays are automatically excluded. Uses Alpaca IEX feed (no Claude API calls). Picks up learned `trading_params.json` automatically so the backtest reflects your bot's current tuning.
 

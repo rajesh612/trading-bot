@@ -82,8 +82,8 @@ class TestTimeGate:
         assert is_entry_allowed(self._et(15, 50)) is False
 
     def test_allowed_before_close_window(self):
-        """12:59 ET in NORMAL (default) regime should be allowed (hard cutoff at 13:00)."""
-        assert is_entry_allowed(self._et(12, 59)) is True
+        """11:59 ET in NORMAL (default) regime should be allowed (hard cutoff at 12:00)."""
+        assert is_entry_allowed(self._et(11, 59)) is True
 
     def test_naive_datetime_handled(self):
         """Naive datetime (no timezone) should be localized to ET and not raise."""
@@ -556,7 +556,7 @@ class TestSLBlacklist:
             stop_hunt_zone=False, parabolic=False, momentum_exhaustion=False,
             bot_herding_score=0, squeeze_setup=False, rsi=50.0, stoch_d=50.0,
             prev_close=100.0, relative_volume=1.0, or_position="outside",
-            composite_score=60.0,
+            composite_score=80.0,  # above ENTRY_LATE_COMPOSITE_MIN so SL gate fires
         )
         now = datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
         result = check_all_gates(
@@ -576,11 +576,12 @@ class TestEntryHardCutoff:
 
     def test_entry_allowed_before_hard_cutoff_normal(self):
         from signals.time_gate import is_entry_allowed
-        assert is_entry_allowed(self._now(12, 59), regime="NORMAL") is True
+        # NORMAL hard_close_hour=12, so 11:59 is the last allowed minute
+        assert is_entry_allowed(self._now(11, 59), regime="NORMAL") is True
 
     def test_entry_blocked_at_hard_cutoff_normal(self):
         from signals.time_gate import is_entry_allowed
-        assert is_entry_allowed(self._now(13, 0), regime="NORMAL") is False
+        assert is_entry_allowed(self._now(12, 0), regime="NORMAL") is False
 
     def test_entry_blocked_earlier_in_choppy(self, monkeypatch):
         from signals.time_gate import is_entry_allowed
@@ -599,9 +600,10 @@ class TestEntryHardCutoff:
 
     def test_backward_compat_no_regime_arg(self):
         from signals.time_gate import is_entry_allowed
-        # No regime arg → defaults to NORMAL (cutoff=13)
-        # 12:59 should be allowed
-        assert is_entry_allowed(self._now(12, 59)) is True
+        # No regime arg → defaults to NORMAL (cutoff=12)
+        # 11:59 should be allowed, 12:00 blocked
+        assert is_entry_allowed(self._now(11, 59)) is True
+        assert is_entry_allowed(self._now(12, 0)) is False
 
 
 

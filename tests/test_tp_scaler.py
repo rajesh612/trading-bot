@@ -11,16 +11,16 @@ def _et(hour, minute=0):
 
 @pytest.mark.unit
 class TestTimeMultiplier:
-    def test_full_slot_before_noon(self):
-        assert compute_time_multiplier(_et(10, 30)) == 1.00
+    def test_full_slot_before_1100(self):
+        assert compute_time_multiplier(_et(10, 30)) == 0.90
 
-    def test_late_slot_noon_to_1330(self):
-        assert compute_time_multiplier(_et(12, 30)) == 0.80
+    def test_mid_slot_1100_to_1230(self):
+        assert compute_time_multiplier(_et(11, 30)) == 0.75
 
-    def test_tight_slot_1330_to_1430(self):
-        assert compute_time_multiplier(_et(14, 0)) == 0.65
+    def test_late_slot_1230_to_1400(self):
+        assert compute_time_multiplier(_et(13, 0)) == 0.60
 
-    def test_very_tight_after_1430(self):
+    def test_tight_slot_after_1400(self):
         assert compute_time_multiplier(_et(14, 31)) == 0.50
 
 @pytest.mark.unit

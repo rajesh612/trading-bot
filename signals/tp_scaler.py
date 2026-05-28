@@ -10,15 +10,18 @@ from utils.regime_params import get_tp_sl_params
 
 
 def compute_time_multiplier(entry_time: datetime) -> float:
-    """Return a TP multiplier based on time of day (ET). Later = tighter."""
+    """Return a TP multiplier based on time of day (ET). Later = tighter.
+
+    Decay starts at 11 AM so intraday TP is achievable before forced close.
+    """
     total_min = entry_time.hour * 60 + entry_time.minute
-    if total_min < 12 * 60:
-        return 1.00
-    if total_min < 13 * 60 + 30:
-        return 0.80
-    if total_min < 14 * 60 + 30:
-        return 0.65
-    return 0.50
+    if total_min < 11 * 60:          # before 11:00 AM
+        return 0.90
+    if total_min < 12 * 60 + 30:    # 11:00–12:30
+        return 0.75
+    if total_min < 14 * 60:         # 12:30–14:00
+        return 0.60
+    return 0.50                      # 14:00+
 
 
 def compute_tp_sl(

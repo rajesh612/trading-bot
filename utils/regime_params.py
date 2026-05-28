@@ -392,14 +392,14 @@ def _entry_table() -> dict[str, EntryParams]:
     defensive_composite = round(config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT)
     return {
         "CRISIS":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,              0,  0.0),
-        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.05),
+        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             12,  0.05),
         "BULL_TREND":     EntryParams(config.COMPOSITE_MIN_BULL_TREND, config.RSI_BUY_MAX,             14,  0.03),
         "CHOPPY":         EntryParams(config.CHOPPY_COMPOSITE_GATE,    config.CHOPPY_RSI_PULLBACK_MAX, 12,  0.04),
         "DEFENSIVE":      EntryParams(defensive_composite,             config.RSI_BUY_MAX_HIGH_VOL,    12,  0.04),
-        "HIGH_VOL":       EntryParams(config.COMPOSITE_MIN_HIGH_VOL,   config.RSI_BUY_MAX_HIGH_VOL,   13,  0.03),
+        "HIGH_VOL":       EntryParams(config.COMPOSITE_MIN_HIGH_VOL,   config.RSI_BUY_MAX_HIGH_VOL,   12,  0.03),
         "OPPORTUNITY":    EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             14,  0.03),
-        "CRASH_RECOVERY": EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.025),
-        "CAPITULATION":   EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.025),
+        "CRASH_RECOVERY": EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             12,  0.025),
+        "CAPITULATION":   EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             12,  0.025),
     }
 
 

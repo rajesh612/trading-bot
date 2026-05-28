@@ -103,11 +103,11 @@ SL_BLACKLIST_ENABLED   = True   # block SL-hit symbols from re-entry next day
 
 ENTRY_START_HOUR       = 10   # No entries before 10:00 AM (avoid open noise)
 ENTRY_END_HOUR         = 15   # No entries at or after 3:00 PM
-ENTRY_HARD_CLOSE_HOUR  = 13   # Default regime hard cutoff (NORMAL); per-regime values in EntryParams
+ENTRY_HARD_CLOSE_HOUR  = 12   # Default regime hard cutoff (NORMAL); per-regime values in EntryParams
 ENTRY_GATE_OPEN_MINUTES  = 30 # block entries for first N minutes after open
 ENTRY_GATE_CLOSE_MINUTES = 35 # block entries for last N minutes before close
-ENTRY_LATE_HOUR          = 14   # 2:00 PM ET — after this, require higher composite for entry
-ENTRY_LATE_COMPOSITE_MIN = 65   # composite threshold for entries after ENTRY_LATE_HOUR
+ENTRY_LATE_HOUR          = 12   # 12:00 PM ET — after this, require higher composite; hard_close_hour=12 blocks NORMAL/HIGH_VOL noon entries
+ENTRY_LATE_COMPOSITE_MIN = 72   # composite threshold for entries after ENTRY_LATE_HOUR (applies in BULL_TREND/OPPORTUNITY where hard_close=14)
 MARKET_OPEN_HOUR   = 9    # NYSE market open hour (ET)
 MARKET_OPEN_MINUTE = 30   # NYSE market open minute (ET)
 TRADING_MINUTES_PER_DAY = 390  # 6.5 hours × 60 — used for session-fraction calculations
@@ -140,9 +140,9 @@ OPENING_RANGE_MINUTES    = 60    # first N minutes of session form the opening r
 
 # ── INDICATOR & COMPOSITE THRESHOLDS ─────────────────────────────────────────
 
-COMPOSITE_MIN_NORMAL   = 50   # raised from 20 — filters noise entries, improves win rate
+COMPOSITE_MIN_NORMAL   = 50   # 10am entries: raising further cuts swing-promotion candidates (+$4,500 alpha at 11am)
 COMPOSITE_MIN_HIGH_VOL = 55   # raised composite minimum — HIGH_VOL / DEFENSIVE regime
-CHOPPY_COMPOSITE_GATE  = 55   # higher bar to enter in CHOPPY regime
+CHOPPY_COMPOSITE_GATE  = 60   # higher bar to enter in CHOPPY regime (must stay > COMPOSITE_MIN_NORMAL)
 COMPOSITE_MIN_BULL_TREND = 45  # BULL_TREND: slightly relaxed, wider TP justifies it
 HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
 

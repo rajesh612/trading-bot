@@ -31,6 +31,7 @@ def _gates_iv(**overrides):
         prev_close=100.0,
         relative_volume=1.0,
         or_position="outside",
+        composite_score=80,  # passes ENTRY_LATE_COMPOSITE_MIN gate
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -81,6 +82,7 @@ class TestEntryGates:
             prev_close=100.0,  # no gap-up (100 / 100 = 1.0 = 0% gap)
             relative_volume=1.0,
             or_position="outside",
+            composite_score=80,  # passes ENTRY_LATE_COMPOSITE_MIN gate
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -228,6 +230,7 @@ class TestCheckAllGates:
             prev_close=100.0,
             relative_volume=1.0,
             or_position="outside",
+            composite_score=80,  # passes ENTRY_LATE_COMPOSITE_MIN gate
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -392,6 +395,7 @@ class TestRsiStochGates:
             prev_close=100.0,
             relative_volume=1.0,
             or_position="outside",
+            composite_score=80,  # passes ENTRY_LATE_COMPOSITE_MIN gate
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
@@ -472,6 +476,7 @@ class TestGapUpGate:
             prev_close=100.0,
             relative_volume=1.0,
             or_position="outside",
+            composite_score=80,  # passes ENTRY_LATE_COMPOSITE_MIN gate
         )
         base.update(overrides)
         return types.SimpleNamespace(**base)
