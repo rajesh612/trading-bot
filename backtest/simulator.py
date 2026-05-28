@@ -85,6 +85,7 @@ class Trade:
     exit_reason: str
     pnl: float
     pnl_pct: float
+    entry_hour: int = 0
 
 
 @dataclass
@@ -167,10 +168,16 @@ def _close_trade(
     state.cash += proceeds
     pnl = proceeds - pos["entry"] * close_qty
     pnl_pct = (ep / pos["entry"] - 1) * 100
+    try:
+        _entry_dt = datetime.fromisoformat(pos["entry_ts"]).astimezone(ET)
+        _entry_hour = _entry_dt.hour
+    except Exception:
+        _entry_hour = 0
     state.trades.append(Trade(
         symbol=symbol, date=date_str, entry_ts=pos["entry_ts"], exit_ts=exit_ts,
         entry_price=pos["entry"], exit_price=ep, qty=close_qty,
         exit_reason=reason, pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 2),
+        entry_hour=_entry_hour,
     ))
     remaining = pos["qty"] - close_qty
     if remaining > 0:

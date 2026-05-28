@@ -305,7 +305,7 @@ def execute_buy(
         "stop_loss_price": corrected["stop_loss_price"] if corrected else order["stop_loss_price"],
         "take_profit_price": corrected["take_profit_price"] if corrected else order["take_profit_price"],
         "fill_price": corrected["fill_price"] if corrected else iv.current_price,
-        "entry_time": now.isoformat(), "entry_composite_score": iv.composite_score,
+        "entry_time": now.isoformat(), "entry_hour": now.hour, "entry_composite_score": iv.composite_score,
         "entry_indicators": asdict(iv), "entry_sentiment_score": research.get(symbol, {}).get("sentiment_score"),
         "entry_sector_sentiment": sector_sentiment,
         "entry_news_sentiment": float(symbol_sentiment) if isinstance(symbol_sentiment, (int, float)) else 0.0,

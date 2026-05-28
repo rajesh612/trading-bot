@@ -630,3 +630,110 @@ class TestHighVolEarlyExit:
             monkeypatch, regime="HIGH_VOL", now_hour=14, pnl_pct=-1.0, hold_hours=1.0
         )
         mock_close.assert_not_called()
+
+
+@pytest.mark.unit
+class TestEntryHourTag:
+    """entry_hour must be written at BUY time and propagated to every CLOSE record."""
+
+    def test_force_close_record_contains_entry_hour(self, tmp_path, monkeypatch):
+        """force_close_all() copies entry_hour from position into the CLOSE journal record."""
+        import json
+        from unittest.mock import MagicMock, patch
+        from trading import closer
+        import config
+
+        positions = {
+            "AAPL": {
+                "entry_price": 100.0, "qty": 10, "entry_hour": 10,
+                "entry_composite_score": 65.0, "entry_indicators": {},
+                "entry_sentiment_score": 5, "claude_reasoning": "",
+                "indicator_signals": {}, "mode_at_entry": "DAY_TRADE",
+                "regime_at_entry": "NORMAL", "atr_pct": 1.5,
+            }
+        }
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
+        monkeypatch.setattr(config, "EOD_VERIFY_FILLS", False)
+        monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing_positions.json")
+        (tmp_path / "open_positions.json").write_text(json.dumps(positions))
+        (tmp_path / "trade_journal.json").write_text("[]")
+        (tmp_path / "swing_positions.json").write_text("{}")
+
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_latest_price.return_value = 102.0
+        mock_alpaca.cancel_all_orders.return_value = None
+        mock_alpaca.close_position.return_value = None
+        mock_alpaca.get_positions.return_value = {}
+
+        with patch("trading.closer.AlpacaClient", return_value=mock_alpaca):
+            with patch("trading.closer.telegram_notify"):
+                closer.force_close_all()
+
+        journal = json.loads((tmp_path / "trade_journal.json").read_text())
+        close_entries = [e for e in journal if e.get("type") == "CLOSE"]
+        assert len(close_entries) == 1
+        assert close_entries[0].get("entry_hour") == 10
+
+    def test_sl_close_record_contains_entry_hour(self, tmp_path, monkeypatch):
+        """close_position() copies entry_hour from position into the CLOSE journal record."""
+        import json
+        from unittest.mock import MagicMock, patch
+        from trading import closer
+        import config
+
+        pos = {
+            "entry_price": 100.0, "qty": 10, "entry_hour": 11,
+            "entry_composite_score": 65.0, "entry_indicators": {},
+            "entry_sentiment_score": 5, "claude_reasoning": "",
+            "indicator_signals": {}, "mode_at_entry": "DAY_TRADE",
+            "regime_at_entry": "NORMAL", "atr_pct": 1.5,
+            "stop_order_id": None,
+        }
+        open_positions = {"AAPL": pos}
+        monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open_positions.json")
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "trade_journal.json")
+        monkeypatch.setattr(config, "DAILY_CLOSED_FILE", tmp_path / "daily_closed.json")
+        (tmp_path / "open_positions.json").write_text(json.dumps(open_positions))
+        (tmp_path / "trade_journal.json").write_text("[]")
+        (tmp_path / "daily_closed.json").write_text("[]")
+
+        mock_alpaca = MagicMock()
+        mock_alpaca.close_position.return_value = None
+
+        with patch("trading.closer.telegram_notify"):
+            closer.close_position(
+                symbol="AAPL",
+                alpaca=mock_alpaca,
+                open_positions=open_positions,
+                current_price=96.0,
+                iv=None,
+                reason="SL",
+            )
+
+        journal = json.loads((tmp_path / "trade_journal.json").read_text())
+        close_entries = [e for e in journal if e.get("type") == "CLOSE"]
+        assert len(close_entries) == 1
+        assert close_entries[0].get("entry_hour") == 11
+
+    def test_backtest_trade_entry_hour_populated(self):
+        """Backtest Trade.entry_hour is derived from entry_ts and set correctly."""
+        import pandas as pd
+        from backtest.simulator import SimState, _close_trade
+        from zoneinfo import ZoneInfo
+
+        state = SimState(cash=50_000.0)
+        # Simulate a position opened at 10:30 AM ET (UTC = 14:30)
+        ts_open = "2026-05-27T14:30:00+00:00"
+        state.positions["AAPL"] = {
+            "qty": 10, "entry": 100.0, "sl": 96.0, "tp": 106.0,
+            "entry_ts": ts_open, "entry_time": ts_open, "composite": 65.0,
+            "quality_tier": "MEDIUM",
+        }
+        state.cash -= 100.0 * 10
+
+        ts_close = pd.Timestamp("2026-05-27 19:55:00", tz="UTC")
+        _close_trade(state, "AAPL", str(ts_close), 101.0, "FORCE_CLOSE", "2026-05-27")
+
+        assert len(state.trades) == 1
+        assert state.trades[0].entry_hour == 10   # 14:30 UTC = 10:30 ET
