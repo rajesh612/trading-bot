@@ -1356,3 +1356,50 @@ class TestBacktestCrashRecoveryGate:
         from backtest.data import _classify_vix_day
         result = _classify_vix_day(self._vix_crash_recovery(), self._spy_green_streak(1))
         assert result != "CRASH_RECOVERY", f"CRASH_RECOVERY must not fire with only 1 green day, got {result}"
+
+
+@pytest.mark.unit
+class TestQualifiesForEodHoldGate:
+    """qualifies_for_eod_hold must enforce regime×tier composite_min and rsi_ceiling."""
+
+    def _call(self, **overrides):
+        from types import SimpleNamespace
+        from trading.eod_holds import qualifies_for_eod_hold
+        defaults = dict(
+            symbol="AAPL",
+            regime="NORMAL",
+            earnings_tomorrow=False,
+            current_pnl_pct=2.0,        # above min_pnl (1.2%), below profit_lock
+            entry_sector_sentiment=10.0,
+            current_sector_sentiment=5.0,
+            consecutive_red_days=0,
+            vix_trend="stable",
+            quality=SimpleNamespace(tier="MEDIUM"),
+            entry_rsi=65.0,             # default: within NORMAL MEDIUM ceiling (70)
+            entry_composite=60.0,       # default: above NORMAL MEDIUM min (58)
+        )
+        defaults.update(overrides)
+        return qualifies_for_eod_hold(**defaults)
+
+    def test_rsi_at_ceiling_blocks_promotion(self):
+        ok, reason = self._call(entry_rsi=70.0)   # == ceiling, not <
+        assert not ok
+        assert "RSI" in reason
+
+    def test_rsi_below_ceiling_allows_promotion(self):
+        ok, _ = self._call(entry_rsi=69.0)
+        assert ok
+
+    def test_composite_below_min_blocks_promotion(self):
+        ok, reason = self._call(entry_composite=57.0)   # < 58
+        assert not ok
+        assert "composite" in reason
+
+    def test_profit_lock_bypass_ignores_rsi_and_composite(self):
+        """Strongly profitable positions skip quality gate entirely."""
+        ok, _ = self._call(
+            current_pnl_pct=10.0,   # well above any profit_lock threshold
+            entry_rsi=85.0,          # would fail RSI gate
+            entry_composite=40.0,    # would fail composite gate
+        )
+        assert ok

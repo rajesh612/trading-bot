@@ -12,7 +12,7 @@ from utils.io_utils import load_json, save_json
 from trading.tiered_tp import _compute_tier_quantities
 
 from utils.constants import ET
-from utils.regime_params import get_swing_params, get_tp_sl_params
+from utils.regime_params import get_swing_params, get_tp_sl_params, get_swing_gate_params
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,8 @@ def qualifies_for_eod_hold(
     vix_trend: str,
     quality=None,         # TickerQuality | None — enables tier-based profit lock
     regime_stale: bool = False,
+    entry_rsi: float = 0.0,
+    entry_composite: float = 100.0,
 ) -> tuple[bool, str]:
     """Return (True, '') if position qualifies for overnight swing hold, (False, reason) otherwise.
 
@@ -68,7 +70,21 @@ def qualifies_for_eod_hold(
     if earnings_tomorrow:
         return False, "earnings tomorrow — overnight binary risk"
 
-    # Profit-lock bypass: strongly profitable positions qualify in any non-CRISIS regime
+    # Regime×tier quality gate: block late-momentum promotions.
+    # Strongly profitable positions (>= config.PROFIT_LOCK_SWING_PCT) bypass this gate;
+    # the tier-based profit_lock bypass below handles moderate winners.
+    if current_pnl_pct < config.PROFIT_LOCK_SWING_PCT:
+        sgp = get_swing_gate_params(regime, tier)
+        if entry_rsi >= sgp.rsi_ceiling:
+            return False, (
+                f"RSI {entry_rsi:.0f} >= ceiling {sgp.rsi_ceiling} for {regime}/{tier} swing"
+            )
+        if entry_composite < sgp.composite_min:
+            return False, (
+                f"composite {entry_composite:.0f} < min {sgp.composite_min} for {regime}/{tier} swing"
+            )
+
+    # Profit-lock bypass: sufficiently profitable positions qualify in any non-CRISIS regime
     if current_pnl_pct >= profit_lock:
         return True, ""
 
@@ -165,6 +181,7 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
 
             tier = pos.get("quality_tier", "MEDIUM")
             quality_proxy = SimpleNamespace(tier=tier)
+            entry_indicators = pos.get("entry_indicators", {})
             qualifies, reason = qualifies_for_eod_hold(
                 symbol=symbol,
                 regime=regime,
@@ -175,6 +192,8 @@ def evaluate_eod_holds(load_swing_positions, _save_swing_positions, _SWING_LOCK,
                 consecutive_red_days=regime_info.get("consecutive_red_days", 0),
                 vix_trend=regime_info.get("vix_trend", "stable"),
                 quality=quality_proxy,
+                entry_rsi=float(entry_indicators.get("rsi", 100.0)),
+                entry_composite=float(pos.get("entry_composite_score", 0.0)),
             )
             if not qualifies:
                 logger.info(f"SWING SKIP {symbol}: {reason}")
