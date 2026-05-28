@@ -24,7 +24,7 @@ from signals.volume_guard import is_volume_weak
 from calendars.earnings import is_earnings_imminent
 from utils import regimes
 from sectors import get_sub_sector_etf
-from utils.regime_params import get_entry_params, get_gate_params
+from utils.regime_params import get_entry_params, get_gate_params, get_day_trade_params
 from utils.ticker_quality import TickerQuality
 
 
@@ -115,12 +115,27 @@ def check_all_gates(
     if not is_entry_allowed(now, regime):
         return GateResult(False, "outside entry time window")
 
-    # 1b. Late-day composite gate — after 2 PM require higher conviction
-    if now.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
-        return GateResult(
-            False,
-            f"late entry ({now.strftime('%H:%M')} ET): composite {iv.composite_score:.0f} < {config.ENTRY_LATE_COMPOSITE_MIN} required after {config.ENTRY_LATE_HOUR}:00",
-        )
+    # 1b. Day-trade time/momentum gates — per regime × tier (DayTradeParams table)
+    if mode == "DAY_TRADE":
+        _tier = quality.tier if quality else "MEDIUM"
+        dtp = get_day_trade_params(regime, _tier)
+        if now.hour >= dtp.hard_close_hour:
+            return GateResult(
+                False,
+                f"day-trade hard cutoff: {_tier} tier in {regime} stops at {dtp.hard_close_hour:02d}:00 ET",
+            )
+        if now.hour >= dtp.late_entry_hour and iv.composite_score < dtp.late_composite:
+            return GateResult(
+                False,
+                f"late entry ({now.strftime('%H:%M')} ET): composite {iv.composite_score:.0f} < "
+                f"{dtp.late_composite} for {_tier}/{regime} after {dtp.late_entry_hour:02d}:00",
+            )
+        vwap_slope = getattr(iv, "vwap_slope", None)
+        if vwap_slope is not None and vwap_slope < dtp.vwap_slope_min:
+            return GateResult(
+                False,
+                f"VWAP slope {vwap_slope:.3f} < {dtp.vwap_slope_min:.3f} min for day trade ({_tier}/{regime})",
+            )
 
     # 1c. SL blacklist — block re-entry for symbols that hit SL recently
     if sl_blacklisted:

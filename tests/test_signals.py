@@ -434,26 +434,17 @@ class TestSLTPRatio:
         assert result == 3.0
 
 
-class TestLateEntryCompositeGate:
-    """Late-day composite gate — require higher composite after ENTRY_LATE_HOUR."""
+class TestDayTradeGates:
+    """Day-trade time/momentum gates driven by DayTradeParams regime × tier table."""
 
-    def _iv_late(self, composite: float = 60.0):
+    def _iv(self, composite: float = 80.0, vwap_slope: float = 0.1):
         return types.SimpleNamespace(
             current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
             stop_hunt_zone=False, parabolic=False, momentum_exhaustion=False,
             bot_herding_score=0, squeeze_setup=False, rsi=50.0, stoch_d=50.0,
             prev_close=100.0, relative_volume=1.0, or_position="outside",
-            composite_score=composite,
+            composite_score=composite, vwap_slope=vwap_slope,
         )
-
-    def _late_now(self):
-        from zoneinfo import ZoneInfo
-        # 13:30 ET — past ENTRY_LATE_HOUR=13, within BULL_TREND cutoff=14
-        return datetime(2024, 1, 15, 13, 30, 0, tzinfo=ZoneInfo("America/New_York"))
-
-    def _early_now(self):
-        from zoneinfo import ZoneInfo
-        return datetime(2024, 1, 15, 11, 0, 0, tzinfo=ZoneInfo("America/New_York"))
 
     def _patch(self, monkeypatch):
         import calendars.earnings as ec
@@ -461,48 +452,111 @@ class TestLateEntryCompositeGate:
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
 
+    def _now(self, hour, minute=0):
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+
     @pytest.mark.unit
-    def test_late_entry_low_composite_blocked(self, monkeypatch):
-        """After ENTRY_LATE_HOUR, composite below ENTRY_LATE_COMPOSITE_MIN → blocked."""
+    def test_per_tier_hard_cutoff_blocks_medium_at_noon(self, monkeypatch):
+        """NORMAL/MEDIUM hard_close_hour=12: entry at 12:00 ET is blocked."""
         from signals.entry_gates import check_all_gates
         self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 13)
-        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
-        # _late_now() = 13:30; use BULL_TREND (hard_close_hour=14) so time gate passes
         result = check_all_gates(
-            symbol="AAPL", iv=self._iv_late(composite=35.0),
+            symbol="AAPL", iv=self._iv(composite=80.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), regime="BULL_TREND",
+            now=self._now(12, 0), regime="NORMAL", mode="DAY_TRADE",
+        )
+        assert result.passed is False
+        assert "cutoff" in result.reason.lower() or "hard" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_per_tier_hard_cutoff_allows_conviction_at_noon(self, monkeypatch):
+        """NORMAL/CONVICTION hard_close_hour=13: entry at 12:30 ET is NOT blocked by time gate."""
+        from signals.entry_gates import check_all_gates
+        from utils.ticker_quality import TickerQuality
+        self._patch(monkeypatch)
+        conviction_quality = TickerQuality(tier="CONVICTION", score=90, unlocks=frozenset(), quality_gaps=(), component_scores={})
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv(composite=80.0),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._now(12, 30), regime="NORMAL", mode="DAY_TRADE",
+            quality=conviction_quality,
+        )
+        # Should not fail due to day-trade hard cutoff (CONVICTION=13)
+        assert "cutoff" not in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_late_entry_low_composite_blocked(self, monkeypatch):
+        """BULL_TREND/MEDIUM at 12:30 with composite 35 < late_composite 68 → blocked."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv(composite=35.0),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._now(12, 30), regime="BULL_TREND", mode="DAY_TRADE",
         )
         assert result.passed is False
         assert "late" in result.reason.lower() or "composite" in result.reason.lower()
 
     @pytest.mark.unit
-    def test_late_entry_high_composite_passes(self, monkeypatch):
-        """After ENTRY_LATE_HOUR, composite at or above threshold → passes gate."""
+    def test_late_entry_high_composite_passes_time_gate(self, monkeypatch):
+        """BULL_TREND/MEDIUM at 13:30 with composite 80 >= late_composite 68 → time gate passes."""
         from signals.entry_gates import check_all_gates
         self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 13)
-        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
-        # _late_now() = 13:30; use BULL_TREND (hard_close_hour=14) so time gate passes
         result = check_all_gates(
-            symbol="AAPL", iv=self._iv_late(composite=60.0),
+            symbol="AAPL", iv=self._iv(composite=80.0),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._late_now(), regime="BULL_TREND",
+            now=self._now(13, 30), regime="BULL_TREND", mode="DAY_TRADE",
         )
-        assert result.passed is True
+        assert "late" not in result.reason.lower()
 
     @pytest.mark.unit
-    def test_early_entry_low_composite_not_blocked_by_late_gate(self, monkeypatch):
-        """Before ENTRY_LATE_HOUR, late-gate does not apply."""
+    def test_vwap_slope_too_flat_blocks_day_trade(self, monkeypatch):
+        """NORMAL/MEDIUM vwap_slope_min=0.05: slope 0.02 < 0.05 → blocked."""
         from signals.entry_gates import check_all_gates
         self._patch(monkeypatch)
-        monkeypatch.setattr(config, "ENTRY_LATE_HOUR", 14)
-        monkeypatch.setattr(config, "ENTRY_LATE_COMPOSITE_MIN", 50)
         result = check_all_gates(
-            symbol="AAPL", iv=self._iv_late(composite=35.0),
+            symbol="AAPL", iv=self._iv(composite=80.0, vwap_slope=0.02),
             open_positions={}, daily_closed=set(), bars_15min=None,
-            now=self._early_now(),
+            now=self._now(10, 30), regime="NORMAL", mode="DAY_TRADE",
+        )
+        assert result.passed is False
+        assert "vwap slope" in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_vwap_slope_above_min_passes(self, monkeypatch):
+        """NORMAL/MEDIUM: slope 0.10 >= 0.05 → VWAP gate passes."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv(composite=80.0, vwap_slope=0.10),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._now(10, 30), regime="NORMAL", mode="DAY_TRADE",
+        )
+        assert "vwap slope" not in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_swing_mode_bypasses_day_trade_gates(self, monkeypatch):
+        """SWING mode is not subject to day-trade hard cutoff or VWAP slope gate."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv(composite=80.0, vwap_slope=0.01),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._now(12, 30), regime="NORMAL", mode="SWING",
+        )
+        assert "cutoff" not in result.reason.lower()
+        assert "vwap slope" not in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_early_entry_not_blocked_by_late_gate(self, monkeypatch):
+        """At 10:30 ET in NORMAL/MEDIUM (late_entry_hour=11), late-gate does not apply."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv(composite=55.0, vwap_slope=0.10),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._now(10, 30), regime="NORMAL", mode="DAY_TRADE",
         )
         assert "late" not in result.reason.lower()
 
@@ -576,12 +630,13 @@ class TestEntryHardCutoff:
 
     def test_entry_allowed_before_hard_cutoff_normal(self):
         from signals.time_gate import is_entry_allowed
-        # NORMAL hard_close_hour=12, so 11:59 is the last allowed minute
-        assert is_entry_allowed(self._now(11, 59), regime="NORMAL") is True
+        # NORMAL EntryParams.hard_close_hour=13 (CONVICTION-tier cycle gate); 12:59 allowed
+        assert is_entry_allowed(self._now(12, 59), regime="NORMAL") is True
 
     def test_entry_blocked_at_hard_cutoff_normal(self):
         from signals.time_gate import is_entry_allowed
-        assert is_entry_allowed(self._now(12, 0), regime="NORMAL") is False
+        # Cycle-level gate blocks at 13:00 for NORMAL
+        assert is_entry_allowed(self._now(13, 0), regime="NORMAL") is False
 
     def test_entry_blocked_earlier_in_choppy(self, monkeypatch):
         from signals.time_gate import is_entry_allowed
@@ -600,10 +655,10 @@ class TestEntryHardCutoff:
 
     def test_backward_compat_no_regime_arg(self):
         from signals.time_gate import is_entry_allowed
-        # No regime arg → defaults to NORMAL (cutoff=12)
-        # 11:59 should be allowed, 12:00 blocked
-        assert is_entry_allowed(self._now(11, 59)) is True
-        assert is_entry_allowed(self._now(12, 0)) is False
+        # No regime arg → defaults to NORMAL (CONVICTION-level cycle cutoff=13)
+        # 12:59 should be allowed, 13:00 blocked
+        assert is_entry_allowed(self._now(12, 59)) is True
+        assert is_entry_allowed(self._now(13, 0)) is False
 
 
 

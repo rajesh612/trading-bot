@@ -329,6 +329,79 @@ def get_swing_gate_params(regime: str, tier: str) -> SwingGateParams:
     return _SWING_GATE_TABLE.get((regime, tier), _SWING_GATE_FALLBACK)
 
 
+@dataclass(frozen=True)
+class DayTradeParams:
+    """Per-regime × tier controls for day-trade entry timing and momentum.
+    hard_close_hour: no new entries at/after this hour ET (per tier, finer than EntryParams which is CONVICTION-level).
+    late_entry_hour: composite floor kicks in after this hour.
+    late_composite:  minimum composite required if hour >= late_entry_hour.
+    vwap_slope_min:  VWAP slope floor — flat/declining stocks are excluded.
+    """
+    hard_close_hour: int
+    late_entry_hour: int
+    late_composite: int
+    vwap_slope_min: float
+
+
+def _day_trade_table() -> dict[tuple[str, str], DayTradeParams]:
+    dt = DayTradeParams
+    return {
+        # ── NORMAL ───────────────────────────────────────────────────────────
+        ("NORMAL", "CONVICTION"):  dt(hard_close_hour=13, late_entry_hour=12, late_composite=65, vwap_slope_min= 0.00),
+        ("NORMAL", "HIGH"):        dt(hard_close_hour=12, late_entry_hour=11, late_composite=68, vwap_slope_min= 0.03),
+        ("NORMAL", "MEDIUM"):      dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min= 0.05),
+        ("NORMAL", "LOW"):         dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min= 0.10),
+        # ── BULL_TREND ───────────────────────────────────────────────────────
+        ("BULL_TREND", "CONVICTION"):  dt(hard_close_hour=14, late_entry_hour=13, late_composite=60, vwap_slope_min=-0.05),
+        ("BULL_TREND", "HIGH"):        dt(hard_close_hour=14, late_entry_hour=12, late_composite=65, vwap_slope_min= 0.00),
+        ("BULL_TREND", "MEDIUM"):      dt(hard_close_hour=13, late_entry_hour=12, late_composite=68, vwap_slope_min= 0.02),
+        ("BULL_TREND", "LOW"):         dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min= 0.05),
+        # ── OPPORTUNITY ──────────────────────────────────────────────────────
+        ("OPPORTUNITY", "CONVICTION"): dt(hard_close_hour=14, late_entry_hour=13, late_composite=60, vwap_slope_min=-0.05),
+        ("OPPORTUNITY", "HIGH"):       dt(hard_close_hour=14, late_entry_hour=12, late_composite=65, vwap_slope_min= 0.00),
+        ("OPPORTUNITY", "MEDIUM"):     dt(hard_close_hour=13, late_entry_hour=12, late_composite=68, vwap_slope_min= 0.02),
+        ("OPPORTUNITY", "LOW"):        dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min= 0.05),
+        # ── HIGH_VOL ─────────────────────────────────────────────────────────
+        ("HIGH_VOL", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=11, late_composite=65, vwap_slope_min=0.05),
+        ("HIGH_VOL", "HIGH"):       dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.08),
+        ("HIGH_VOL", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.10),
+        ("HIGH_VOL", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.15),
+        # ── CHOPPY ───────────────────────────────────────────────────────────
+        ("CHOPPY", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.05),
+        ("CHOPPY", "HIGH"):       dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.08),
+        ("CHOPPY", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.10),
+        ("CHOPPY", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=85, vwap_slope_min=0.15),
+        # ── DEFENSIVE ────────────────────────────────────────────────────────
+        ("DEFENSIVE", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.08),
+        ("DEFENSIVE", "HIGH"):       dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.12),
+        ("DEFENSIVE", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.15),
+        ("DEFENSIVE", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=85, vwap_slope_min=0.20),
+        # ── CRASH_RECOVERY ───────────────────────────────────────────────────
+        ("CRASH_RECOVERY", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=11, late_composite=65, vwap_slope_min=0.05),
+        ("CRASH_RECOVERY", "HIGH"):       dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.08),
+        ("CRASH_RECOVERY", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.10),
+        ("CRASH_RECOVERY", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.15),
+        # ── CAPITULATION ─────────────────────────────────────────────────────
+        ("CAPITULATION", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=11, late_composite=65, vwap_slope_min=0.05),
+        ("CAPITULATION", "HIGH"):       dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.08),
+        ("CAPITULATION", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.10),
+        ("CAPITULATION", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.15),
+        # ── CRISIS (no entries; table present for fallback safety) ────────────
+        ("CRISIS", "CONVICTION"): dt(hard_close_hour=0, late_entry_hour=0, late_composite=999, vwap_slope_min=0.0),
+        ("CRISIS", "HIGH"):       dt(hard_close_hour=0, late_entry_hour=0, late_composite=999, vwap_slope_min=0.0),
+        ("CRISIS", "MEDIUM"):     dt(hard_close_hour=0, late_entry_hour=0, late_composite=999, vwap_slope_min=0.0),
+        ("CRISIS", "LOW"):        dt(hard_close_hour=0, late_entry_hour=0, late_composite=999, vwap_slope_min=0.0),
+    }
+
+
+_DAY_TRADE_TABLE = _day_trade_table()
+_DAY_TRADE_FALLBACK = _DAY_TRADE_TABLE[("NORMAL", "MEDIUM")]
+
+
+def get_day_trade_params(regime: str, tier: str) -> DayTradeParams:
+    return _DAY_TRADE_TABLE.get((regime, tier), _DAY_TRADE_FALLBACK)
+
+
 _CONCURRENCY_DISABLED     = ConcurrencyParams(max_open=0,   size_mult=1.0, heat_weight=1.0, swing_health_gate=True)
 _CONCURRENCY_CONSERVATIVE = ConcurrencyParams(max_open=1,   size_mult=1.0, heat_weight=1.0, swing_health_gate=True)
 
@@ -392,7 +465,7 @@ def _entry_table() -> dict[str, EntryParams]:
     defensive_composite = round(config.COMPOSITE_MIN_HIGH_VOL * config.DEFENSIVE_COMPOSITE_MULT)
     return {
         "CRISIS":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,              0,  0.0),
-        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             12,  0.05),
+        "NORMAL":         EntryParams(config.COMPOSITE_MIN_NORMAL,     config.RSI_BUY_MAX,             13,  0.05),  # CONVICTION-tier cutoff; per-tier via DayTradeParams
         "BULL_TREND":     EntryParams(config.COMPOSITE_MIN_BULL_TREND, config.RSI_BUY_MAX,             14,  0.03),
         "CHOPPY":         EntryParams(config.CHOPPY_COMPOSITE_GATE,    config.CHOPPY_RSI_PULLBACK_MAX, 12,  0.04),
         "DEFENSIVE":      EntryParams(defensive_composite,             config.RSI_BUY_MAX_HIGH_VOL,    12,  0.04),

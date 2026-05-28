@@ -275,7 +275,7 @@ class TestCheckAllGates:
         from signals.entry_gates import check_all_gates
         iv = self._iv(stop_hunt_zone=True, rsi=55.0, stoch_d=50.0)
         result = check_all_gates("IBM", iv, {}, set(), None, self._now_open(),
-                                 regime="CHOPPY")
+                                 regime="CHOPPY", mode="SWING")
         assert result.passed is False
         assert "stop-hunt" in result.reason
 
