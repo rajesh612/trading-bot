@@ -340,7 +340,8 @@ class TestPostEventDay:
 @pytest.mark.unit
 def test_notify_budget_intraday_throttled(monkeypatch):
     import notifications.telegram as t
-    monkeypatch.setattr(t, "_budget_warn_sent", {"date": None})
+    from notifications.telegram import _OnceGuard
+    monkeypatch.setattr(t, "_once", _OnceGuard())
     sent = []
     monkeypatch.setattr(t, "_send", lambda msg: sent.append(msg))
     t.notify_budget_intraday_warning(0.75, 1.0)
@@ -351,7 +352,8 @@ def test_notify_budget_intraday_throttled(monkeypatch):
 @pytest.mark.unit
 def test_notify_position_drawdown_throttled_per_symbol(monkeypatch):
     import notifications.telegram as t
-    monkeypatch.setattr(t, "_drawdown_alerted", {})
+    from notifications.telegram import _OnceGuard
+    monkeypatch.setattr(t, "_once", _OnceGuard())
     sent = []
     monkeypatch.setattr(t, "_send", lambda msg: sent.append(msg))
     t.notify_position_drawdown("AAPL", -2.5, -4.0)
@@ -1651,14 +1653,25 @@ class TestT2WindowFix:
 
 @pytest.mark.unit
 def test_earnings_calendar_detects_mass_401_failure(monkeypatch, tmp_path):
-    """refresh_earnings_calendar() must record_failure and call notify_data_degraded
-    when all symbols return None (simulating a systematic Yahoo Finance 401)."""
+    """refresh_earnings_calendar() must record_failure and preserve the existing cache
+    (not overwrite with null data) when all symbols return None (Yahoo Finance 401).
+    notify_data_degraded must NOT fire because earnings has zero composite penalty
+    and doesn't block auto-execute or T2."""
     import config
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch
     from utils.data_health import _tracker
+    from utils.io_utils import save_json
 
-    monkeypatch.setattr(config, "EARNINGS_CALENDAR_FILE", tmp_path / "earnings_calendar.json")
+    cal_file = tmp_path / "earnings_calendar.json"
+    monkeypatch.setattr(config, "EARNINGS_CALENDAR_FILE", cal_file)
     monkeypatch.setattr(config, "DATA_EARNINGS_FAILURE_RATE_THRESHOLD", 0.80)
+    # Earnings has no composite penalty and doesn't block AE/T2 — notify should be skipped.
+    monkeypatch.setattr(config, "DATA_COMPOSITE_PENALTY", {
+        **config.DATA_COMPOSITE_PENALTY, "earnings": 0
+    })
+
+    # Pre-populate with yesterday's valid data so we can verify it is preserved.
+    save_json(cal_file, {"date": "2026-05-28", "symbols": {"AAPL": {"next_earnings_date": "2026-08-01"}}})
 
     # Reset tracker state for earnings so prior test runs don't contaminate this one
     _tracker._state.pop("earnings", None)
@@ -1682,12 +1695,15 @@ def test_earnings_calendar_detects_mass_401_failure(monkeypatch, tmp_path):
         f"Expected attempts_today >= 1, got {status.attempts_today}"
     )
 
-    # notify_data_degraded must have been called with "earnings"
-    assert len(notify_calls) == 1, (
-        f"Expected notify_data_degraded called once, got {len(notify_calls)}"
-    )
-    assert notify_calls[0][0] == "earnings", (
-        f"Expected source_id='earnings', got {notify_calls[0][0]!r}"
+    # The existing cache file must NOT be overwritten with null data.
+    import json
+    preserved = json.loads(cal_file.read_text())
+    assert preserved["date"] == "2026-05-28", "Yesterday's cache must be preserved on 401 failure"
+    assert preserved["symbols"]["AAPL"]["next_earnings_date"] == "2026-08-01"
+
+    # notify_data_degraded must NOT fire: earnings has 0 composite penalty, no AE/T2 blocks.
+    assert len(notify_calls) == 0, (
+        f"notify_data_degraded must not fire for zero-impact earnings degradation, got {len(notify_calls)}"
     )
 
 

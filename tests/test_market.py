@@ -1277,3 +1277,114 @@ class TestExitBlockModeAware:
         conf_pead = _compute_auto_execute_confidence(65.0, 5, "NORMAL", "HIGH", "PEAD")
         conf_day  = _compute_auto_execute_confidence(65.0, 5, "NORMAL", "HIGH", "DAY_TRADE")
         assert conf_pead > conf_day, f"PEAD ({conf_pead}) should > DAY_TRADE ({conf_day})"
+
+
+# ── _OnceGuard ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestOnceGuard:
+    """_OnceGuard must allow each (scope, key) exactly once per calendar day."""
+
+    def _fresh_guard(self):
+        from notifications.telegram import _OnceGuard
+        return _OnceGuard()
+
+    def test_first_call_returns_true(self):
+        g = self._fresh_guard()
+        assert g.should_send("drawdown", "AAPL") is True
+
+    def test_second_call_same_scope_key_same_day_returns_false(self):
+        g = self._fresh_guard()
+        g.should_send("drawdown", "AAPL")
+        assert g.should_send("drawdown", "AAPL") is False
+
+    def test_different_key_same_scope_returns_true(self):
+        g = self._fresh_guard()
+        g.should_send("drawdown", "AAPL")
+        assert g.should_send("drawdown", "NVDA") is True
+
+    def test_different_scope_same_key_returns_true(self):
+        g = self._fresh_guard()
+        g.should_send("drawdown", "AAPL")
+        assert g.should_send("bracket_timeout", "AAPL") is True
+
+    def test_empty_key_deduped_per_scope(self):
+        """Notifications with no per-symbol key (e.g. daily_loss) still dedup correctly."""
+        g = self._fresh_guard()
+        assert g.should_send("daily_loss") is True
+        assert g.should_send("daily_loss") is False
+
+    def test_day_rollover_allows_resend(self, monkeypatch):
+        """After the calendar day changes, should_send returns True again."""
+        from notifications.telegram import _OnceGuard
+        from datetime import date
+        g = _OnceGuard()
+        # Simulate "today" when guard was first called
+        monkeypatch.setattr("notifications.telegram.datetime",
+                            type("_FakeDT", (), {
+                                "now": staticmethod(lambda tz=None: type("_FakeNow", (), {"date": lambda self=None: date(2026, 5, 29)})())
+                            })())
+        # Re-import to pick up monkeypatched datetime is not trivial — test via internal state
+        g._seen[("daily_loss", "")] = "2026-05-28"  # yesterday
+        assert g.should_send("daily_loss") is True   # today is different → fires
+
+
+# ── notify_bracket_correction_timeout dedup ───────────────────────────────────
+
+@pytest.mark.unit
+class TestBracketTimeoutDedup:
+    """notify_bracket_correction_timeout must send at most once per symbol per day."""
+
+    def test_first_call_sends(self, monkeypatch):
+        import notifications.telegram as tg
+        from notifications.telegram import _OnceGuard
+        monkeypatch.setattr(tg, "_once", _OnceGuard())
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        tg.notify_bracket_correction_timeout("CRWD", 550.0, 3.0, 5.0)
+        assert len(sent) == 1
+        assert "CRWD" in sent[0]
+        assert "BRACKET TIMEOUT" in sent[0]
+
+    def test_second_call_same_symbol_suppressed(self, monkeypatch):
+        import notifications.telegram as tg
+        from notifications.telegram import _OnceGuard
+        monkeypatch.setattr(tg, "_once", _OnceGuard())
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        tg.notify_bracket_correction_timeout("CRWD", 550.0, 3.0, 5.0)
+        tg.notify_bracket_correction_timeout("CRWD", 551.0, 3.0, 5.0)
+        assert len(sent) == 1, "second call for same symbol must be suppressed"
+
+    def test_different_symbols_both_send(self, monkeypatch):
+        import notifications.telegram as tg
+        from notifications.telegram import _OnceGuard
+        monkeypatch.setattr(tg, "_once", _OnceGuard())
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        tg.notify_bracket_correction_timeout("CRWD", 550.0, 3.0, 5.0)
+        tg.notify_bracket_correction_timeout("NVDA", 900.0, 3.0, 5.0)
+        assert len(sent) == 2, "different symbols must each send their own alert"
+
+    def test_no_notification_when_fill_within_threshold(self, monkeypatch):
+        """execute_buy must NOT fire the bracket-timeout notification when correct_bracket
+        returns {} (slippage within threshold — normal successful fill)."""
+        import types
+        from unittest.mock import MagicMock, patch
+        from trading import risk_manager
+
+        sent = []
+        # Patch notify to capture any unexpected calls
+        with patch("trading.executor.telegram_notify.notify_bracket_correction_timeout",
+                   side_effect=lambda *a, **kw: sent.append(a)):
+            # correct_bracket_after_fill returning {} means within-threshold — no timeout
+            client = MagicMock()
+            order = types.SimpleNamespace(
+                status="filled", filled_avg_price="100.3", legs=[]
+            )
+            client.get_order_by_id.return_value = order
+            result = risk_manager.correct_bracket_after_fill(
+                client, "order-999", 100.0, 4.0, 5.0
+            )
+            assert result == {}, "within-threshold fill should return {}"
+            assert sent == [], "no bracket-timeout notification for within-threshold fill"

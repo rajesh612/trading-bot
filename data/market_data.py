@@ -15,7 +15,7 @@ def _alpaca_bars(symbol: str, timeframe, start: datetime, limit: int) -> pd.Data
     from alpaca.data.requests import StockBarsRequest
     client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
     req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, limit=limit)
-    bars = client.get_stock_bars(req).get(symbol, [])
+    bars = client.get_stock_bars(req).data.get(symbol, [])
     if not bars:
         return pd.DataFrame()
     df = pd.DataFrame(

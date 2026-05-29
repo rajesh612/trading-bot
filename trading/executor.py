@@ -50,9 +50,11 @@ def _compute_swing_book_pnl(stock_data_prices: dict[str, float], portfolio_value
     stock_data_prices: {symbol: current_price} built from iv.current_price — no API calls.
     """
     try:
+        if not config.SWING_POSITIONS_FILE.exists():
+            return 0.0  # no swing file = no open swings = book is healthy
         swing_positions = load_json(config.SWING_POSITIONS_FILE, None)
         if swing_positions is None:
-            return -999.0
+            return -999.0  # file exists but corrupt — fail-closed
         if not swing_positions or portfolio_value <= 0:
             return 0.0
         total_pnl = 0.0

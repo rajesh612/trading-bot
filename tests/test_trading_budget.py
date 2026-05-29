@@ -284,11 +284,15 @@ class TestFillCorrection:
     def test_skips_correction_when_fill_within_threshold(self):
         from trading import risk_manager
         # estimated_price=100.0, fill_price=100.3 → slippage=0.3% < 0.5% threshold
+        # Must return {} (no correction needed), NOT None (None signals actual timeout).
         client = self._make_trading_client(fill_price=100.3)
         result = risk_manager.correct_bracket_after_fill(
             client, "order-456", 100.0, 4.0, 5.0
         )
-        assert result is None
+        assert result == {}, (
+            "within-threshold fill must return {} to distinguish from poll-timeout (None)"
+        )
+        assert result is not None, "None is reserved for poll-timeout only"
         client.replace_order_by_id.assert_not_called()
 
     def test_returns_none_on_poll_timeout(self):

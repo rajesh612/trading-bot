@@ -704,7 +704,6 @@ def test_budget_intraday_warning_fired_at_75pct(monkeypatch, tmp_path):
     warned = []
     monkeypatch.setattr("notifications.telegram.notify_budget_intraday_warning",
                         lambda s, c: warned.append((s, c)))
-    monkeypatch.setattr("notifications.telegram._budget_warn_sent", {"date": None})
 
     risk_manager.check_entry_budget(estimated_cost=0.01, regime="NORMAL")
     assert warned, "Expected budget intraday warning at 76% of entry ceiling"

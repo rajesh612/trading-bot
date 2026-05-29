@@ -20,6 +20,34 @@ _BASE = "https://api.telegram.org/bot"
 _TIMEOUT = 10
 
 
+class _OnceGuard:
+    """In-memory dedup: allow each (scope, key) notification at most once per calendar day.
+
+    Use the module-level singleton `_once` rather than instantiating directly.
+    Tests may inject a fresh instance via monkeypatch to isolate state.
+
+    Usage:
+        if not _once.should_send("drawdown", symbol):
+            return
+        _send(...)
+    """
+
+    def __init__(self) -> None:
+        self._seen: dict[tuple[str, str], str] = {}  # {(scope, key): date}
+
+    def should_send(self, scope: str, key: str = "") -> bool:
+        """Return True (and record) if this (scope, key) hasn't fired today; False if already sent."""
+        today = datetime.now(ET).date().isoformat()
+        token = (scope, key)
+        if self._seen.get(token) == today:
+            return False
+        self._seen[token] = today
+        return True
+
+
+_once = _OnceGuard()  # module-level singleton; reset between sessions by bot restart
+
+
 def _send(text: str) -> None:
     token   = config.TELEGRAM_BOT_TOKEN
     chat_id = config.TELEGRAM_CHAT_ID
@@ -98,14 +126,10 @@ def notify_budget_warning(used_usd: float, ceiling_usd: float) -> None:
     )
 
 
-_daily_loss_warned: dict = {"date": None}  # warn once per day only
-
 def notify_daily_loss_warning(daily_pnl_pct: float, ceiling_pct: float) -> None:
     """Warn once per day when daily P&L hits -DAILY_LOSS_WARN_PCT (approaching halt)."""
-    today = datetime.now(ET).date().isoformat()
-    if _daily_loss_warned.get("date") == today:
+    if not _once.should_send("daily_loss"):
         return
-    _daily_loss_warned["date"] = today
     _send(
         f"<b>⚠️ Daily loss warning: {daily_pnl_pct:.2f}%</b>\n"
         f"Approaching daily halt at -{ceiling_pct:.0f}%. New entries continuing but monitor closely."
@@ -114,14 +138,10 @@ def notify_daily_loss_warning(daily_pnl_pct: float, ceiling_pct: float) -> None:
 
 # ── Intraday risk alerts ───────────────────────────────────────────────────────
 
-_budget_warn_sent: dict = {"date": None}
-
 def notify_budget_intraday_warning(spent_usd: float, ceiling_usd: float) -> None:
     """Alert once per day when entry pool crosses 75%."""
-    today = datetime.now(ET).date().isoformat()
-    if _budget_warn_sent.get("date") == today:
+    if not _once.should_send("budget_warn"):
         return
-    _budget_warn_sent["date"] = today
     pct = spent_usd / ceiling_usd * 100 if ceiling_usd else 0
     _send(
         f"<b>💸 Entry budget {pct:.0f}% used intraday</b>\n"
@@ -129,28 +149,20 @@ def notify_budget_intraday_warning(spent_usd: float, ceiling_usd: float) -> None
     )
 
 
-_drawdown_alerted: dict = {}  # {symbol: date}
-
 def notify_position_drawdown(symbol: str, pnl_pct: float, stop_pct: float) -> None:
     """Alert once per symbol per day when position drawdown > 2% but above stop."""
-    today = datetime.now(ET).date().isoformat()
-    if _drawdown_alerted.get(symbol) == today:
+    if not _once.should_send("drawdown", symbol):
         return
-    _drawdown_alerted[symbol] = today
     _send(
         f"<b>⚠️ {symbol} drawdown {pnl_pct:.1f}%</b>\n"
         f"Stop at {stop_pct:.1f}% — monitor for cascade risk."
     )
 
 
-_sector_flip_alerted: dict = {}  # {sector: date}
-
 def notify_sector_flip(sector_etf: str, change_pct: float, affected_symbols: list[str]) -> None:
     """Alert once per sector per day on intraday sector reversal."""
-    today = datetime.now(ET).date().isoformat()
-    if _sector_flip_alerted.get(sector_etf) == today:
+    if not _once.should_send("sector_flip", sector_etf):
         return
-    _sector_flip_alerted[sector_etf] = today
     syms = ", ".join(affected_symbols[:5])
     _send(
         f"<b>📉 Sector flip: {sector_etf} {change_pct:+.1f}%</b>\n"
@@ -296,20 +308,14 @@ def notify_watch_list(symbols: list[str], regime: str) -> None:
 
 # ── Midday health check ───────────────────────────────────────────────────────
 
-_degraded_alerted: dict[str, bool] = {}   # {source_id_date: True}
-
-
 def notify_data_degraded(source_id: str, guard) -> None:
     """One-shot Telegram alert when a data source activates stale fallback.
 
-    Deduped per source per calendar day.
+    Deduped per source per calendar day via _once.
     guard is a StalenessGuard instance.
     """
-    today = datetime.now(ET).strftime("%Y-%m-%d")
-    sentinel = f"{source_id}_{today}"
-    if _degraded_alerted.get(sentinel):
+    if not _once.should_send("degraded", source_id):
         return
-    _degraded_alerted[sentinel] = True
 
     penalties = [
         f"+{v} composite"
@@ -389,7 +395,13 @@ def notify_eod_summary(
 def notify_bracket_correction_timeout(
     symbol: str, indicative_price: float, sl_pct: float, tp_pct: float
 ) -> None:
-    """Alert when bracket fill-correction times out — SL/TP may be mis-priced vs actual fill."""
+    """Alert when bracket fill-correction times out — SL/TP may be mis-priced vs actual fill.
+
+    Deduped per symbol per day: a genuine poll-timeout for the same symbol within one session
+    should not spam on every subsequent cycle.
+    """
+    if not _once.should_send("bracket_timeout", symbol):
+        return
     _send(
         f"⚠️ BRACKET TIMEOUT {symbol}: fill-slippage correction timed out.\n"
         f"Journaled with indicative entry ~${indicative_price:.2f} | "

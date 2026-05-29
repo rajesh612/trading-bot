@@ -296,7 +296,7 @@ def correct_bracket_after_fill(
                 fill_price = float(order.filled_avg_price)
                 slippage = abs(fill_price - estimated_price) / estimated_price if estimated_price else 0
                 if slippage <= config.FILL_SLIPPAGE_THRESHOLD:
-                    return None
+                    return {}  # {} = filled, no correction needed — distinct from None (timeout)
                 new_sl = round(fill_price * (1 - sl_pct / 100), 2)
                 new_tp = round(fill_price * (1 + tp_pct / 100), 2)
                 for leg in (order.legs or []):

@@ -105,11 +105,12 @@ class TestComputeSwingBookPnl:
         # (190-200)*100 / 100_000 * 100 = -1.0%
         assert _compute_swing_book_pnl({"TSLA": 190.0}, 100_000.0) == pytest.approx(-1.0)
 
-    def test_missing_file_returns_fail_closed(self, tmp_path, monkeypatch):
+    def test_missing_file_returns_healthy(self, tmp_path, monkeypatch):
+        """Missing swing_positions.json means no open swings — book is healthy (0.0), not -999."""
         import config
         monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "no_such_file.json")
         from trading.executor import _compute_swing_book_pnl
-        assert _compute_swing_book_pnl({}, 100_000.0) == pytest.approx(-999.0)
+        assert _compute_swing_book_pnl({}, 100_000.0) == pytest.approx(0.0)
 
     def test_unknown_symbol_falls_back_to_entry_price(self, tmp_path, monkeypatch):
         """Symbol not in stock_data_prices → uses entry_price (no gain assumed)."""

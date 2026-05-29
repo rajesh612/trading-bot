@@ -153,12 +153,8 @@ def refresh_earnings_calendar(symbols: list[str]) -> None:
                 logger.debug(f"earnings refresh skipped {symbol}: {exc}")
                 cache[symbol] = {"next_earnings_date": None}
 
-        save_json(config.EARNINGS_CALENDAR_FILE, {"date": today, "symbols": cache})
-        logger.info(f"Earnings calendar refreshed for {len(symbols)} symbols.")
-        clear_stale(config.EARNINGS_CALENDAR_FILE)
-
-        # Detect systematic failures (e.g. Yahoo 401): if most symbols have no date,
-        # record a failure so the staleness guard can block entries and alert.
+        # Detect systematic failures (e.g. Yahoo 401) BEFORE writing the file so we
+        # preserve yesterday's valid cache rather than overwriting it with null data.
         none_count = sum(
             1 for entry in cache.values()
             if entry.get("next_earnings_date") is None
@@ -166,14 +162,26 @@ def refresh_earnings_calendar(symbols: list[str]) -> None:
         failure_rate = none_count / max(len(symbols), 1)
         if failure_rate >= config.DATA_EARNINGS_FAILURE_RATE_THRESHOLD:
             _tracker.record_failure("earnings")
+            # Only alert when degradation has actual trading impact (penalty or blocked modes).
             guard = get_staleness_guard(tracker=_tracker)
-            telegram_notify.notify_data_degraded("earnings", guard)
+            has_penalty = any(
+                config.DATA_COMPOSITE_PENALTY.get(s, 0) > 0 for s in guard.stale_sources
+            )
+            has_blocks = not guard.auto_execute_allowed or not guard.t2_allowed
+            if has_penalty or has_blocks:
+                telegram_notify.notify_data_degraded("earnings", guard)
             logger.warning(
-                "Earnings calendar degraded: %d/%d symbols have no date (%.0f%% failure — likely 401)",
+                "Earnings calendar degraded: %d/%d symbols have no date (%.0f%% failure — likely 401)"
+                " — preserving yesterday's cache",
                 none_count, len(symbols), failure_rate * 100,
             )
+            return  # do NOT overwrite the file; yesterday's data is still useful
         else:
             _tracker.record_success("earnings")
+
+        save_json(config.EARNINGS_CALENDAR_FILE, {"date": today, "symbols": cache})
+        logger.info(f"Earnings calendar refreshed for {len(symbols)} symbols.")
+        clear_stale(config.EARNINGS_CALENDAR_FILE)
     except Exception as exc:
         logger.error("refresh_earnings_calendar failed: %s", exc)
         mark_stale(config.EARNINGS_CALENDAR_FILE, "earnings")
