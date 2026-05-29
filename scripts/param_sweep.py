@@ -289,16 +289,28 @@ def main() -> None:
         print(f"ERROR: {len(combos)} combos exceeds MAX_COMBOS={MAX_COMBOS}. Reduce SWEEP_AXES.")
         sys.exit(1)
 
-    # Prepend baseline (current config, no patches)
+    # Prepend baseline (current config, no patches) — skip if already in the sweep grid
     current_sl  = get_tp_sl_params("NORMAL", "MEDIUM", "DAY_TRADE").sl_ceiling_pct
     current_dtp = get_day_trade_params("NORMAL", "MEDIUM")
     baseline = {
-        "normal_med_sl_ceiling":    current_sl,
-        "normal_med_late_hour":     current_dtp.late_entry_hour,
+        "normal_med_sl_ceiling":     current_sl,
+        "normal_med_late_hour":      current_dtp.late_entry_hour,
         "normal_med_late_composite": current_dtp.late_composite,
         "_baseline_": True,
     }
-    combos.insert(0, baseline)
+    baseline_key = (current_sl, current_dtp.late_entry_hour, current_dtp.late_composite)
+    already_in_grid = any(
+        (c["normal_med_sl_ceiling"], c["normal_med_late_hour"], c["normal_med_late_composite"]) == baseline_key
+        for c in combos
+    )
+    if already_in_grid:
+        # Mark the matching combo as baseline instead of adding a duplicate run
+        for c in combos:
+            if (c["normal_med_sl_ceiling"], c["normal_med_late_hour"], c["normal_med_late_composite"]) == baseline_key:
+                c["_baseline_"] = True
+                break
+    else:
+        combos.insert(0, baseline)
 
     print(f"Sweep: {len(combos)} combos (incl. baseline)  ·  axes: {axis_names}")
 
