@@ -1,14 +1,16 @@
 # Trading Strategy Memory
-*Last updated: 2026-05-27*
+*Last updated: 2026-05-28*
 
 ---
 
 ## General Rules
 
-- Entry window: **10:00–15:00 ET** only
+- Entry window: **10:00–15:00 ET** only; NORMAL/MEDIUM hard close at 12:00
+- **Composite floor from 10 AM**: composite ≥ 68 required for all NORMAL/MEDIUM day-trade entries from market open onward — validated across 60 trading days (63.9% WR vs 59.2% with the prior 11 AM / ≥ 72 rule)
 - Stop-loss: 3.0–4.0% | Take-profit: ATR-based (ATR% × 2.5, floor 2.0%, ceiling 12%)
 - EOD force-close at 15:55 — do not enter after 14:55 unless composite ≥ 65
 - Parabolic prior run (>40% recent) = hard disqualifier unless PEAD catalyst confirmed
+- **Force-close rate 40–50% is acceptable** — FC exits average near zero P&L; SL exits drive losses
 
 ---
 
@@ -86,3 +88,7 @@
 - **Core principle**: Hard vetos require loss evidence, not theoretical risk. Single-trade loss = soft caution. Multiple losses = hard rule eligible.
 - **Today (2026-05-15)**: Zero trades again. With AI_SEMI and BROAD_TECH both at 100, filtering out every candidate in this regime signals remaining rules may still be over-fitted. If candidates exist tomorrow, default toward entry at appropriate size rather than finding reasons to skip.
 - **stop_hunt_zone gate fixed (2026-05-19)**: The gate had a mathematical defect — the 0.4% threshold with $0.50 spacing always fired for any stock above $62.50, blocking nearly every candidate regardless of actual stop-hunt risk. Fixed by changing threshold to 0.1% and using $1.00 boundaries. The gate now works selectively as intended. Do not treat stop_hunt_zone as a near-universal block.
+- **Composite floor moved to 10 AM (2026-05-28)**: 60d param sweep confirmed `late_entry_hour=10, late_composite=68` is optimal for NORMAL/MEDIUM. WR 63.9% vs 59.2% with prior 11 AM / ≥ 72 rule. The earlier floor catches more high-quality entries in the first hour without degrading win rate.
+- **SL ceiling: 2.0% is correct — do not tighten (2026-05-28)**: Lowering SL ceiling from 2.0% to 1.5% roughly doubles SL hit count (11→25 over 60d) with only ~$30 average improvement per hit. Net P&L is worse across every tested combo. The exits that hurt are SL exits, not force-closes. Fix: better entry selection, not tighter stops.
+- **MACD histogram: soft flag only, not a hard block (2026-05-28)**: Hard blocking entries when MACD histogram < 0 was found to cut TP wins at the same rate as SL losses — the gate is not selective. MACD crossovers (positive at entry → negative now) are valid buy-signal setups. Implemented as: `macd_bearish(x)` soft flag for Claude on day-trade entries only. Momentum-reversal exit handles the flip-after-entry case separately.
+- **Momentum-reversal exit (2026-05-28)**: When a day-trade position is down 0.5–1.5% AND MACD histogram was positive at entry but is now negative → close early with reason `momentum_reversal`. This recovers partial capital before a deeper SL. Does not apply outside that loss band — a clean entry with MACD > 0 that briefly dips should not be closed on every histogram tick.
