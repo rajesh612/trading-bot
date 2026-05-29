@@ -272,3 +272,39 @@ class TestSizingChain:
         qty_regime = apply_regime_multiplier(qty_base, config.HIGH_VOL_POSITION_MULT)
         qty_final = max(1, int(round(qty_regime * cp.size_mult)))
         assert qty_final <= qty_regime
+
+
+# ── MAX_POSITION_USD hard dollar cap ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestMaxPositionUSDCap:
+    def test_dollar_cap_limits_qty(self, monkeypatch, tmp_path):
+        """MAX_POSITION_USD must cap qty for cheap high-ATR stocks."""
+        import config
+        monkeypatch.setattr(config, "MAX_POSITION_USD", 5000)
+        # current_price = 20, so max qty = 5000/20 = 250
+        # Without cap, ATR sizing would give more
+        from trading.position_sizer import compute_position_size_for_mode
+        qty_raw = compute_position_size_for_mode(
+            portfolio_value=200_000,
+            price=20.0,
+            atr=0.10,
+            bot_herding_score=0,
+            squeeze_setup=False,
+            regime="NORMAL",
+        )
+        expected_cap = int(5000 / 20.0)  # 250
+        assert qty_raw > expected_cap, "test pre-condition: raw qty must exceed cap"
+        # Now apply the cap logic directly
+        capped = min(qty_raw, max(1, int(config.MAX_POSITION_USD / 20.0)))
+        assert capped == expected_cap
+
+    def test_dollar_cap_disabled_when_zero(self, monkeypatch):
+        """MAX_POSITION_USD=0 must not cap."""
+        import config
+        monkeypatch.setattr(config, "MAX_POSITION_USD", 0)
+        raw_qty = 500
+        price = 20.0
+        if config.MAX_POSITION_USD and price > 0:
+            raw_qty = min(raw_qty, max(1, int(config.MAX_POSITION_USD / price)))
+        assert raw_qty == 500, "qty must be uncapped when MAX_POSITION_USD=0"

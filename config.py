@@ -64,6 +64,7 @@ MARKET_DATA_PROVIDER = os.getenv("MARKET_DATA_PROVIDER", "yahoo")
 # ── RISK MANAGEMENT ───────────────────────────────────────────────────────────
 
 MAX_POSITION_PCT   = 0.05        # Max 5% of portfolio per position
+MAX_POSITION_USD: int = 10_000   # hard dollar cap per position regardless of portfolio size (0 = disabled)
 RISK_PER_TRADE_PCT = 0.005       # Risk 0.5% of portfolio per trade (ATR-sized)
 STOP_LOSS_PCT      = 3.0         # Lowered from 4.0 — was 2× realized TP avg (~1.95%), creating inverted R:R
 TAKE_PROFIT_PCT    = 5.0         # Default 5% take profit

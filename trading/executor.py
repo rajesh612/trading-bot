@@ -245,6 +245,8 @@ def execute_buy(
     if isinstance(symbol_sentiment, (int, float)):
         qty = apply_sentiment_multiplier(qty, int(symbol_sentiment))
     qty = max(1, int(qty * config.TRANCHE1_SIZE_PCT))  # T1 = 60% of full size
+    if config.MAX_POSITION_USD and iv.current_price > 0:
+        qty = min(qty, max(1, int(config.MAX_POSITION_USD / iv.current_price)))
 
     sl_pct = config.STOP_LOSS_PCT
     tp_pct = config.TAKE_PROFIT_PCT
