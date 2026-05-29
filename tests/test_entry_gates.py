@@ -698,6 +698,62 @@ def test_sector_etf_soft_gate_flags_weak_sector(monkeypatch):
 
 
 @pytest.mark.unit
+class TestCorrelationHardGate:
+    def _make_quality(self, tier="MEDIUM"):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(tier=tier, score=50, unlocks=frozenset(), quality_gaps=(), component_scores={})
+
+    def test_hard_gate_blocks_in_normal(self, monkeypatch):
+        """NORMAL regime: correlation guard must be a hard block."""
+        from signals.entry_gates import check_all_gates
+        monkeypatch.setattr(
+            "signals.entry_gates.passes_correlation_guard",
+            lambda symbol, positions: False,
+        )
+        iv = _gates_iv(composite_score=80, rsi=55.0)
+        _patch_cals(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=iv, open_positions={"MSFT": {}, "GOOGL": {}},
+            daily_closed=set(), bars_15min=None, now=_gates_now(),
+            regime="NORMAL", quality=self._make_quality(),
+        )
+        assert not result.passed, "correlation guard should be a hard block in NORMAL"
+        assert "sector" in result.reason.lower()
+
+    def test_soft_flag_in_bull_trend(self, monkeypatch):
+        """BULL_TREND regime: correlation guard must remain soft (not block)."""
+        from signals.entry_gates import check_all_gates
+        monkeypatch.setattr(
+            "signals.entry_gates.passes_correlation_guard",
+            lambda symbol, positions: False,
+        )
+        iv = _gates_iv(composite_score=80, rsi=55.0)
+        _patch_cals(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=iv, open_positions={},
+            daily_closed=set(), bars_15min=None, now=_gates_now(),
+            regime="BULL_TREND", quality=self._make_quality(),
+        )
+        assert result.passed, f"BULL_TREND should not hard-block on correlation (got: {result.reason})"
+
+    def test_soft_flag_in_opportunity(self, monkeypatch):
+        """OPPORTUNITY regime: correlation guard must remain soft."""
+        from signals.entry_gates import check_all_gates
+        monkeypatch.setattr(
+            "signals.entry_gates.passes_correlation_guard",
+            lambda symbol, positions: False,
+        )
+        iv = _gates_iv(composite_score=80, rsi=55.0)
+        _patch_cals(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=iv, open_positions={},
+            daily_closed=set(), bars_15min=None, now=_gates_now(),
+            regime="OPPORTUNITY", quality=self._make_quality(),
+        )
+        assert result.passed, f"OPPORTUNITY should not hard-block on correlation (got: {result.reason})"
+
+
+@pytest.mark.unit
 def test_price_cap_blocks_expensive_stock(monkeypatch):
     """Stock price above MAX_ENTRY_PRICE is hard-blocked."""
     monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 400)

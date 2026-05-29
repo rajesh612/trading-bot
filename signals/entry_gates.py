@@ -228,6 +228,8 @@ def check_all_gates(
 
     # 14. Correlation guard
     if not passes_correlation_guard(symbol, open_positions):
+        if gp.correlation_hard_gate:
+            return GateResult(False, f"sector concentration limit (regime={regime} tier={quality.tier if quality else 'MEDIUM'})")
         flags.append("sector_limit_soft")
 
     # 15. Sector ETF soft gate

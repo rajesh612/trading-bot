@@ -276,6 +276,7 @@ class GateParams:
     rel_volume_min: float
     breadth_weak_threshold: float
     stop_hunt_veto: bool = True   # False for momentum regimes where near-high is a buy signal
+    correlation_hard_gate: bool = True  # False in momentum regimes where sector concentration is intentional
 
 
 @dataclass(frozen=True)
@@ -575,6 +576,7 @@ def _gate_table() -> dict[tuple[str, str], GateParams]:
                 rel_volume_min=rv,
                 breadth_weak_threshold=bw,
                 stop_hunt_veto=regime not in _STOP_HUNT_VETO_DISABLED,
+                correlation_hard_gate=regime not in {"BULL_TREND", "OPPORTUNITY"},
             )
     return table
 
