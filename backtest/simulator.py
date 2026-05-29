@@ -135,6 +135,8 @@ def _open_trade(
     portfolio_value = state.cash + sum(p["qty"] * p["entry"] for p in state.positions.values())
     entry = _entry_price(bar_open)
     qty = max(1.0, round(_calc_qty(portfolio_value, entry, atr) * pos_mult))
+    if config.MAX_POSITION_USD and entry > 0:
+        qty = min(qty, max(1.0, float(int(config.MAX_POSITION_USD / entry))))
     cost = entry * qty
     if cost > state.cash:
         qty = max(1.0, round(state.cash / entry))
@@ -384,6 +386,8 @@ def _sim_apply_tranche2(pos: dict, bar_low: float, t1_qty: int, portfolio_value:
     shares_by_pct  = (portfolio_value * config.MAX_POSITION_PCT) / price if price > 0 else 1
     full_qty       = max(1, int(min(shares_by_risk, shares_by_pct)))
     t2_qty         = max(1, int(full_qty * config.TRANCHE2_SIZE_PCT))
+    if config.MAX_POSITION_USD and price > 0:
+        t2_qty = min(t2_qty, max(1, int(config.MAX_POSITION_USD / price)))
 
     combined_qty  = t1_qty + t2_qty
     blended_entry = (t1_qty * t1_entry + t2_qty * price) / combined_qty

@@ -278,7 +278,7 @@ class TestSizingChain:
 
 @pytest.mark.unit
 class TestMaxPositionUSDCap:
-    def test_dollar_cap_limits_qty(self, monkeypatch, tmp_path):
+    def test_dollar_cap_limits_qty(self, monkeypatch):
         """MAX_POSITION_USD must cap qty for cheap high-ATR stocks."""
         import config
         monkeypatch.setattr(config, "MAX_POSITION_USD", 5000)

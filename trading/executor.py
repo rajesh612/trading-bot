@@ -400,6 +400,8 @@ def execute_tranche2_addon(
     )
     full_qty = apply_regime_multiplier(full_qty, 1.0)
     t2_qty = max(1, int(full_qty * config.TRANCHE2_SIZE_PCT))
+    if config.MAX_POSITION_USD and current_price > 0:
+        t2_qty = min(t2_qty, max(1, int(config.MAX_POSITION_USD / current_price)))
 
     # Step 4: place T2 market order
     try:
