@@ -735,6 +735,7 @@ class TestCorrelationHardGate:
             regime="BULL_TREND", quality=self._make_quality(),
         )
         assert result.passed, f"BULL_TREND should not hard-block on correlation (got: {result.reason})"
+        assert "sector_limit_soft" in result.flags, "BULL_TREND must inform Claude via sector_limit_soft flag"
 
     def test_soft_flag_in_opportunity(self, monkeypatch):
         """OPPORTUNITY regime: correlation guard must remain soft."""
@@ -751,6 +752,7 @@ class TestCorrelationHardGate:
             regime="OPPORTUNITY", quality=self._make_quality(),
         )
         assert result.passed, f"OPPORTUNITY should not hard-block on correlation (got: {result.reason})"
+        assert "sector_limit_soft" in result.flags, "OPPORTUNITY must inform Claude via sector_limit_soft flag"
 
 
 @pytest.mark.unit
