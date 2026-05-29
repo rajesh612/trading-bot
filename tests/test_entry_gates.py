@@ -906,7 +906,7 @@ class TestDynamicGateParams:
         assert p.profit_lock_pct == pytest.approx(1.0)
 
     @pytest.mark.unit
-    def test_normal_high_swing_profit_lock(self):
+    def test_normal_high_swing_profit_lock(self):  # noqa: keep ordering
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("NORMAL", "HIGH", "SWING")
         assert p.profit_lock_pct == pytest.approx(1.2)
@@ -916,3 +916,51 @@ class TestDynamicGateParams:
         from utils.regime_params import get_tp_sl_params
         p = get_tp_sl_params("CHOPPY", "HIGH", "SWING")
         assert p.profit_lock_pct == pytest.approx(2.0)
+
+
+@pytest.mark.unit
+class TestMACDMomentumGate:
+    """Gate 1c: day-trade entries blocked when MACD histogram is negative."""
+
+    def _now(self):
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 10, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    def _patch(self, monkeypatch):
+        import calendars.earnings as ec
+        import macro.economic_calendar as ecc
+        monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    def test_negative_macd_hist_blocks_day_trade(self, monkeypatch):
+        """MACD histogram < 0 → hard block in DAY_TRADE mode."""
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = _gates_iv(macd_hist=-0.05)
+        result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
+        assert result.passed is False
+        assert "macd" in result.reason.lower()
+
+    def test_positive_macd_hist_passes_gate(self, monkeypatch):
+        """MACD histogram > 0 → gate passes in DAY_TRADE mode."""
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = _gates_iv(macd_hist=0.10)
+        result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
+        assert "macd" not in result.reason.lower()
+
+    def test_macd_gate_bypassed_in_swing_mode(self, monkeypatch):
+        """MACD histogram gate does not apply to SWING mode."""
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = _gates_iv(macd_hist=-0.10)
+        result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="SWING")
+        assert "macd" not in result.reason.lower()
+
+    def test_zero_macd_hist_passes_gate(self, monkeypatch):
+        """MACD histogram = 0 (neutral) is not blocked — only strictly negative triggers."""
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        iv = _gates_iv(macd_hist=0.0)
+        result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
+        assert "macd" not in result.reason.lower()

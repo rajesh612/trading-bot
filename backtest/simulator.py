@@ -430,6 +430,9 @@ def _sim_entry_signal_passes(
     # Gap-up skip (Gate 12)
     if iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
         return False
+    # MACD momentum gate (Gate 1c in check_all_gates) — bearish momentum blocks day-trade entry
+    if iv.macd_hist < config.MACD_HIST_DAY_TRADE_MIN:
+        return False
     return True
 
 
@@ -582,7 +585,13 @@ def simulate_day(
             tier = quality.tier
             if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max):
                 continue
-            if ts_et.hour >= config.ENTRY_LATE_HOUR and iv.composite_score < config.ENTRY_LATE_COMPOSITE_MIN:
+            from utils.regime_params import get_day_trade_params
+            _dtp = get_day_trade_params(regime, tier)
+            if ts_et.hour >= _dtp.hard_close_hour:
+                continue
+            if ts_et.hour >= _dtp.late_entry_hour and iv.composite_score < _dtp.late_composite:
+                continue
+            if _dtp.vwap_slope_min > 0 and iv.vwap_slope < _dtp.vwap_slope_min:
                 continue
             pending_signals[sym] = {"score": iv.composite_score, "atr": iv.atr, "tier": tier}
 

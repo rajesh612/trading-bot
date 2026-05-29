@@ -633,6 +633,91 @@ class TestHighVolEarlyExit:
 
 
 @pytest.mark.unit
+class TestMomentumReversalExit:
+    """run_position_monitor closes day-trade positions early when MACD flips negative."""
+
+    def _make_position(self, entry_macd_hist: float = 0.05, mode_at_entry: str = "DAY_TRADE") -> dict:
+        return {
+            "entry_price": 100.0,
+            "qty": 10,
+            "stop_loss_pct": 2.0,
+            "take_profit_pct": 5.0,
+            "entry_time": "2026-05-26T10:30:00-04:00",
+            "mode_at_entry": mode_at_entry,
+            "entry_indicators": {"macd_hist": entry_macd_hist},
+        }
+
+    def _run_monitor(self, monkeypatch, *, pnl_pct: float, current_macd: float,
+                     entry_macd: float = 0.05, mode: str = "DAY_TRADE"):
+        from unittest.mock import MagicMock, patch
+        from zoneinfo import ZoneInfo
+        ET_zone = ZoneInfo("America/New_York")
+        now = datetime(2026, 5, 26, 11, 30, 0, tzinfo=ET_zone)
+        entry_price = 100.0
+        current_price = entry_price * (1 + pnl_pct / 100)
+        position = self._make_position(entry_macd_hist=entry_macd, mode_at_entry=mode)
+        position["entry_price"] = entry_price
+
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_positions.return_value = {"TSLA": MagicMock()}
+        mock_alpaca.get_latest_price.return_value = current_price
+
+        mock_close = MagicMock()
+        mock_iv = MagicMock()
+        mock_iv.macd_hist = current_macd
+
+        with patch("trading.monitor.load_open_positions", return_value={"TSLA": position}), \
+             patch("trading.monitor.AlpacaClient", return_value=mock_alpaca), \
+             patch("trading.monitor.load_macro_regime", return_value={"regime": "NORMAL"}), \
+             patch("trading.monitor.close_position", mock_close), \
+             patch("trading.monitor.datetime") as mock_dt, \
+             patch("trading.monitor.flush_profit_lock_updates"), \
+             patch("trading.monitor._apply_profit_lock", side_effect=lambda pos, _: pos), \
+             patch("trading.monitor._try_compute_iv", return_value=mock_iv), \
+             patch("trading.monitor._check_drawdown_alerts"), \
+             patch("utils.data_health.get_staleness_guard", side_effect=Exception("skip")):
+            mock_dt.now.return_value = now
+            mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+            from trading.monitor import run_position_monitor
+            run_position_monitor()
+
+        return mock_close
+
+    def test_momentum_reversal_fires_when_macd_flips(self, monkeypatch):
+        """DAY_TRADE, loss=1%, entry_macd>0, current_macd<0 → momentum_reversal fired."""
+        mock_close = self._run_monitor(monkeypatch, pnl_pct=-1.0, current_macd=-0.03, entry_macd=0.05)
+        mock_close.assert_called_once()
+        _, _, _, _, _, reason = mock_close.call_args[0]
+        assert reason == "momentum_reversal"
+
+    def test_momentum_reversal_skips_if_loss_too_small(self, monkeypatch):
+        """P&L only -0.3% (below MOMENTUM_REVERSAL_MIN_LOSS_PCT=0.5) — must NOT fire."""
+        mock_close = self._run_monitor(monkeypatch, pnl_pct=-0.3, current_macd=-0.03, entry_macd=0.05)
+        mock_close.assert_not_called()
+
+    def test_momentum_reversal_skips_if_loss_exceeds_ceiling(self, monkeypatch):
+        """P&L is -1.6% (above MOMENTUM_REVERSAL_MAX_LOSS_PCT=1.5) — SL takes over."""
+        mock_close = self._run_monitor(monkeypatch, pnl_pct=-1.6, current_macd=-0.03, entry_macd=0.05)
+        mock_close.assert_not_called()
+
+    def test_momentum_reversal_skips_if_entry_macd_was_negative(self, monkeypatch):
+        """Entry MACD was already negative — no reversal to detect, must NOT fire."""
+        mock_close = self._run_monitor(monkeypatch, pnl_pct=-1.0, current_macd=-0.03, entry_macd=-0.02)
+        mock_close.assert_not_called()
+
+    def test_momentum_reversal_skips_if_current_macd_still_positive(self, monkeypatch):
+        """Current MACD still positive — momentum intact, must NOT fire."""
+        mock_close = self._run_monitor(monkeypatch, pnl_pct=-1.0, current_macd=0.02, entry_macd=0.05)
+        mock_close.assert_not_called()
+
+    def test_momentum_reversal_skips_for_swing_mode(self, monkeypatch):
+        """mode_at_entry=SWING is not affected by this day-trade-only exit."""
+        mock_close = self._run_monitor(monkeypatch, pnl_pct=-1.0, current_macd=-0.03,
+                                       entry_macd=0.05, mode="SWING")
+        mock_close.assert_not_called()
+
+
+@pytest.mark.unit
 class TestEntryHourTag:
     """entry_hour must be written at BUY time and propagated to every CLOSE record."""
 

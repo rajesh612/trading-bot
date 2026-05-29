@@ -316,6 +316,25 @@ def run_position_monitor():
                         )
                 except Exception as exc:
                     logger.debug("HIGH_VOL early exit: entry_time parse failed for %s: %s", symbol, exc)
+        elif (
+            pos.get("mode_at_entry") == "DAY_TRADE"
+            and not pos.get("is_swing", False)
+            and config.MOMENTUM_REVERSAL_MIN_LOSS_PCT <= -pnl_pct <= config.MOMENTUM_REVERSAL_MAX_LOSS_PCT
+            and (pos.get("entry_indicators") or {}).get("macd_hist", 0.0) > 0
+        ):
+            # MACD flipped negative after a bullish entry — momentum has reversed.
+            # Cut the loss at -0.5% to -1.5% rather than waiting for the -2% SL ceiling.
+            current_iv = _try_compute_iv(symbol, alpaca)
+            if current_iv and current_iv.macd_hist < 0:
+                entry_macd = (pos.get("entry_indicators") or {}).get("macd_hist", 0.0)
+                logger.info(
+                    "MOMENTUM REVERSAL EXIT: %s P&L=%+.2f%% MACD flipped (%+.4f→%+.4f) — cutting loss early",
+                    symbol, pnl_pct, entry_macd, current_iv.macd_hist,
+                )
+                close_position(
+                    symbol, alpaca, open_positions, current_price,
+                    current_iv, "momentum_reversal",
+                )
 
     flush_profit_lock_updates(open_positions)
 

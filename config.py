@@ -231,6 +231,17 @@ HIGH_VOL_EARLY_EXIT_HOUR: int = 14        # 2 PM ET: window opens
 HIGH_VOL_EARLY_EXIT_MIN_HOLD_H: float = 2.0   # position must be held ≥ 2h to qualify
 HIGH_VOL_EARLY_EXIT_MIN_LOSS_PCT: float = 0.5  # must be down ≥ 0.5% (avoids noise exits)
 
+# Momentum-reversal early exit — cuts day-trade losses when MACD flips negative after entry
+# Fires when position is between MIN_LOSS and MAX_LOSS AND MACD_hist reverses from positive to negative.
+# Saves ~1% vs letting position decay to the SL ceiling.
+MOMENTUM_REVERSAL_MIN_LOSS_PCT: float = 0.5   # don't fire on noise; require at least 0.5% loss
+MOMENTUM_REVERSAL_MAX_LOSS_PCT: float = 1.5   # above this SL ceiling takes over; don't double-exit
+
+# MACD momentum confirmation for day-trade entries
+# Block entries where short-term momentum is already bearish (MACD histogram < threshold).
+# Eliminates entries against the prevailing intraday trend.
+MACD_HIST_DAY_TRADE_MIN: float = 0.0          # MACD hist must be strictly > 0 to enter day trade
+
 EOD_HOLDS_EVAL_HOUR    = 15  # hour at which evaluate_eod_holds() runs (ET)
 EOD_HOLDS_EVAL_MINUTE  = 50  # minute at which evaluate_eod_holds() runs (ET)
 SWING_GAP_TIGHTEN_SL_PCT = 2.0  # tighten swing stop to this % when gap down is small

@@ -137,7 +137,15 @@ def check_all_gates(
                 f"VWAP slope {vwap_slope:.3f} < {dtp.vwap_slope_min:.3f} min for day trade ({_tier}/{regime})",
             )
 
-    # 1c. SL blacklist — block re-entry for symbols that hit SL recently
+    # 1c. MACD momentum confirmation — day-trade only.
+    # Block entries when MACD histogram is negative: short-term momentum is bearish.
+    # Exits are dominated by SL trades that entered against declining MACD; this gate prevents them.
+    if mode == "DAY_TRADE":
+        macd_hist = getattr(iv, "macd_hist", 0.0)
+        if macd_hist < config.MACD_HIST_DAY_TRADE_MIN:
+            return GateResult(False, f"MACD histogram {macd_hist:.4f} < {config.MACD_HIST_DAY_TRADE_MIN} — bearish momentum, no day-trade entry")
+
+    # 1d. SL blacklist — block re-entry for symbols that hit SL recently
     if sl_blacklisted:
         return GateResult(False, f"{symbol} is SL-blacklisted (hit stop-loss recently)")
 

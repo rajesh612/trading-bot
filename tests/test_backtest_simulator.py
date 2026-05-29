@@ -9,7 +9,7 @@ from utils.constants import ET
 
 def _make_iv(composite=55.0, rsi=50.0, vwap_slope=0.1, stoch_d=40.0,
              parabolic=False, relative_volume=1.0, prev_close=0.0,
-             current_price=100.0, signal="BUY", atr=2.0):
+             current_price=100.0, signal="BUY", atr=2.0, macd_hist=0.05):
     iv = MagicMock()
     iv.composite_score = composite
     iv.rsi = rsi
@@ -21,6 +21,7 @@ def _make_iv(composite=55.0, rsi=50.0, vwap_slope=0.1, stoch_d=40.0,
     iv.current_price = current_price
     iv.signal = signal
     iv.atr = atr
+    iv.macd_hist = macd_hist
     iv.squeeze_setup = False
     iv.bot_herding_score = 0
     iv.stop_hunt_zone = False
