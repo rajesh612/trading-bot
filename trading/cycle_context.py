@@ -134,9 +134,8 @@ def build_cycle_snapshot(
     major_event_today = False
     try:
         from macro.economic_calendar import get_todays_events
-        _high_impact = {"FOMC", "NFP", "CPI", "PCE", "JOLTS"}
         for _evt in get_todays_events():
-            if any(tag in _evt.get("name", "").upper() for tag in _high_impact):
+            if any(tag in _evt.get("name", "").upper() for tag in config.HIGH_IMPACT_EVENT_TAGS):
                 major_event_today = True
                 break
     except Exception:

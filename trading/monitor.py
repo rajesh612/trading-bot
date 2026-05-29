@@ -87,9 +87,8 @@ def _check_tranche2_triggers(open_positions: dict, alpaca, now: datetime) -> Non
 
     major_event_today = False
     try:
-        _high_impact = {"FOMC", "CPI", "NFP", "PPI", "PCE", "JOLTS", "GDP"}
         for evt in get_todays_events():
-            if any(tag in evt.get("name", "").upper() for tag in _high_impact):
+            if any(tag in evt.get("name", "").upper() for tag in config.HIGH_IMPACT_EVENT_TAGS):
                 major_event_today = True
                 break
     except Exception:

@@ -525,3 +525,9 @@ FRED_BREAKEVEN_HIGH_THRESHOLD    = 3.0   # % breakeven > this → modifier -2
 FRED_CLAIMS_SPIKE_THRESHOLD      = 30000 # WoW initial claims increase >= this
 FRED_MODIFIER_MIN                = -15   # expanded clamp (was effectively ±8)
 FRED_MODIFIER_MAX                = 15
+
+# Canonical high-impact economic event tags — used by cycle_context AND monitor.
+# Never define locally in callers; update this set to add/remove event types.
+HIGH_IMPACT_EVENT_TAGS: frozenset[str] = frozenset({
+    "FOMC", "NFP", "CPI", "PCE", "JOLTS", "PPI", "GDP",
+})

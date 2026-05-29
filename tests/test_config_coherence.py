@@ -275,3 +275,32 @@ def test_entry_late_composite_min_at_least_swing_gate_medium():
         f"ENTRY_LATE_COMPOSITE_MIN={config.ENTRY_LATE_COMPOSITE_MIN} < "
         f"NORMAL/MEDIUM swing gate={sgp.composite_min}"
     )
+
+
+@pytest.mark.unit
+class TestHighImpactEventTagsConsistency:
+    def test_high_impact_event_tags_in_config(self):
+        import config
+        assert hasattr(config, "HIGH_IMPACT_EVENT_TAGS"), \
+            "HIGH_IMPACT_EVENT_TAGS must be defined in config.py"
+        assert isinstance(config.HIGH_IMPACT_EVENT_TAGS, frozenset)
+        # Must include all tags from both original callers
+        for tag in {"FOMC", "NFP", "CPI", "PCE", "JOLTS", "PPI", "GDP"}:
+            assert tag in config.HIGH_IMPACT_EVENT_TAGS, \
+                f"{tag} missing from HIGH_IMPACT_EVENT_TAGS"
+
+    def test_cycle_context_uses_config_constant(self):
+        import trading.cycle_context as cc
+        src = open(cc.__file__).read()
+        assert "HIGH_IMPACT_EVENT_TAGS" in src, \
+            "cycle_context must reference HIGH_IMPACT_EVENT_TAGS"
+        assert '{"FOMC"' not in src and "{'FOMC'" not in src, \
+            "cycle_context must not define its own local event set"
+
+    def test_monitor_uses_config_constant(self):
+        import trading.monitor as mon
+        src = open(mon.__file__).read()
+        assert "HIGH_IMPACT_EVENT_TAGS" in src, \
+            "monitor must reference HIGH_IMPACT_EVENT_TAGS"
+        assert '{"FOMC"' not in src and "{'FOMC'" not in src, \
+            "monitor must not define its own local event set"
