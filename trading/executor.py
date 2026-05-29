@@ -295,6 +295,7 @@ def execute_buy(
             "actual SL/TP may differ.",
             symbol, iv.current_price,
         )
+        telegram_notify.notify_bracket_correction_timeout(symbol, iv.current_price, sl_pct, tp_pct)
 
     position_data = {
         "entry_price": iv.current_price, "qty": qty,
@@ -403,13 +404,22 @@ def execute_tranche2_addon(
     if config.MAX_POSITION_USD and current_price > 0:
         t2_qty = min(t2_qty, max(1, int(config.MAX_POSITION_USD / current_price)))
 
-    # Step 4: place T2 market order
+    # Step 4: place T2 market order and confirm fill price
     try:
         order = alpaca.place_market_order(symbol, t2_qty, "buy")
     except Exception as exc:
         logger.error("T2 %s: place_market_order failed — %s", symbol, exc)
         return None
-    t2_fill = order.get("fill_price") or current_price
+    order_id_t2 = order.get("id")
+    t2_fill = None
+    if order_id_t2:
+        t2_fill = alpaca.get_order_fill_price(order_id_t2, timeout=5.0)
+    if t2_fill is None:
+        logger.warning(
+            "T2 %s: fill price unconfirmed after 5s — using indicative price $%.2f",
+            symbol, current_price,
+        )
+        t2_fill = current_price
 
     # Step 5: blended values
     t1_qty   = pos.get("tranche_1_qty") or pos.get("qty", 0)

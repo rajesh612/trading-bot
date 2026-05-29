@@ -130,6 +130,20 @@ class AlpacaClient:
         """Cancel a single order by ID."""
         self._trading.cancel_order_by_id(order_id)
 
+    def get_order_fill_price(self, order_id: str, timeout: float = 5.0) -> float | None:
+        """Poll for fill price of a market order. Returns None if not confirmed within timeout."""
+        import time as _time
+        deadline = _time.time() + timeout
+        while _time.time() < deadline:
+            try:
+                order = self._trading.get_order_by_id(order_id)
+                if order.filled_avg_price is not None:
+                    return float(order.filled_avg_price)
+            except Exception:
+                pass
+            _time.sleep(0.5)
+        return None
+
     def place_stop_order(self, symbol: str, qty: float, stop_price: float) -> dict:
         """Place a standalone SELL stop order to act as a server-side stop loss."""
         from alpaca.trading.requests import StopOrderRequest

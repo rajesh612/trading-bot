@@ -384,3 +384,14 @@ def notify_eod_summary(
         f"Candidates: {candidates_passed} | Regime flips: {regime_flips}",
     ]
     _send("\n".join(lines))
+
+
+def notify_bracket_correction_timeout(
+    symbol: str, indicative_price: float, sl_pct: float, tp_pct: float
+) -> None:
+    """Alert when bracket fill-correction times out — SL/TP may be mis-priced vs actual fill."""
+    _send(
+        f"⚠️ BRACKET TIMEOUT {symbol}: fill-slippage correction timed out.\n"
+        f"Journaled with indicative entry ~${indicative_price:.2f} | "
+        f"SL={sl_pct:.1f}% TP={tp_pct:.1f}% — verify in Alpaca."
+    )

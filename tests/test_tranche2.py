@@ -399,11 +399,15 @@ class TestExecuteTranche2Addon:
         def _latest_price(symbol):
             return t2_fill
 
+        def _fill_price(order_id, timeout=5.0):
+            return t2_fill  # immediately return the known fill price
+
         fake = _t.SimpleNamespace(
             cancel_order=_cancel,
             place_market_order=_market_order,
             place_stop_order=_stop_order,
             get_latest_price=_latest_price,
+            get_order_fill_price=_fill_price,
         )
         return fake, calls
 
@@ -497,6 +501,7 @@ class TestExecuteTranche2Addon:
             place_market_order=lambda symbol, qty, side: {"id": "mkt-1", "fill_price": 95.0},
             place_stop_order=lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("stop order failed")),
             get_latest_price=lambda s: 95.0,
+            get_order_fill_price=lambda order_id, timeout=5.0: 95.0,
         )
 
         pos = _t2_pos(tranche_1_qty=60, tranche_1_entry=100.0, qty=60, entry_price=100.0)
