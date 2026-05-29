@@ -74,6 +74,8 @@ def _block_medium(symbol, iv, snap, gate_result, quality, mode, entry_time,
     research_sym = snap.research.get(symbol, {})
     sentiment_score = research_sym.get("sentiment_score", 0)
     sentiment_label = research_sym.get("sentiment_label", "NEUTRAL")
+    if research_sym.get("research_degraded"):
+        sentiment_label += "⚠degraded"
     risk_flag = research_sym.get("risk_flag") or ""
     catalyst = research_sym.get("key_catalyst") or ""
     news_summary = (research_sym.get("summary") or "").strip()[:120]
@@ -112,6 +114,8 @@ def _block_high(symbol, iv, snap, gate_result, quality, mode, entry_time,
     research_sym = snap.research.get(symbol, {})
     sentiment_score = research_sym.get("sentiment_score", 0)
     sentiment_label = research_sym.get("sentiment_label", "NEUTRAL")
+    if research_sym.get("research_degraded"):
+        sentiment_label += "⚠degraded"
     intra = (intraday_news or snap.intraday_news.get(symbol, {}))
     intra_shock = intra.get("shock_score", 0)
     intra_sent = intra.get("sentiment_score", sentiment_score)
@@ -349,12 +353,17 @@ def build_dynamic_user_context(now: datetime, portfolio_gain_pct: float = 0.0) -
         ) if held else "Positions: none"
     )
 
-    # Entry window countdown
+    # Entry window countdown — per tier, since hard-close differs by tier (DayTradeParams)
     regime       = get_cached_regime()
-    from utils.regime_params import get_entry_params
-    hard_close_h = get_entry_params(regime).hard_close_hour
-    remaining_m  = max(0, hard_close_h * 60 - now.hour * 60 - now.minute)
-    window_line  = f"Entry window: {remaining_m // 60}h{remaining_m % 60:02d}m remaining"
+    from utils.regime_params import get_day_trade_params
+    _now_min = now.hour * 60 + now.minute
+    _win_parts = []
+    for _tier in ("CONVICTION", "HIGH", "MEDIUM", "LOW"):
+        _rem = get_day_trade_params(regime, _tier).hard_close_hour * 60 - _now_min
+        _win_parts.append(
+            f"{_tier} {_rem // 60}h{_rem % 60:02d}m" if _rem > 0 else f"{_tier} closed"
+        )
+    window_line = "Entry window remaining (ET, by tier): " + " | ".join(_win_parts)
 
     # Flash-crash status
     flash_line = (
@@ -363,16 +372,18 @@ def build_dynamic_user_context(now: datetime, portfolio_gain_pct: float = 0.0) -
         else "Flash crash: clear"
     )
 
-    # Concurrency state — computed from open_pos and regime already in scope
+    # Concurrency state — available slots differ by tier (max_open varies), so break it down
     from utils.regime_params import get_concurrency_params
     _intraday_positions = [p for p in open_pos.values() if not p.get("is_swing")]
     _open_count = len(_intraday_positions)
-    _cp_ctx = get_concurrency_params(regime, "MEDIUM", "DAY_TRADE")
-    _available = max(0, _cp_ctx.max_open - _open_count)
+    _slot_parts = [
+        f"{_tier} {max(0, get_concurrency_params(regime, _tier, 'DAY_TRADE').max_open - _open_count)}"
+        for _tier in ("CONVICTION", "HIGH", "MEDIUM", "LOW")
+    ]
     _ceiling_pct = config.REGIME_HEAT_CEILING.get(regime, 0.20) * 100
     _concurrency_line = (
         f"Open intraday positions: {_open_count} "
-        f"| Available slots (MEDIUM tier): {_available} "
+        f"| Available slots by tier: {', '.join(_slot_parts)} "
         f"| Heat ceiling: {_ceiling_pct:.0f}% (regime={regime})"
     )
 

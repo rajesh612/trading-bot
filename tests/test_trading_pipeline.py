@@ -582,6 +582,33 @@ def test_stock_block_is_under_150_tokens():
 
 
 @pytest.mark.unit
+def test_stock_block_marks_degraded_research():
+    """A research_degraded symbol must show a degraded marker so Claude sees sentiment is blind."""
+    from trading.context_builder import build_stock_block
+    from unittest.mock import MagicMock
+    from signals.entry_gates import GateResult
+    from utils.ticker_quality import TickerQuality
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    iv = MagicMock()
+    iv.composite_score = 55.0; iv.signal = "BUY"; iv.current_price = 100.0; iv.vwap = 99.0
+    iv.rsi = 55.0; iv.vwap_slope = 0.05; iv.or_position = "outside"
+    iv.stoch_k = 60.0; iv.stoch_d = 55.0
+    snap = MagicMock()
+    snap.regime = "NORMAL"
+    snap.research = {"TEST": {"sentiment_score": 0, "sentiment_label": "NEUTRAL",
+                              "research_degraded": True, "summary": ""}}
+    snap.intraday_news = {}
+    quality = TickerQuality("MEDIUM", 50, frozenset(), (), {})
+    gate = GateResult(passed=True, reason="", flags=())
+    entry_time = datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York"))
+
+    block = build_stock_block("TEST", iv, snap, gate, quality, "DAY_TRADE", entry_time)
+    assert "degraded" in block.lower(), f"degraded research must be surfaced to Claude:\n{block}"
+
+
+@pytest.mark.unit
 def test_stock_block_includes_sl_tp_for_existing_position():
     """build_stock_block pos_block must include SL/TP so Claude can assess whether to hold."""
     from trading.context_builder import build_stock_block

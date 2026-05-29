@@ -494,3 +494,58 @@ class TestBacktestMiddayProfitFloor:
         # We verify via simulate_day integration or by checking that pnl_pct < threshold
         pnl_pct = (100.5 / 100.0 - 1) * 100
         assert pnl_pct < config.MIDDAY_PROFIT_FLOOR_PCT, "sanity: 0.5% is below the 1% floor"
+
+
+@pytest.mark.unit
+class TestBacktestTranche2CashConservation:
+    """T2 add-on must debit cash for the shares it adds (live places a real buy order).
+
+    Regression for the phantom-cash bug: _sim_apply_tranche2 grew pos['qty'] and
+    blended the entry but never debited state.cash, so the eventual close credited
+    proceeds for shares that were never paid for — inflating final equity.
+    """
+
+    def _open_position(self, state, symbol="AAPL", entry=100.0, qty=60):
+        """Mirror _open_trade's cash effect for a clean fixture: debit cost, store T1 fields."""
+        state.cash -= entry * qty
+        state.positions[symbol] = {
+            "qty": qty, "entry": entry, "sl": entry * 0.96, "tp": entry * 1.05,
+            "entry_ts": "2026-01-02 10:30:00+00:00", "entry_time": "2026-01-02 10:30:00+00:00",
+            "composite": 60.0, "quality_tier": "MEDIUM",
+            "tranche_1_entry": entry, "tranche_1_qty": qty, "tranche_2_triggered": False,
+        }
+
+    def test_tranche2_addon_debits_cash_for_added_shares(self):
+        from backtest.simulator import SimState, _sim_apply_tranche2
+        state = SimState(cash=100_000.0)
+        self._open_position(state, entry=100.0, qty=60)
+        cash_before = state.cash
+        bar_low = 98.0
+        portfolio_value = state.cash + 60 * 100.0
+
+        _sim_apply_tranche2(state, state.positions["AAPL"], bar_low, 60, portfolio_value)
+
+        t2_qty = state.positions["AAPL"]["tranche_2_qty"]
+        assert t2_qty >= 1, "T2 must add at least one share"
+        expected_debit = t2_qty * bar_low
+        assert state.cash == pytest.approx(cash_before - expected_debit), (
+            "T2 add-on must debit cash for the added shares "
+            f"(expected -{expected_debit}, cash {cash_before}->{state.cash})"
+        )
+
+    def test_full_roundtrip_with_tranche2_conserves_cash(self):
+        """After open -> T2 add-on -> full close, cash == start + sum(realized pnl)."""
+        from backtest.simulator import SimState, _sim_apply_tranche2, _close_trade
+        start_cash = 100_000.0
+        state = SimState(cash=start_cash)
+        self._open_position(state, entry=100.0, qty=60)
+        portfolio_value = state.cash + 60 * 100.0
+        _sim_apply_tranche2(state, state.positions["AAPL"], 98.0, 60, portfolio_value)
+
+        _close_trade(state, "AAPL", "2026-01-02 15:00:00", 101.0, "FORCE_CLOSE", "2026-01-02")
+
+        realized = sum(t.pnl for t in state.trades)
+        assert state.cash == pytest.approx(start_cash + realized), (
+            "round-trip cash must reconcile with realized P&L — phantom cash leak "
+            f"(cash={state.cash}, expected={start_cash + realized})"
+        )

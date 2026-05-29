@@ -33,6 +33,26 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 
+def _size_entry_qty(
+    portfolio_value: float, price: float, atr: float, herding: int, squeeze: bool,
+    regime: str, pos_mult: float, size_mult: float, sentiment_score,
+) -> int:
+    """Full intended position size (pre tranche-1 split).
+
+    max_position_pct is applied as the FINAL clamp — after the regime, concurrency,
+    and sentiment multipliers — so it is a hard ceiling no multiplier can breach.
+    """
+    qty = compute_position_size_for_mode(portfolio_value, price, atr, herding, squeeze, regime=regime)
+    qty = apply_regime_multiplier(qty, pos_mult)
+    qty = max(1, int(round(qty * size_mult)))
+    if isinstance(sentiment_score, (int, float)):
+        qty = apply_sentiment_multiplier(qty, int(sentiment_score))
+    if price > 0:
+        max_qty = int((portfolio_value * get_entry_params(regime).max_position_pct) / price)
+        qty = min(qty, max(1, max_qty))
+    return max(1, qty)
+
+
 def _get_sector_sentiment(research_meta: dict, symbol: str) -> float:
     """Return sector-level NLP sentiment score for symbol's sector from research __meta__."""
     try:
@@ -235,17 +255,11 @@ def execute_buy(
         logger.info("SKIP %s — composite=%+.1f below effective gate %d (regime=%s)", symbol, iv.composite_score, eff_gate, regime)
         return None
 
-    qty = compute_position_size_for_mode(
+    qty = _size_entry_qty(
         portfolio_value, iv.current_price, iv.atr,
-        iv.bot_herding_score, iv.squeeze_setup, regime=regime,
+        iv.bot_herding_score, iv.squeeze_setup, regime,
+        pos_mult, cp.size_mult, symbol_sentiment,
     )
-    qty = apply_regime_multiplier(qty, pos_mult)
-    qty = max(1, int(round(qty * cp.size_mult)))
-    if iv.current_price > 0:
-        _max_qty = int((portfolio_value * get_entry_params(regime).max_position_pct) / iv.current_price)
-        qty = min(qty, max(1, _max_qty))
-    if isinstance(symbol_sentiment, (int, float)):
-        qty = apply_sentiment_multiplier(qty, int(symbol_sentiment))
     qty = max(1, int(qty * config.TRANCHE1_SIZE_PCT))  # T1 = 60% of full size
     if config.MAX_POSITION_USD and iv.current_price > 0:
         qty = min(qty, max(1, int(config.MAX_POSITION_USD / iv.current_price)))

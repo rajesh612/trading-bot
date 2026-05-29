@@ -50,9 +50,11 @@ def _fetch_daily_bars_for_cap_check(symbols: list[str]) -> dict:
 _RESEARCH_LOCK = threading.Lock()
 
 
-def _make_report_entry(analysis: dict, stocktwits: dict, reddit_data: dict, x_data: dict) -> dict:
+def _make_report_entry(analysis: dict, stocktwits: dict, reddit_data: dict, x_data: dict,
+                       degraded: bool = False) -> dict:
     return {
         "timestamp":               datetime.now(ET).isoformat(),
+        "research_degraded":       degraded,
         "sentiment_score":         analysis.get("combined_sentiment_score", 0),
         "sentiment_label":         analysis.get("combined_sentiment_label", "NEUTRAL"),
         "news_sentiment_score":    analysis.get("news_sentiment_score", 0),
@@ -160,6 +162,7 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
         # ── Phase B: Sequential Claude analysis (rate-limit safe) ─────────────
         for symbol in watch_list:
             stock_news, stocktwits, reddit_data, x_data = fetched.get(symbol, ([], {}, {}, {}))
+            _degraded = False
             try:
                 quick = _quick_sentiment_result(stocktwits, stock_news)
                 if quick is not None:
@@ -180,15 +183,17 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
                         symbol, _api_failures, len(watch_list),
                     )
                     _api_limit_hit = True
-                    report[symbol] = _make_report_entry(dict(_neutral_defaults), stocktwits, reddit_data, x_data)
+                    report[symbol] = _make_report_entry(dict(_neutral_defaults), stocktwits, reddit_data, x_data, degraded=True)
                     break
                 logger.warning(f"  {symbol}: research API error {exc.status_code} — {exc}")
                 analysis = dict(_neutral_defaults)
+                _degraded = True
             except Exception as exc:
                 logger.warning(f"  {symbol}: research failed, using neutral defaults — {exc}")
                 analysis = dict(_neutral_defaults)
+                _degraded = True
 
-            report[symbol] = _make_report_entry(analysis, stocktwits, reddit_data, x_data)
+            report[symbol] = _make_report_entry(analysis, stocktwits, reddit_data, x_data, degraded=_degraded)
 
             logger.info(
                 f"    {symbol}: news={analysis.get('news_sentiment_label')}({analysis.get('news_sentiment_score'):+d}) | "
@@ -227,10 +232,16 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
             if sectors.is_tier1(symbol) and data.get("sentiment_score", 0) < -30:
                 capitulation_candidates.append(symbol)
 
+        degraded_count = sum(
+            1 for s, d in report.items()
+            if s != "__meta__" and isinstance(d, dict) and d.get("research_degraded")
+        )
         report["__meta__"] = {
             "sector_sentiment":      sector_sentiment,
             "macro_shock_score":     macro_shock_score,
             "capitulation_candidates": capitulation_candidates,
+            "research_degraded_count": degraded_count,
+            "research_degraded":     degraded_count > 0,
             "timestamp":             datetime.now(ET).isoformat(),
         }
 

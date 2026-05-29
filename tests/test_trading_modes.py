@@ -274,6 +274,36 @@ class TestSizingChain:
         qty_final = max(1, int(round(qty_regime * cp.size_mult)))
         assert qty_final <= qty_regime
 
+    def test_positive_sentiment_cannot_breach_max_position_pct(self, monkeypatch):
+        """Full intended size must respect max_position_pct even with strong +sentiment.
+
+        Regression: the sentiment multiplier was applied AFTER the % clamp, so a
+        +sentiment name reached ~1.25× the regime cap. The clamp must be last.
+        """
+        import trading.position_sizer as ps
+        monkeypatch.setattr(ps, "count_todays_losses", lambda: 0)
+        from trading import executor
+        from utils.regime_params import get_entry_params
+        portfolio_value = 100_000.0
+        price = 100.0
+        max_qty = int((portfolio_value * get_entry_params("NORMAL").max_position_pct) / price)  # 50
+        qty = executor._size_entry_qty(
+            portfolio_value=portfolio_value, price=price, atr=0.5,
+            herding=0, squeeze=False, regime="NORMAL",
+            pos_mult=1.0, size_mult=1.35, sentiment_score=80,
+        )
+        assert qty <= max_qty, f"full size {qty} exceeds max_position_pct cap of {max_qty} shares"
+
+    def test_sentiment_still_scales_size_below_cap(self, monkeypatch):
+        """A positive-sentiment name below the cap must be sized >= its neutral size."""
+        import trading.position_sizer as ps
+        monkeypatch.setattr(ps, "count_todays_losses", lambda: 0)
+        from trading import executor
+        # atr large so risk-based size is below the % cap → sentiment can scale it
+        neutral = executor._size_entry_qty(100_000.0, 100.0, 20.0, 0, False, "NORMAL", 1.0, 1.0, 0)
+        positive = executor._size_entry_qty(100_000.0, 100.0, 20.0, 0, False, "NORMAL", 1.0, 1.0, 80)
+        assert positive >= neutral and positive > 1
+
 
 # ── MAX_POSITION_USD hard dollar cap ─────────────────────────────────────────
 

@@ -688,14 +688,15 @@ class TestSimTranche2:
         monkeypatch.setattr(config, "ATR_FALLBACK_PROXY_PCT", 0.02)
         monkeypatch.setattr(config, "MAX_POSITION_PCT", 0.05)
 
-        from backtest.simulator import _sim_apply_tranche2
+        from backtest.simulator import _sim_apply_tranche2, SimState
 
         # T1: 60 shares @ $100, bar low = $95 (5% drop — in window)
         pos = {
             "entry": 100.0, "qty": 60, "tranche_1_entry": 100.0,
             "tranche_2_triggered": False, "sl": 96.0, "tp": 105.0,
         }
-        _sim_apply_tranche2(pos, bar_low=95.0, t1_qty=60, portfolio_value=100_000.0)
+        state = SimState(cash=100_000.0)
+        _sim_apply_tranche2(state, pos, bar_low=95.0, t1_qty=60, portfolio_value=100_000.0)
 
         assert pos["tranche_2_triggered"] is True
         t2_qty = pos["tranche_2_qty"]
@@ -772,7 +773,7 @@ class TestSimTranche2:
         monkeypatch.setattr(config, "ATR_FALLBACK_PROXY_PCT", 0.02)
         monkeypatch.setattr(config, "MAX_POSITION_PCT", 0.05)
 
-        sim._sim_apply_tranche2(pos, 97.5, 10, 100_000.0)
+        sim._sim_apply_tranche2(state, pos, 97.5, 10, 100_000.0)
         state.t2_fire_count += 1  # mimic the call site increment
         assert state.t2_fire_count == 1
         assert pos.get("tranche_2_triggered") is True

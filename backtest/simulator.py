@@ -379,8 +379,15 @@ def _sim_tranche2_gates_pass(
     return True
 
 
-def _sim_apply_tranche2(pos: dict, bar_low: float, t1_qty: int, portfolio_value: float) -> None:
-    """Update position dict in-place with blended T2 values. Mutates pos."""
+def _sim_apply_tranche2(
+    state: SimState, pos: dict, bar_low: float, t1_qty: int, portfolio_value: float
+) -> None:
+    """Update position dict in-place with blended T2 values and debit cash.
+
+    Live execute_tranche2_addon places a real buy order, so the backtest must
+    debit cash for the added shares; otherwise the eventual close credits
+    proceeds for shares never paid for, inflating equity (phantom cash).
+    """
     t1_entry = pos.get("tranche_1_entry", pos.get("entry", 0))
     price    = bar_low
 
@@ -392,11 +399,18 @@ def _sim_apply_tranche2(pos: dict, bar_low: float, t1_qty: int, portfolio_value:
     t2_qty         = max(1, int(full_qty * config.TRANCHE2_SIZE_PCT))
     if config.MAX_POSITION_USD and price > 0:
         t2_qty = min(t2_qty, max(1, int(config.MAX_POSITION_USD / price)))
+    # Cap to affordable shares (mirrors _open_trade); skip add-on if cash can't cover one share.
+    if price > 0:
+        t2_qty = min(t2_qty, int(state.cash / price))
+    if t2_qty < 1:
+        pos["tranche_2_triggered"] = True
+        return
 
     combined_qty  = t1_qty + t2_qty
     blended_entry = (t1_qty * t1_entry + t2_qty * price) / combined_qty
     blended_sl    = price * (1 - config.TRANCHE2_SL_PCT / 100)
 
+    state.cash -= t2_qty * price
     pos["tranche_2_triggered"] = True
     pos["tranche_2_qty"]       = t2_qty
     pos["qty"]                 = combined_qty
@@ -601,7 +615,7 @@ def simulate_day(
                         )
                         if _sim_tranche2_gates_pass(pos, iv_at_bar, drop_pct, regime, ts_et, quality=t2_quality):
                             current_portfolio = state.cash + _pos_value_at(state, day_bars, ts)
-                            _sim_apply_tranche2(pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
+                            _sim_apply_tranche2(state, pos, float(bar["low"]), int(pos.get("qty", 1)), current_portfolio)
                             state.t2_fire_count += 1
 
         if is_force:

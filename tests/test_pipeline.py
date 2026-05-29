@@ -1376,7 +1376,41 @@ class TestContextBuilderAdditions:
             ctx = build_dynamic_user_context(
                 datetime(2026, 5, 24, 10, 30, tzinfo=ET), 0.0
             )
-        assert "Entry window:" in ctx
+        assert "Entry window remaining" in ctx
+
+    @pytest.mark.unit
+    def test_entry_window_is_per_tier_accurate(self):
+        """Window must reflect per-tier DayTradeParams cutoffs, not the loosest tier.
+
+        NORMAL hard_close: CONVICTION=13, HIGH/MEDIUM=12, LOW=11. At 12:30 ET only
+        CONVICTION is still open — the old code reported one CONVICTION-level number
+        for all tiers, overstating MEDIUM/HIGH/LOW.
+        """
+        from trading.context_builder import build_dynamic_user_context
+        from datetime import datetime
+        from utils.constants import ET
+        from unittest.mock import patch
+        with patch("trading.context_builder.get_cached_regime", return_value="NORMAL"), \
+             patch("trading.context_builder.load_open_positions", return_value={}), \
+             patch("trading.context_builder.is_flash_crash_active", return_value=False):
+            ctx = build_dynamic_user_context(datetime(2026, 5, 24, 12, 30, tzinfo=ET), 0.0)
+        assert "CONVICTION 0h30m" in ctx, ctx
+        assert "MEDIUM closed" in ctx, ctx
+
+    @pytest.mark.unit
+    def test_available_slots_shown_per_tier(self):
+        """Available-slots line must break down by tier, not hardcode MEDIUM."""
+        from trading.context_builder import build_dynamic_user_context
+        from datetime import datetime
+        from utils.constants import ET
+        from unittest.mock import patch
+        with patch("trading.context_builder.get_cached_regime", return_value="NORMAL"), \
+             patch("trading.context_builder.load_open_positions", return_value={}), \
+             patch("trading.context_builder.is_flash_crash_active", return_value=False):
+            ctx = build_dynamic_user_context(datetime(2026, 5, 24, 10, 30, tzinfo=ET), 0.0)
+        # NORMAL max_open: CONVICTION=4, MEDIUM=2, LOW=1 — distinct numbers must appear
+        assert "slots by tier" in ctx.lower(), ctx
+        assert "CONVICTION 4" in ctx and "MEDIUM 2" in ctx, ctx
 
     @pytest.mark.unit
     def test_context_includes_flash_crash_status(self, monkeypatch):
