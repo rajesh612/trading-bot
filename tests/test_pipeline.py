@@ -1005,6 +1005,42 @@ class TestAutoExecuteWhenBudgetExhausted:
         )
 
     @pytest.mark.unit
+    def test_auto_execute_passes_actual_symbol_ret5d(self):
+        """Auto-execute must thread the real 5d return into execute_buy, not hardcode 0.0."""
+        from trading.pipeline import TradingPipeline
+        from trading import risk_manager
+
+        captured = {}
+
+        def fake_execute_buy(**kwargs):
+            captured["symbol_ret5d"] = kwargs.get("symbol_ret5d")
+            return None
+
+        composite = 76.0
+        iv = self._make_iv("AUTO", composite=composite)
+        snap = self._snap(
+            research={"AUTO": {"sentiment_score": 25}},
+            intraday_news={"AUTO": {"shock_score": 0, "sentiment_score": 25}},
+        )
+        # _fetch_symbol_data returns (symbol, iv, existing_pos, symbol_ret5d)
+        with patch("trading.pipeline._fetch_symbol_data", return_value=("AUTO", iv, None, -3.5)), \
+             patch("trading.pipeline.execute_buy", side_effect=fake_execute_buy) as mock_buy, \
+             patch("trading.pipeline.load_open_positions", return_value={}), \
+             patch("trading.pipeline.load_daily_closed", return_value=set()), \
+             patch("trading.pipeline._ask_claude_batch", return_value={}), \
+             patch("trading.pipeline._ask_claude_exit_batch", return_value={}):
+            TradingPipeline().run(
+                symbols=["AUTO"], snap=snap,
+                ai=MagicMock(), now=datetime(2026, 5, 13, 10, 30, tzinfo=ET),
+                alpaca=MagicMock(), portfolio_value=10000, buying_power=5000,
+                can_open=True,
+            )
+        mock_buy.assert_called_once()
+        assert captured.get("symbol_ret5d") == -3.5, (
+            f"Expected symbol_ret5d=-3.5, got {captured.get('symbol_ret5d')}"
+        )
+
+    @pytest.mark.unit
     def test_auto_execute_runs_when_budget_exhausted(self):
         """AUTO_EXECUTE candidates are collected and execute_buy is called even when entry budget exhausted."""
         from trading.pipeline import TradingPipeline

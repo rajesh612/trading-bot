@@ -167,7 +167,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
     new_entries = 0
     entries_this_cycle = 0
     batch: list[dict] = []
-    for symbol, iv, quality in auto_execute:
+    for symbol, iv, quality, symbol_ret5d in auto_execute:
         if entries_this_cycle >= config.MAX_ENTRIES_PER_CYCLE_BURST:
             logger.info(
                 "[BURST-CAP] %d entries this cycle — remaining auto-execute candidates skipped",
@@ -191,7 +191,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
             kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
                                         pos_mult, spy_ret5d, rsi_max, now, daily_pnl_pct)
             pead_ok_flag = "PEAD_EXTENDED_WINDOW" in (quality.unlocks if quality else frozenset())
-            pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=0.0,
+            pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=symbol_ret5d,
                                    quality=quality, pead_ok=pead_ok_flag, **kwargs)
             if pos_data is not None:
                 new_entries += 1
@@ -319,7 +319,7 @@ class TradingPipeline:
         from utils.regime_params import get_concurrency_params as _gcp
         _intraday_open = [p for p in open_positions.values() if not p.get("is_swing")]
         _intraday_count = len(_intraday_open)
-        for symbol, iv, existing_pos, _ in stock_data:
+        for symbol, iv, existing_pos, symbol_ret5d_val in stock_data:
             if existing_pos:
                 _ep = existing_pos.get("entry_price", 0)
                 pnl_pct = (iv.current_price - _ep) / _ep * 100 if _ep > 0 else 0.0
@@ -344,7 +344,7 @@ class TradingPipeline:
                 _record_telemetry(ts_str, symbol, "SKIP", "concurrency_pre_skip", iv)
                 continue
             if filt.decision == "AUTO_EXECUTE":
-                auto_execute.append((symbol, iv, filt.quality))
+                auto_execute.append((symbol, iv, filt.quality, symbol_ret5d_val))
                 logger.info("AUTO-EXECUTE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)
                 _record_telemetry(ts_str, symbol, "AUTO_EXECUTE", filt.reason, iv)
             elif not risk_manager.is_entry_budget_exhausted():
