@@ -653,6 +653,7 @@ def _make_snap_pipeline(regime="NORMAL"):
     snap.intraday_news = {}
     snap.sector_today = {}
     snap.staleness_guard = FRESH_GUARD
+    snap.circuit_breaker_composite_boost = 0
     return snap
 
 

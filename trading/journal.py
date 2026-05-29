@@ -102,12 +102,11 @@ def _entry_timestamp(entry: dict) -> datetime:
 
 
 def get_recent_force_close_pnls(n: int, date_str: str | None = None) -> list[float]:
-    """Return pnl_dollar values for the last n FORCE_CLOSE entries today (oldest first).
+    """Return pnl_dollar values for the last n EOD force-close entries (eod_force_*) today (oldest first).
 
     Returns fewer than n items if today has fewer qualifying closes.
     Returns [] if journal is empty or unreadable.
     """
-    from datetime import datetime
     target_date = date_str or datetime.now(ET).strftime("%Y-%m-%d")
     try:
         journal = load_journal()
@@ -116,7 +115,7 @@ def get_recent_force_close_pnls(n: int, date_str: str | None = None) -> list[flo
     today_fc = [
         e for e in journal
         if e.get("type") == "CLOSE"
-        and e.get("close_reason", "").upper() == "FORCE_CLOSE"
+        and e.get("close_reason", "").startswith("eod_force_")
         and (e.get("timestamp") or "").startswith(target_date)
     ]
     return [e["pnl_dollar"] for e in today_fc[-n:] if "pnl_dollar" in e]

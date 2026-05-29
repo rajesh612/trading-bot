@@ -68,7 +68,7 @@ def apply_pre_claude_filter(
         iv, snap.regime, params=snap.params,
         staleness_guard=snap.staleness_guard,
     )
-    cb_boost = int(getattr(snap, "circuit_breaker_composite_boost", 0) or 0)
+    cb_boost = snap.circuit_breaker_composite_boost
     composite_min = max(eff_gate, fp.composite_min) + cb_boost
     if iv.composite_score < composite_min:
         boost_note = f" +{cb_boost}cb" if cb_boost else ""
@@ -123,7 +123,7 @@ def apply_pre_claude_filter(
     ae = get_auto_execute_params(snap.regime, quality.tier)
     if ae.composite_offset != 999:
         ep = get_entry_params(snap.regime)
-        ae_threshold = ep.composite_min + ae.composite_offset
+        ae_threshold = ep.composite_min + ae.composite_offset + cb_boost
         ae_sentiment_ok = intra_sent > ae.sentiment_min
         if ae.extra_unlock == "SUB_ETF_CONFIRM_03":
             ae_unlock_ok = sub_etf_chg >= config.SUB_ETF_CONFIRM_MIN_03

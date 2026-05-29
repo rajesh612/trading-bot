@@ -1144,6 +1144,7 @@ class TestDynamicPreClaudeFilter:
         snap.staleness_guard = MagicMock(auto_execute_allowed=True, composite_penalty=0)
         snap.regime_info = {"macro_health_score": 80}
         snap.research_meta = {"macro_shock_score": 0}
+        snap.circuit_breaker_composite_boost = 0
         return snap
 
     @pytest.mark.unit

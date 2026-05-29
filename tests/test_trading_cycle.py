@@ -231,9 +231,9 @@ class TestCircuitBreakerCompositeBoost:
         today = datetime.now(ET).strftime("%Y-%m-%d")
 
         save_json(tmp_path / "journal.json", [
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -30.0, "timestamp": f"{today}T11:00:00"},
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -20.0, "timestamp": f"{today}T12:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -30.0, "timestamp": f"{today}T11:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -20.0, "timestamp": f"{today}T12:00:00"},
         ])
 
         pnls = journal_mod.get_recent_force_close_pnls(3)
@@ -260,9 +260,9 @@ class TestCircuitBreakerCompositeBoost:
         today = datetime.now(ET).strftime("%Y-%m-%d")
 
         save_json(tmp_path / "journal.json", [
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": +30.0, "timestamp": f"{today}T11:00:00"},
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -20.0, "timestamp": f"{today}T12:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_profitable", "pnl_dollar": +30.0, "timestamp": f"{today}T11:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -20.0, "timestamp": f"{today}T12:00:00"},
         ])
 
         pnls = journal_mod.get_recent_force_close_pnls(3)
@@ -286,8 +286,8 @@ class TestCircuitBreakerCompositeBoost:
         today = datetime.now(ET).strftime("%Y-%m-%d")
 
         save_json(tmp_path / "journal.json", [
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
-            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -30.0, "timestamp": f"{today}T11:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
+            {"type": "CLOSE", "close_reason": "eod_force_loss", "pnl_dollar": -30.0, "timestamp": f"{today}T11:00:00"},
         ])
 
         pnls = journal_mod.get_recent_force_close_pnls(5)
