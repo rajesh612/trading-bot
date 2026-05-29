@@ -123,7 +123,7 @@ def apply_pre_claude_filter(
     ae = get_auto_execute_params(snap.regime, quality.tier)
     if ae.composite_offset != 999:
         ep = get_entry_params(snap.regime)
-        ae_threshold = ep.composite_min + ae.composite_offset + cb_boost
+        ae_threshold = max(ep.composite_min, fp.composite_min) + ae.composite_offset + cb_boost
         ae_sentiment_ok = intra_sent > ae.sentiment_min
         if ae.extra_unlock == "SUB_ETF_CONFIRM_03":
             ae_unlock_ok = sub_etf_chg >= config.SUB_ETF_CONFIRM_MIN_03

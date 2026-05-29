@@ -1169,6 +1169,44 @@ class TestDynamicPreClaudeFilter:
         src = inspect.getsource(pcf)
         assert 'regime == "DEFENSIVE"' not in src or "Rule 23" in src
 
+    @pytest.mark.unit
+    def test_ae_threshold_respects_tier_composite_floor(self, monkeypatch):
+        """AE threshold uses max(regime_floor, tier_floor) to prevent premature auto-execute.
+
+        Scenario: fp.composite_min=50, ep.composite_min=30, offset=15, composite=60.
+        Old logic: ae_threshold = 30+15 = 45 → 60 > 45 → AUTO_EXECUTE (wrong).
+        New logic: ae_threshold = max(30,50)+15 = 65 → 60 < 65 → CLAUDE (correct).
+        Layer 1 allows composite=60 because 60 >= fp.composite_min=50.
+        """
+        from unittest.mock import MagicMock
+        import trading.pre_claude_filter as pcf
+        from utils.regime_params import FilterParams, AutoExecuteParams, EntryParams
+
+        monkeypatch.setattr(pcf, "get_filter_params",
+            lambda regime, tier: FilterParams(composite_min=50, sentiment_hard_block=-50, intraday_block=-50))
+        monkeypatch.setattr(pcf, "get_auto_execute_params",
+            lambda regime, tier: AutoExecuteParams(composite_offset=15, sentiment_min=-100, extra_unlock=None))
+        monkeypatch.setattr(pcf, "get_entry_params",
+            lambda regime: EntryParams(composite_min=30, rsi_max=65))
+
+        snap = self._make_snap("NORMAL")
+        snap.circuit_breaker_composite_boost = 0
+        snap.fred_cache = {}
+        # macro health and shock pass layers 3 (health=80 already set in snap)
+
+        iv = MagicMock()
+        iv.composite_score = 60.0  # passes Layer1 (≥50); old AE: 30+15=45 → AE; new: max(30,50)+15=65 → CLAUDE
+        iv.rsi = 50.0
+        iv.relative_volume = 1.2
+        iv.vwap_slope = 0.01
+        iv.squeeze_setup = False
+        iv.bot_herding_score = 0
+
+        result = pcf.apply_pre_claude_filter("AAPL", iv, snap)
+        assert result.decision == "CLAUDE", (
+            f"Expected CLAUDE (tier floor raises AE bar), got {result.decision}: {result.reason}"
+        )
+
 
 # ── derive_mode 5-mode tests ──────────────────────────────────────────────────
 class TestDeriveMode:
