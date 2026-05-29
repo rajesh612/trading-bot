@@ -388,7 +388,8 @@ CLAUDE_CB_LIMIT_TTL = 86400.0     # circuit breaker cooldown (s) on 400 "usage l
 # ── LEARNING & MEMORY ─────────────────────────────────────────────────────────
 
 LEARNING_ZERO_TRADE_RSI_STEP = 2   # relax RSI_BUY_MAX by this on zero-trade days
-LEARNING_ROLLING_DAYS        = 5   # days of trade history to analyze (prevents single-day overfit)
+LEARNING_ROLLING_DAYS        = 5
+LEARNING_MAX_TRADES_FOR_CLAUDE: int = 25   # send at most this many trades (most recent) to learning agent   # days of trade history to analyze (prevents single-day overfit)
 INDICATOR_WEIGHT_MAX_MULT    = 2.0 # max multiplier vs. default weight (prevents one indicator dominating)
 INDICATOR_WEIGHT_MIN_MULT    = 0.3 # min multiplier vs. default weight
 STRATEGY_MEMORY_BACKUP_MAX   = 7   # keep this many daily .bak files before pruning

@@ -107,6 +107,9 @@ def run_learning_agent():
         / len(closed_trades)
     ) if closed_trades else 0.0
 
+    # Cap trades sent to Claude — large payloads add latency; most-recent trades are highest signal
+    trades_for_analysis = closed_trades[-config.LEARNING_MAX_TRADES_FOR_CLAUDE:]
+
     # ── Step 1: Performance + regime analysis ────────────────────────────────
     analysis_response = ai.messages.create(
         model=config.CLAUDE_MODEL,
@@ -147,7 +150,7 @@ def run_learning_agent():
                     f"<performance_by_regime>{json.dumps(regime_agg)}</performance_by_regime>\n\n"
                     f"<regime_winrates>{json.dumps(regime_winrate)}</regime_winrates>\n\n"
                     f"<loss_sources>{json.dumps(loss_sources)}</loss_sources>\n\n"
-                    f"<trades>{json.dumps(closed_trades)}</trades>\n\n"
+                    f"<trades>{json.dumps(trades_for_analysis)}</trades>\n\n"
                     f"<weights>{json.dumps(current_weights)}</weights>\n\n"
                     f"<params>{json.dumps(current_params)}</params>\n\n"
                     f"<performance_by_tier>{json.dumps(tier_agg)}</performance_by_tier>\n\n"
