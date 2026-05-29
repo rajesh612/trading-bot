@@ -393,38 +393,59 @@ All state files live under `data/state/`.
 ## Backtesting
 
 ```bash
-# Last 30 trading days (default) — always tee to a file so the full output is preserved
+# Last 30 trading days (default) — tee to a file so the full output is preserved
 .venv/bin/python3 backtest.py 2>&1 | tee /tmp/bt_30d.txt
 
-# Last N trading days (60d recommended for validation — covers multiple regime transitions)
+# Last N trading days (60d recommended — covers multiple regime transitions)
 .venv/bin/python3 backtest.py --days 60 2>&1 | tee /tmp/bt_60d.txt
 
 # Specific date range
-.venv/bin/python3 backtest.py --start 2026-04-01 2>&1 | tee /tmp/bt_custom.txt
 .venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30 2>&1 | tee /tmp/bt_custom.txt
 ```
 
-Output is saved to `/tmp/bt_*.txt` so you can re-read any section without re-running.
+Weekends and NYSE holidays are automatically excluded. No Claude API calls are made. Picks up `trading_params.json` automatically so the backtest reflects your bot's current learned tuning.
 
-Weekends and NYSE holidays are automatically excluded. Uses Alpaca IEX feed (no Claude API calls). Picks up learned `trading_params.json` automatically so the backtest reflects your bot's current tuning.
-
-Outputs:
+**Outputs** (written to project root, overwritten each run — not state files):
 - `backtest_trades.csv` — every trade with entry/exit timestamps, P&L, and exit reason
 - `backtest_equity.json` — daily equity curve
 
-**Interpreting results:**
+---
+
+### Parameter Sweep
+
+When tuning entry thresholds — composite floors, timing gates, SL/TP ceilings — use the sweep script instead of editing config and re-running `backtest.py` manually. Data is fetched once; all parameter combinations run in-process.
+
+```bash
+# 30d sweep (28 combos, ~7 min) — ranked CSV + terminal table
+.venv/bin/python scripts/param_sweep.py
+
+# 60d sweep, show top 15
+.venv/bin/python scripts/param_sweep.py --days 60 --top 15
+
+# Custom date range, custom output file
+.venv/bin/python scripts/param_sweep.py --start 2026-04-01 --end 2026-05-28 --out sweep_apr_may.csv
+```
+
+Edit `SWEEP_AXES` at the top of `scripts/param_sweep.py` to define the search space. Each axis is a list of values; the script runs the cartesian product plus a no-override baseline. Results are written to `sweep_results.csv` (or `--out` path) ranked by total P&L.
+
+Overrides are applied via `unittest.mock.patch` — production code is never modified during a sweep run. Only `NORMAL/MEDIUM` day-trade parameters are wired by default; extend the override factories in the script to sweep other regimes or modes.
+
+---
+
+### Interpreting Results
 
 | Metric | What to look for |
 |---|---|
-| Force-close % | Should be < 40%. High % means TP is too wide for intraday moves |
+| Force-close % | Target 40–50%. Above 55% means TP is too wide for intraday hold times |
 | Win rate | Healthy range: 52–65%. Below 50% = entry quality issue |
-| Avg winner / loser ratio | Should be ≥ 1.2×. Lower = exits are cutting winners short |
+| SL count / avg loss | Watch avg SL loss magnitude — lowering SL ceiling reduces per-trade loss but increases hit frequency |
+| Swing win rate | Swing setups are selective — 70%+ at 5–10% avg winner is healthy |
 | Max drawdown | Target < 3% (matches `MAX_DAILY_LOSS_PCT` circuit breaker) |
-| Swing win rate | Swing setups are selective — 50%+ with 9–10% avg winner is good |
+| Alpha vs benchmark | Printed automatically — compares total return to equal-weight buy-hold of the same watch list |
 
-**Benchmark:** SPY is not a meaningful comparison — the bot trades speculative growth stocks (IONQ, LUNR, CRWV class) with a 3% drawdown cap. A fairer baseline is the equal-weight daily return of the bot's own watch list on the same days.
+**Key finding from sweep (30d, Apr–May 2026):** lowering SL ceiling from 2.0%→1.5% reduces avg SL loss (-$130→-$101) but doubles SL hit count (13→25), netting a worse P&L. The momentum-reversal exit in `trading/monitor.py` is the right tool for cutting SL losses early — not tightening the ceiling.
 
-**Tip:** Run 60d minimum for parameter validation. 30d covers too few regime transitions to distinguish signal from noise.
+**Tip:** Run 60d minimum for parameter validation. The 30d window covers only NORMAL and BULL_TREND regimes; HIGH_VOL / CHOPPY / DEFENSIVE effects only appear in longer windows. Use 30d for fast iteration, 60d to confirm before committing a change.
 
 ---
 

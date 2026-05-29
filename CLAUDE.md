@@ -10,6 +10,8 @@
 .venv/bin/python3 backtest.py 2>&1 | tee /tmp/bt_30d.txt          # last 30 trading days
 .venv/bin/python3 backtest.py --days 60 2>&1 | tee /tmp/bt_60d.txt
 .venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30 2>&1 | tee /tmp/bt_custom.txt
+.venv/bin/python scripts/param_sweep.py                            # 30d param sweep (28 combos, ~7 min)
+.venv/bin/python scripts/param_sweep.py --days 60 --top 15        # 60d sweep, show top 15
 ```
 
 Bot runs weekdays 9:30 AM – 3:55 PM ET. Auto-start: `./scripts/setup_launchagent.sh` (macOS) or `./scripts/setup_cron.sh` (Linux).
@@ -51,6 +53,8 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `indicators/engine.py` | 10+ technicals → `composite_score` [-100,+100]. Score >15 → BUY, <-15 → CLOSE |
 | `indicators/values.py` | `IndicatorValues` dataclass: all computed signals incl. `relative_volume`, `or_position` |
 | `indicators/precompute.py` | `precompute_indicators_for_day()` — vectorized EWM/RSI/MACD precompute; eliminates per-bar recomputation (15× speedup for backtests) |
+| `backtest/simulator.py` | `simulate_day()` — pure simulation engine; accepts optional `precomp_cache` to skip recomputation across param-sweep iterations (8× sweep speedup) |
+| `scripts/param_sweep.py` | Parameter sweep harness — fetches data once, iterates combos in-process via `unittest.mock.patch`, outputs ranked `sweep_results.csv`. Edit `SWEEP_AXES` to define the search space; `MAX_COMBOS` caps total runs. |
 | `signals/atr_tp.py` | `compute_atr_tp_pct()` — ATR-based take-profit: `ATR% × atr_tp_multiplier`, clamped to floor/ceiling |
 | `trading/pre_claude_filter.py` | **Quality router only** (5 layers): routes each symbol to SKIP / AUTO_EXECUTE / CLAUDE. No safety gates here — see Rule 23 |
 | `signals/entry_gates.py` | `check_all_gates()` — **sole enforcer of all safety gates** (time window, earnings, event risk, Stoch, parabolic, herding, gap-skip, stop-hunt zone [exempt in BULL_TREND/OPPORTUNITY], soft flags) |
@@ -74,7 +78,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `trading/journal.py` | JSON state R/W with locks: `_POSITIONS_LOCK`, `_DAILY_CLOSED_LOCK`, `_JOURNAL_LOCK` |
 | `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping, ATR-TP multiplier tuning, strategy_memory versioning |
 | `utils/metrics.py` | `record_cycle_metric()` + `get_daily_summary()` — JSONL cycle telemetry |
-| `utils/regime_params.py` | **SoT for all regime × mode dispatch** — `EntryParams`, `SwingParams`, `T2Params` frozen dataclasses; `get_entry_params()`, `get_swing_params()`, `get_t2_params()` lookup functions. All per-regime thresholds (composite floor, entry cutoff, swing eligibility, T2 gates) live here. No caller should hold inline `if regime ==` dispatch chains. |
+| `utils/regime_params.py` | **SoT for all regime × mode dispatch** — `EntryParams`, `SwingParams`, `T2Params`, `TPSLParams`, `DayTradeParams`, `FilterParams`, `GateParams`, `AutoExecuteParams` frozen dataclasses; lookup functions for each. All per-regime × tier thresholds live here. No caller should hold inline `if regime ==` or `if tier ==` dispatch chains. |
 | `utils/http.py` | Shared `yahoo_get()` — Session + 429 backoff (3 retries) |
 | `utils/io_utils.py` | `load_json` / `save_json` — atomic writes, corrupt-file recovery |
 | `utils/catchup.py` | `catchup_missed_agents()` — runs stale pre-market agents on startup if bot missed their cron window (threshold: 8:00 AM ET) |
@@ -139,7 +143,8 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 30 / 35 | Pre-Claude composite threshold (regime-adjusted) |
 | `AUTO_EXECUTE_COMPOSITE_MIN` | 55 | Auto-execute (skip Claude) composite threshold |
 | `ENTRY_START_HOUR` / `ENTRY_END_HOUR` | 10 / 15 | ET entry window (ENTRY_END_HOUR is the absolute market close; per-regime hard cutoff is `EntryParams.hard_close_hour` via `get_entry_params()`) |
-| `ENTRY_HARD_CLOSE_HOUR` | 13 | Default hard cutoff hour (NORMAL regime); CHOPPY/DEFENSIVE=12, BULL_TREND/OPPORTUNITY=14. Overrides `ENTRY_END_HOUR` earlier in the day. |
+| `ENTRY_HARD_CLOSE_HOUR` | 13 | Default hard cutoff hour (NORMAL regime); CHOPPY/DEFENSIVE=12, BULL_TREND/OPPORTUNITY=14. Overrides `ENTRY_END_HOUR` earlier in the day. Per-tier overrides live in `DayTradeParams` table in `utils/regime_params.py`. |
+| `ENTRY_LATE_COMPOSITE_MIN` | 68 | Reference value only — live gate reads `DayTradeParams.late_composite` per regime × tier. NORMAL/MEDIUM: composite ≥ 68 required from 10 AM onward. |
 | `BAR_TIMEFRAME_MINUTES` / `BARS_LOOKBACK` | 5 / 100 | Bar config |
 | `STOCH_HARD_VETO_THRESHOLD` | 97 | Stochastic ≥ this → hard block |
 | `STOCH_SOFT_FLAG_THRESHOLD` | 85 | Stochastic ≥ this → soft flag for Claude |
@@ -332,3 +337,14 @@ chains outside `utils/regime_params.py`. Adding a new tier variant = update the 
 ### 30. TP/SL computation — always use signals/tp_scaler.compute_tp_sl()
 All TP/SL assignments in executor, monitor, and swing_manager go through `compute_tp_sl()`.
 No direct `config.TAKE_PROFIT_PCT` / `config.STOP_LOSS_PCT` assignments at order-placement time.
+
+### 31. DayTradeParams — always use get_day_trade_params()
+`DayTradeParams` (hard_close_hour, late_entry_hour, late_composite, vwap_slope_min) per regime × tier
+live in `utils/regime_params.py`. No inline hard_close or late-entry thresholds in entry_gates.py or
+backtest/simulator.py. Adding a new timing variant = update the `_day_trade_table()` only.
+
+### 32. Parameter optimisation — use scripts/param_sweep.py
+When tuning entry thresholds (composite floors, timing gates, SL/TP ceilings), run
+`scripts/param_sweep.py` rather than editing config and re-running `backtest.py` manually.
+Edit `SWEEP_AXES` in the script, run once — results rank all combos by total P&L in a CSV.
+Overrides are applied via `unittest.mock.patch`; no production code is modified during the sweep.
