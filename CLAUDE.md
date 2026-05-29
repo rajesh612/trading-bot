@@ -359,3 +359,24 @@ When tuning entry thresholds (composite floors, timing gates, SL/TP ceilings), r
 `scripts/param_sweep.py` rather than editing config and re-running `backtest.py` manually.
 Edit `SWEEP_AXES` in the script, run once — results rank all combos by total P&L in a CSV.
 Overrides are applied via `unittest.mock.patch`; no production code is modified during the sweep.
+
+### 33. Telegram notifications — always use `_once.should_send()` for recurring alerts
+Every `notify_*` function that can fire from a loop or monitor (position monitor, trading cycle,
+data health) **must** call `_once.should_send(scope, key)` before `_send()`:
+
+```python
+def notify_my_alert(symbol: str, ...) -> None:
+    if not _once.should_send("my_alert", symbol):
+        return
+    _send(...)
+```
+
+`scope` = short slug for the alert type; `key` = discriminator (`symbol`, `sector_etf`, or `""` for global).
+Functions that fire exactly once per event (buy, close, EOD summary, startup) are exempt — add their
+name to `_NOTIFY_DEDUP_EXEMPT` in `tests/test_config_coherence.py` with a justification comment.
+`test_recurring_notify_functions_use_once_guard` enforces this structurally via AST inspection.
+
+**Return-value contract for `correct_bracket_after_fill`:**
+- `None` → poll timed out (fire timeout notification)
+- `{}` → fill confirmed, slippage within threshold (no notification — normal case)
+- `{stop_loss_price, take_profit_price, fill_price}` → correction applied

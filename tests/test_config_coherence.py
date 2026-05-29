@@ -304,3 +304,82 @@ class TestHighImpactEventTagsConsistency:
             "monitor must reference HIGH_IMPACT_EVENT_TAGS"
         assert '{"FOMC"' not in src and "{'FOMC'" not in src, \
             "monitor must not define its own local event set"
+
+
+# ---------------------------------------------------------------------------
+# Test N: all recurring notify_* functions must use _once.should_send()
+# ---------------------------------------------------------------------------
+
+# Functions that are legitimately exempt from the _once.should_send() requirement.
+# These fire exactly once per triggering event by construction (buy, close, startup,
+# EOD summary) or use a disk-based sentinel because they need to survive bot restarts.
+# Adding a new notify_* to this list requires a comment explaining why it doesn't need
+# in-memory dedup; anything NOT here must call _once.should_send() before _send().
+_NOTIFY_DEDUP_EXEMPT: frozenset[str] = frozenset({
+    # --- lifecycle: fire once at bot start/stop ---
+    "notify_startup",
+    "notify_degraded_integrations",
+    "notify_shutdown",
+    # --- trade events: fire once per trade by construction ---
+    "notify_buy",
+    "notify_close",
+    "notify_tranche2_add",
+    "notify_buy_batch",
+    # --- one-off Claude/budget events: triggered by state change, not a loop ---
+    "notify_claude_disabled",
+    "notify_budget_escalation",
+    "notify_budget_warning",
+    "notify_job_failure",
+    "notify_file_corruption",
+    "notify_alert",
+    "notify_correlated_exposure",
+    # --- regime events: fire at most once per regime transition ---
+    "notify_regime_change",
+    "notify_flash_crash",
+    # --- EOD: fire once at 4:20 PM ---
+    "notify_eod_summary",
+    "notify_no_trades_midday",
+    # --- disk-deduped (intentionally NOT _once — must survive bot restarts) ---
+    "notify_stale_research",      # uses STALE_RESEARCH_ALERTED_FILE sentinel
+    "notify_watch_list",          # uses WATCH_LIST_NOTIF_FILE sentinel
+    # --- internal implementation helpers (not public notify_* entry points) ---
+    "_notify_stale_research_impl",
+})
+
+
+@pytest.mark.unit
+def test_recurring_notify_functions_use_once_guard():
+    """Rule 33: every recurring notify_* in telegram.py must call _once.should_send().
+
+    Uses AST inspection to catch new notifications added without a dedup guard.
+    Fires without data, in CI, before any import — no side effects.
+
+    To add a new notify_* function:
+      - If it fires from a monitor/cycle loop → add _once.should_send() guard.
+      - If it fires exactly once per event → add its name to _NOTIFY_DEDUP_EXEMPT above
+        with a comment explaining why it doesn't need dedup.
+    """
+    src_path = pathlib.Path(__file__).parent.parent / "notifications" / "telegram.py"
+    src = src_path.read_text()
+    tree = ast.parse(src)
+
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not node.name.startswith("notify_") and node.name != "_notify_stale_research_impl":
+            continue
+        if node.name in _NOTIFY_DEDUP_EXEMPT:
+            continue
+
+        # Function is a recurring notify_* — must call _once.should_send somewhere.
+        func_src = ast.get_source_segment(src, node) or ""
+        if "_once.should_send" not in func_src:
+            violations.append(node.name)
+
+    assert not violations, (
+        f"Rule 33 violation — notify_* functions missing _once.should_send() guard:\n"
+        f"  {violations}\n"
+        f"Add `if not _once.should_send('scope', key): return` before `_send(...)`\n"
+        f"or add the function name to _NOTIFY_DEDUP_EXEMPT with a justification comment."
+    )
