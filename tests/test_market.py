@@ -1086,3 +1086,67 @@ class TestTierContextBlocks:
             datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
         )
         assert "Strong pipeline" in block
+
+
+# ── notify_stale_research disk dedup ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestStaleResearchDedup:
+    """notify_stale_research must use a disk sentinel, not an in-memory global."""
+
+    def test_first_call_writes_sentinel_and_sends(self, monkeypatch, tmp_path):
+        """First call on a day writes sentinel file and fires the alert."""
+        import config
+        import notifications.telegram as tg
+        from utils.io_utils import load_json
+        from datetime import datetime
+        from utils.constants import ET
+        monkeypatch.setattr(config, "STALE_RESEARCH_ALERTED_FILE", tmp_path / "sentinel.json")
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        # Call the real implementation directly (autouse fixture patches the public name)
+        tg._notify_stale_research_impl(120.0)
+        assert len(sent) == 1, "first call should send exactly one alert"
+        sentinel = load_json(tmp_path / "sentinel.json", {})
+        assert sentinel.get("date") == datetime.now(ET).strftime("%Y-%m-%d")
+
+    def test_second_call_same_day_is_deduped(self, monkeypatch, tmp_path):
+        """Second call on same day must be silently suppressed via disk sentinel."""
+        import config
+        import notifications.telegram as tg
+        from datetime import datetime
+        from utils.constants import ET
+        from utils.io_utils import save_json
+        monkeypatch.setattr(config, "STALE_RESEARCH_ALERTED_FILE", tmp_path / "sentinel.json")
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        save_json(tmp_path / "sentinel.json", {"date": today})
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        tg._notify_stale_research_impl(120.0)
+        assert sent == [], "second call on same day must be silently deduped"
+
+    def test_bot_restart_does_not_redeliver_same_day(self, monkeypatch, tmp_path):
+        """Simulates bot restart: disk sentinel prevents re-delivery even after in-process reset."""
+        import config
+        import notifications.telegram as tg
+        from datetime import datetime
+        from utils.constants import ET
+        from utils.io_utils import save_json
+        monkeypatch.setattr(config, "STALE_RESEARCH_ALERTED_FILE", tmp_path / "sentinel.json")
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        save_json(tmp_path / "sentinel.json", {"date": today})
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        # Simulate two separate "restart" invocations on the same day
+        tg._notify_stale_research_impl(60.0)
+        tg._notify_stale_research_impl(120.0)
+        assert sent == [], "disk dedup must block re-delivery across restarts on same day"
+
+    def test_conftest_autouse_patches_public_function(self, monkeypatch, tmp_path):
+        """The autouse conftest fixture must patch notify_stale_research to a no-op."""
+        import notifications.telegram as tg
+        sent = []
+        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
+        # Call the patched public function — conftest autouse patches this to lambda
+        tg.notify_stale_research(999.0)
+        assert sent == [], "autouse fixture must suppress notify_stale_research in all unit tests"

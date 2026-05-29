@@ -158,20 +158,29 @@ def notify_sector_flip(sector_etf: str, change_pct: float, affected_symbols: lis
     )
 
 
-_stale_research_alerted_date: str = ""
+def _notify_stale_research_impl(age_min: float) -> None:
+    """Real implementation — disk-deduped, survives bot restarts.
 
-
-def notify_stale_research(age_min: float) -> None:
-    """Alert when research report is stale. Deduped: at most once per calendar day."""
-    global _stale_research_alerted_date
+    Extracted separately so tests can exercise this logic directly even when
+    the public notify_stale_research is patched to a no-op by conftest.
+    """
     today = datetime.now(ET).strftime("%Y-%m-%d")
-    if _stale_research_alerted_date == today:
-        return
-    _stale_research_alerted_date = today
+    try:
+        sentinel = load_json(config.STALE_RESEARCH_ALERTED_FILE, {})
+        if sentinel.get("date") == today:
+            return
+        save_json(config.STALE_RESEARCH_ALERTED_FILE, {"date": today})
+    except Exception:
+        pass  # sentinel failure must never block the bot
     _send(
         f"<b>⏰ Stale research report ({age_min:.0f} min old)</b>\n"
         "Research job may have failed. Sentiment signals are degraded."
     )
+
+
+def notify_stale_research(age_min: float) -> None:
+    """Alert when research report is stale. Deduped: at most once per calendar day."""
+    _notify_stale_research_impl(age_min)
 
 
 def notify_correlated_exposure(sector: str, count: int, symbols: list[str]) -> None:

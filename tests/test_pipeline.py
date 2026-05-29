@@ -14,58 +14,63 @@ from utils.constants import ET
 class TestFredTTLCache:
 
     @pytest.mark.unit
-    def test_fred_cache_not_reloaded_within_ttl(self, tmp_path):
+    def test_fred_cache_not_reloaded_within_ttl(self, monkeypatch, tmp_path):
         """Second call within TTL returns cached dict without re-reading disk."""
+        import config
         from trading import cycle_context
-        cycle_context._fred_cache = {}
-        cycle_context._fred_loaded_at = 0.0
 
         fred_file = tmp_path / "fred_cache.json"
         fred_file.write_text('{"cpi_trend": "stable"}')
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", fred_file)
+        # Reset module cache so first call loads from disk
+        monkeypatch.setattr(cycle_context, "_fred_cache", {})
+        monkeypatch.setattr(cycle_context, "_fred_loaded_at", 0.0)
 
-        with patch("trading.cycle_context.config") as mock_cfg:
-            mock_cfg.FRED_CACHE_FILE = fred_file
-            first = cycle_context._get_fred_cache()
-            # Modify file on disk — TTL should prevent re-read
-            fred_file.write_text('{"cpi_trend": "rising"}')
-            second = cycle_context._get_fred_cache()
+        first = cycle_context._get_fred_cache()
+        # Modify file on disk — TTL should prevent re-read
+        fred_file.write_text('{"cpi_trend": "rising"}')
+        second = cycle_context._get_fred_cache()
 
         assert first == {"cpi_trend": "stable"}
         assert second == {"cpi_trend": "stable"}  # still cached
 
     @pytest.mark.unit
-    def test_fred_cache_reloaded_after_invalidate(self, tmp_path):
+    def test_fred_cache_reloaded_after_invalidate(self, monkeypatch, tmp_path):
         """invalidate_fred_cache() forces reload on next access."""
+        import config
         from trading import cycle_context
-        cycle_context._fred_cache = {"cpi_trend": "stable"}
-        cycle_context._fred_loaded_at = time.monotonic()
 
         fred_file = tmp_path / "fred_cache.json"
         fred_file.write_text('{"cpi_trend": "rising"}')
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", fred_file)
+        monkeypatch.setattr(cycle_context, "_fred_cache", {"cpi_trend": "stable"})
+        monkeypatch.setattr(cycle_context, "_fred_loaded_at", time.monotonic())
 
         cycle_context.invalidate_fred_cache()
-
-        with patch("trading.cycle_context.config") as mock_cfg:
-            mock_cfg.FRED_CACHE_FILE = fred_file
-            result = cycle_context._get_fred_cache()
+        result = cycle_context._get_fred_cache()
 
         assert result == {"cpi_trend": "rising"}
 
     @pytest.mark.unit
-    def test_fred_cache_thread_safe(self, tmp_path):
-        """Concurrent reads don't corrupt the cache."""
+    def test_fred_cache_thread_safe(self, monkeypatch, tmp_path):
+        """Concurrent reads don't corrupt the cache (thread-safe via _FRED_LOCK)."""
+        import config
         from trading import cycle_context
-        cycle_context._fred_cache = {}
-        cycle_context._fred_loaded_at = 0.0
 
         fred_file = tmp_path / "fred_cache.json"
         fred_file.write_text('{"cpi_trend": "stable"}')
+        # Use monkeypatch so config is patched for all threads without race conditions
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", fred_file)
+        monkeypatch.setattr(cycle_context, "_fred_cache", {})
+        monkeypatch.setattr(cycle_context, "_fred_loaded_at", 0.0)
+
         results = []
+        lock = threading.Lock()
 
         def reader():
-            with patch("trading.cycle_context.config") as mock_cfg:
-                mock_cfg.FRED_CACHE_FILE = fred_file
-                results.append(cycle_context._get_fred_cache())
+            val = cycle_context._get_fred_cache()
+            with lock:
+                results.append(val)
 
         threads = [threading.Thread(target=reader) for _ in range(10)]
         for t in threads:
