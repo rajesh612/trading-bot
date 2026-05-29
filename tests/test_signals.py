@@ -550,7 +550,19 @@ class TestDayTradeGates:
 
     @pytest.mark.unit
     def test_early_entry_not_blocked_by_late_gate(self, monkeypatch):
-        """At 10:30 ET in NORMAL/MEDIUM (late_entry_hour=11), late-gate does not apply."""
+        """At 10:30 ET in NORMAL/MEDIUM (late_entry_hour=10), composite 70 >= 68 → late-gate passes."""
+        from signals.entry_gates import check_all_gates
+        self._patch(monkeypatch)
+        result = check_all_gates(
+            symbol="AAPL", iv=self._iv(composite=70.0, vwap_slope=0.10),
+            open_positions={}, daily_closed=set(), bars_15min=None,
+            now=self._now(10, 30), regime="NORMAL", mode="DAY_TRADE",
+        )
+        assert "late" not in result.reason.lower()
+
+    @pytest.mark.unit
+    def test_early_entry_blocked_when_composite_below_late_floor(self, monkeypatch):
+        """At 10:30 ET in NORMAL/MEDIUM (late_entry_hour=10, late_composite=68), composite 55 < 68 → blocked."""
         from signals.entry_gates import check_all_gates
         self._patch(monkeypatch)
         result = check_all_gates(
@@ -558,7 +570,8 @@ class TestDayTradeGates:
             open_positions={}, daily_closed=set(), bars_15min=None,
             now=self._now(10, 30), regime="NORMAL", mode="DAY_TRADE",
         )
-        assert "late" not in result.reason.lower()
+        assert result.passed is False
+        assert "late" in result.reason.lower() or "composite" in result.reason.lower()
 
 
 class TestSLBlacklist:

@@ -715,7 +715,7 @@ def test_executor_logs_warning_on_slippage_timeout(monkeypatch, tmp_path, caplog
 
     from trading.executor import execute_buy
 
-    iv = _make_iv_budget(composite_score=30.0)
+    iv = _make_iv_budget(composite_score=70.0)  # >= late_composite=68 to clear NORMAL/MEDIUM day-trade gate
 
     with caplog.at_level(logging.WARNING, logger="trading.executor"):
         execute_buy(

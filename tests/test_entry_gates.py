@@ -932,35 +932,35 @@ class TestMACDMomentumGate:
         monkeypatch.setattr(ec, "is_earnings_imminent", lambda *a, **kw: False)
         monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
 
-    def test_negative_macd_hist_blocks_day_trade(self, monkeypatch):
-        """MACD histogram < 0 → hard block in DAY_TRADE mode."""
+    def test_negative_macd_hist_soft_flags_day_trade(self, monkeypatch):
+        """MACD histogram < 0 → soft flag in DAY_TRADE mode (not hard block)."""
         self._patch(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = _gates_iv(macd_hist=-0.05)
         result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
-        assert result.passed is False
-        assert "macd" in result.reason.lower()
+        assert result.passed is True
+        assert any("macd" in f.lower() for f in result.flags)
 
-    def test_positive_macd_hist_passes_gate(self, monkeypatch):
-        """MACD histogram > 0 → gate passes in DAY_TRADE mode."""
+    def test_positive_macd_hist_no_flag(self, monkeypatch):
+        """MACD histogram > 0 → no macd flag in DAY_TRADE mode."""
         self._patch(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = _gates_iv(macd_hist=0.10)
         result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
-        assert "macd" not in result.reason.lower()
+        assert not any("macd" in f.lower() for f in result.flags)
 
-    def test_macd_gate_bypassed_in_swing_mode(self, monkeypatch):
-        """MACD histogram gate does not apply to SWING mode."""
+    def test_macd_soft_flag_not_added_in_swing_mode(self, monkeypatch):
+        """MACD soft flag does not apply to SWING mode."""
         self._patch(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = _gates_iv(macd_hist=-0.10)
         result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="SWING")
-        assert "macd" not in result.reason.lower()
+        assert not any("macd" in f.lower() for f in result.flags)
 
-    def test_zero_macd_hist_passes_gate(self, monkeypatch):
-        """MACD histogram = 0 (neutral) is not blocked — only strictly negative triggers."""
+    def test_zero_macd_hist_no_flag(self, monkeypatch):
+        """MACD histogram = 0 is not flagged (only strictly negative triggers soft flag)."""
         self._patch(monkeypatch)
         from signals.entry_gates import check_all_gates
         iv = _gates_iv(macd_hist=0.0)
         result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
-        assert "macd" not in result.reason.lower()
+        assert not any("macd" in f.lower() for f in result.flags)

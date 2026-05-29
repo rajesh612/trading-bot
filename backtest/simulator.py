@@ -430,9 +430,6 @@ def _sim_entry_signal_passes(
     # Gap-up skip (Gate 12)
     if iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
         return False
-    # MACD momentum gate (Gate 1c in check_all_gates) — bearish momentum blocks day-trade entry
-    if iv.macd_hist < config.MACD_HIST_DAY_TRADE_MIN:
-        return False
     return True
 
 
@@ -443,6 +440,7 @@ def simulate_day(
     state: SimState,
     regime: str = "NORMAL",
     params: dict | None = None,
+    precomp_cache: dict[str, dict] | None = None,
 ) -> None:
     p = params or {}
     date_str = day.strftime("%Y-%m-%d")
@@ -473,12 +471,16 @@ def simulate_day(
         logger.info("  No bars for this day — skipping.")
         return
 
-    # Precompute indicators for all watch-list symbols for this day (vectorized, ~60× faster)
-    precomp: dict[str, dict] = {}
-    for sym in watch_list:
-        df_sym = all_bars.get(sym)
-        if df_sym is not None and not df_sym.empty:
-            precomp[sym] = precompute_indicators_for_day(sym, df_sym, day)
+    # Precompute indicators for all watch-list symbols for this day (vectorized, ~60× faster).
+    # If precomp_cache is provided (e.g. by param_sweep.py), reuse it to avoid redundant work.
+    if precomp_cache is not None:
+        precomp = precomp_cache
+    else:
+        precomp: dict[str, dict] = {}
+        for sym in watch_list:
+            df_sym = all_bars.get(sym)
+            if df_sym is not None and not df_sym.empty:
+                precomp[sym] = precompute_indicators_for_day(sym, df_sym, day)
 
     _snap = _BacktestSnap(regime=regime, _watch_list=watch_list)
 

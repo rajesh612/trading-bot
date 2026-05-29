@@ -349,7 +349,7 @@ def _day_trade_table() -> dict[tuple[str, str], DayTradeParams]:
         # ── NORMAL ───────────────────────────────────────────────────────────
         ("NORMAL", "CONVICTION"):  dt(hard_close_hour=13, late_entry_hour=12, late_composite=65, vwap_slope_min= 0.00),
         ("NORMAL", "HIGH"):        dt(hard_close_hour=12, late_entry_hour=11, late_composite=68, vwap_slope_min= 0.03),
-        ("NORMAL", "MEDIUM"):      dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min= 0.05),
+        ("NORMAL", "MEDIUM"):      dt(hard_close_hour=12, late_entry_hour=10, late_composite=68, vwap_slope_min= 0.05),
         ("NORMAL", "LOW"):         dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min= 0.10),
         # ── BULL_TREND ───────────────────────────────────────────────────────
         ("BULL_TREND", "CONVICTION"):  dt(hard_close_hour=14, late_entry_hour=13, late_composite=60, vwap_slope_min=-0.05),
@@ -363,8 +363,8 @@ def _day_trade_table() -> dict[tuple[str, str], DayTradeParams]:
         ("OPPORTUNITY", "LOW"):        dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min= 0.05),
         # ── HIGH_VOL ─────────────────────────────────────────────────────────
         ("HIGH_VOL", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=11, late_composite=65, vwap_slope_min=0.05),
-        ("HIGH_VOL", "HIGH"):       dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.08),
-        ("HIGH_VOL", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.10),
+        ("HIGH_VOL", "HIGH"):       dt(hard_close_hour=12, late_entry_hour=11, late_composite=68, vwap_slope_min=0.06),
+        ("HIGH_VOL", "MEDIUM"):     dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min=0.08),
         ("HIGH_VOL", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.15),
         # ── CHOPPY ───────────────────────────────────────────────────────────
         ("CHOPPY", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.05),
