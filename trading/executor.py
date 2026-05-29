@@ -100,11 +100,6 @@ def execute_buy(
     Validate and place a single BUY order.
     Returns position_data dict on success, None if any pre-flight check blocks entry.
     """
-    vwap_slope_min = params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
-    if iv.vwap_slope < vwap_slope_min:
-        logger.info("SKIP %s — VWAP slope %.3f%% < %.3f%% (downtrend).", symbol, iv.vwap_slope, vwap_slope_min)
-        return None
-
     if regime == "CRISIS":
         logger.info("SKIP %s — CRISIS regime, no entries.", symbol)
         return None

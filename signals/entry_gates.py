@@ -137,7 +137,17 @@ def check_all_gates(
                 f"VWAP slope {vwap_slope:.3f} < {dtp.vwap_slope_min:.3f} min for day trade ({_tier}/{regime})",
             )
 
-    # 1c. MACD momentum soft flag — day-trade only.
+    # 1c. CHOPPY regime RSI pullback gate (Rule 23 — SoT for all safety gates)
+    # In CHOPPY regime, high-RSI entries are mean-reverting traps — require deeper pullback.
+    if config.REGIME_ADAPTIVE_LOGIC and regime == "CHOPPY":
+        ep = get_entry_params(regime)
+        if iv.rsi > ep.rsi_max:
+            return GateResult(
+                False,
+                f"choppy regime: RSI {iv.rsi:.1f} > pullback max {ep.rsi_max:.0f}",
+            )
+
+    # 1e. MACD momentum soft flag — day-trade only.
     # Flag entries where MACD histogram is clearly negative (momentum already bearish).
     # Used as a soft signal for Claude; hard block only when well below MACD_HIST_DAY_TRADE_MIN.
     if mode == "DAY_TRADE":

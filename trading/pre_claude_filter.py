@@ -84,20 +84,6 @@ def apply_pre_claude_filter(
         return FilterResult("SKIP",
             f"RSI {iv.rsi:.1f} > {rsi_max} ({snap.regime})", quality)
 
-    # Layer 1.5 — Regime-adaptive directional bias (CHOPPY RSI pullback only)
-    if config.REGIME_ADAPTIVE_LOGIC and snap.regime == "CHOPPY":
-        ep = get_entry_params(snap.regime)
-        choppy_rsi_max = snap.params.get("choppy_rsi_max", ep.rsi_max)
-        if iv.rsi > choppy_rsi_max:
-            return FilterResult("SKIP",
-                f"choppy regime: RSI {iv.rsi:.1f} > pullback max {choppy_rsi_max}", quality)
-
-    # Layer 2.5 — VWAP slope downtrend
-    vwap_slope_min = snap.params.get("vwap_slope_min", config.VWAP_SLOPE_MIN)
-    if iv.vwap_slope < vwap_slope_min:
-        return FilterResult("SKIP",
-            f"VWAP slope {iv.vwap_slope:.3f} < {vwap_slope_min:.3f} (downtrend)", quality)
-
     # Layer 3 — Macro health + shock
     health = snap.regime_info.get("macro_health_score", 0)
     shock  = snap.research_meta.get("macro_shock_score", 0)

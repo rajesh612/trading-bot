@@ -547,34 +547,38 @@ def test_get_daily_summary_returns_aggregates(monkeypatch, tmp_path):
 
 @pytest.mark.unit
 def test_choppy_regime_blocks_high_rsi_entries(monkeypatch):
+    """Rule 23: CHOPPY RSI gate lives in check_all_gates (entry_gates.py), not pre_claude_filter.
+
+    pre_claude_filter is a quality/budget router only. Verify the gate fires in check_all_gates.
+    """
     import config
-    from unittest.mock import MagicMock
+    import types
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
     monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
     monkeypatch.setattr(config, "CHOPPY_RSI_PULLBACK_MAX", 60)
-    from trading.pre_claude_filter import apply_pre_claude_filter
+    import calendars.earnings as ec_mod
+    import macro.economic_calendar as ecc
+    monkeypatch.setattr(ec_mod, "is_earnings_imminent", lambda *a, **kw: False)
+    monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+    from signals.entry_gates import check_all_gates
 
-    iv = MagicMock()
-    iv.composite_score = 70.0
-    iv.rsi = 65.0
-    iv.vwap_slope = 0.2
-    iv.bot_herding_score = 0
-    iv.squeeze_setup = False
-    iv.vwap_std2_upper = 120.0
-    iv.current_price = 100.0
-
-    from utils.data_health import FRESH_GUARD
-    snap = MagicMock()
-    snap.regime = "CHOPPY"
-    snap.regime_info = {"macro_health_score": 50}
-    snap.research_meta = {"macro_shock_score": 0}
-    snap.research = {}
-    snap.intraday_news = {}
-    snap.params = {"rsi_buy_max": 72, "rsi_buy_max_high_vol": 65, "choppy_rsi_max": 60, "vwap_slope_min": -0.3}
-    snap.staleness_guard = FRESH_GUARD
-
-    result = apply_pre_claude_filter("AAPL", iv, snap, set())
-    assert result.decision == "SKIP"
-    assert "choppy" in result.reason.lower() or "rsi" in result.reason.lower()
+    iv = types.SimpleNamespace(
+        current_price=100.0, vwap=99.0, vwap_std2_upper=110.0,
+        stop_hunt_zone=False, parabolic=False, momentum_exhaustion=False,
+        bot_herding_score=0, squeeze_setup=False,
+        rsi=65.0,  # above CHOPPY_RSI_PULLBACK_MAX=60
+        stoch_d=50.0, prev_close=100.0, relative_volume=1.0,
+        or_position="outside", composite_score=80,
+    )
+    # Use 10:30 ET — before CHOPPY hard cutoff (11:00 for MEDIUM tier)
+    now = datetime(2024, 1, 15, 10, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+    result = check_all_gates(
+        symbol="AAPL", iv=iv, open_positions={}, daily_closed=set(),
+        bars_15min=None, now=now, regime="CHOPPY",
+    )
+    assert not result.passed, "CHOPPY with high RSI should be blocked by gate 1c in check_all_gates"
+    assert "choppy" in result.reason.lower()
 
 
 @pytest.mark.unit

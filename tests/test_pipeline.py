@@ -241,16 +241,22 @@ class TestPreClaudeFilter:
         assert result.decision != "SKIP" or "composite" not in result.reason
 
     @pytest.mark.unit
-    def test_layer_2_5_blocks_vwap_slope_downtrend(self):
-        """VWAP slope below minimum blocks before Claude."""
+    def test_vwap_slope_not_blocked_in_pre_claude_filter(self):
+        """Rule 23: VWAP slope is a safety gate — must NOT be enforced by pre_claude_filter.
+
+        VWAP slope enforcement lives exclusively in check_all_gates() via DayTradeParams.vwap_slope_min.
+        pre_claude_filter is a quality/budget router only.
+        """
         from trading.pre_claude_filter import apply_pre_claude_filter
         from tests.test_signals import make_full_iv
         snap = self._snap()
-        # composite=65 → MEDIUM tier → passes composite gate; vwap_slope=-0.5 < -0.3 → SKIP
+        # composite=65 → MEDIUM tier, rsi=55 passes, vwap_slope=-0.5 (downtrend)
+        # pre_claude_filter must NOT block on VWAP slope — that is check_all_gates() territory
         iv = make_full_iv(composite_score=65.0, rsi=55.0, stoch_d=50.0, vwap_slope=-0.5)
         result = apply_pre_claude_filter("TEST", iv, snap)
-        assert result.decision == "SKIP"
-        assert "VWAP slope" in result.reason
+        assert "VWAP slope" not in result.reason, (
+            f"Rule 23 violated: VWAP slope blocked in pre_claude_filter: {result.reason}"
+        )
 
     @pytest.mark.unit
     def test_layer_2_5_vwap_overextension_not_blocked_in_filter(self):

@@ -964,3 +964,102 @@ class TestMACDMomentumGate:
         iv = _gates_iv(macd_hist=0.0)
         result = check_all_gates("AAPL", iv, {}, set(), None, self._now(), mode="DAY_TRADE")
         assert not any("macd" in f.lower() for f in result.flags)
+
+
+@pytest.mark.unit
+class TestChoppyRsiGate:
+    """Gate 1c: CHOPPY regime RSI pullback gate in check_all_gates (Rule 23 SoT)."""
+
+    def _make_quality(self, tier="MEDIUM"):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(tier=tier, score=50, unlocks=frozenset(), quality_gaps=(), component_scores={})
+
+    def _now(self):
+        # Use 10:30 ET — before CHOPPY/MEDIUM hard cutoff (11:00) so timing gates don't interfere
+        from zoneinfo import ZoneInfo
+        return datetime(2024, 1, 15, 10, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    def _patch(self, monkeypatch):
+        import calendars.earnings as ec_mod
+        import macro.economic_calendar as ecc
+        monkeypatch.setattr(ec_mod, "is_earnings_imminent", lambda *a, **kw: False)
+        monkeypatch.setattr(ecc, "is_event_risk_window", lambda *a, **kw: (False, ""))
+
+    def test_choppy_high_rsi_blocks_entry(self, monkeypatch):
+        """CHOPPY RSI gate in check_all_gates blocks high-RSI entries in CHOPPY regime."""
+        monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # RSI=72 > CHOPPY_RSI_PULLBACK_MAX=60 → should be hard-blocked
+        iv = _gates_iv(rsi=72.0)
+        result = check_all_gates(
+            "AAPL", iv, {}, set(), None, self._now(), regime="CHOPPY",
+            quality=self._make_quality(),
+        )
+        assert not result.passed, "CHOPPY with high RSI should be blocked by gate 1c"
+        assert "choppy" in result.reason.lower()
+
+    def test_choppy_low_rsi_passes(self, monkeypatch):
+        """CHOPPY RSI gate allows low-RSI entries in CHOPPY regime."""
+        monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # RSI=55 < CHOPPY_RSI_PULLBACK_MAX=60 → gate 1c must pass
+        iv = _gates_iv(rsi=55.0)
+        result = check_all_gates(
+            "AAPL", iv, {}, set(), None, self._now(), regime="CHOPPY",
+            quality=self._make_quality(),
+        )
+        assert result.passed, f"CHOPPY with RSI=55 should pass gate 1c, got: {result.reason}"
+
+    def test_regime_adaptive_logic_off_skips_choppy_gate(self, monkeypatch):
+        """CHOPPY RSI gate is skipped when REGIME_ADAPTIVE_LOGIC=False.
+
+        Uses RSI=65 — above CHOPPY_RSI_PULLBACK_MAX (60) but below the general RSI_BUY_MAX (72).
+        When REGIME_ADAPTIVE_LOGIC=False, gate 1c is bypassed so RSI=65 must not trigger a block
+        from the CHOPPY-specific gate.
+        """
+        monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", False)
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # RSI=65 is above CHOPPY_RSI_PULLBACK_MAX=60 but below RSI_BUY_MAX=72
+        # With REGIME_ADAPTIVE_LOGIC=False, gate 1c must not fire
+        iv = _gates_iv(rsi=65.0)
+        result = check_all_gates(
+            "AAPL", iv, {}, set(), None, self._now(), regime="CHOPPY",
+            quality=self._make_quality(),
+        )
+        # Gate must not block on the CHOPPY-specific RSI reason
+        assert "choppy" not in result.reason.lower(), (
+            f"Gate 1c must be bypassed when REGIME_ADAPTIVE_LOGIC=False, got: {result.reason}"
+        )
+
+    def test_choppy_rsi_at_boundary_passes(self, monkeypatch):
+        """RSI exactly at rsi_max boundary passes the gate (strict > comparison)."""
+        monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # RSI exactly at rsi_max=60 — gate uses iv.rsi > ep.rsi_max, so equal passes
+        iv = _gates_iv(rsi=float(config.CHOPPY_RSI_PULLBACK_MAX))
+        result = check_all_gates(
+            "AAPL", iv, {}, set(), None, self._now(), regime="CHOPPY",
+            quality=self._make_quality(),
+        )
+        assert result.passed, f"RSI at exact boundary should pass (> not >=), got: {result.reason}"
+
+    def test_choppy_gate_not_applied_in_normal_regime(self, monkeypatch):
+        """Gate 1c must not fire in NORMAL regime even with high RSI (rsi_max gate handles it)."""
+        monkeypatch.setattr(config, "REGIME_ADAPTIVE_LOGIC", True)
+        self._patch(monkeypatch)
+        from signals.entry_gates import check_all_gates
+        # RSI=62 would fail CHOPPY gate but should not trigger it in NORMAL
+        iv = _gates_iv(rsi=62.0)
+        result = check_all_gates(
+            "AAPL", iv, {}, set(), None, self._now(), regime="NORMAL",
+            quality=self._make_quality(),
+        )
+        # May fail due to RSI > rsi_max in NORMAL, but reason must not say "choppy"
+        if not result.passed:
+            assert "choppy" not in result.reason.lower(), (
+                f"Gate 1c must not fire in NORMAL regime, got: {result.reason}"
+            )
