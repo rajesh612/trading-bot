@@ -31,9 +31,13 @@ from utils.constants import ET
 logger = logging.getLogger(__name__)
 
 
-def _compute_auto_execute_confidence(composite_score: float, intra_sentiment: int) -> int:
+def _compute_auto_execute_confidence(
+    composite_score: float, intra_sentiment: int, regime: str = "NORMAL"
+) -> int:
+    from utils.regime_params import get_entry_params
+    regime_composite_min = get_entry_params(regime).composite_min
     base = config.AUTO_EXECUTE_CONFIDENCE_BASE
-    composite_bonus = min(15, int((composite_score - config.AUTO_EXECUTE_COMPOSITE_MIN) * 0.5))
+    composite_bonus = min(15, max(0, int((composite_score - regime_composite_min) * 0.5)))
     sentiment_bonus = min(5, max(0, int(intra_sentiment / 10)))
     return min(95, base + composite_bonus + sentiment_bonus)
 
@@ -177,7 +181,7 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
                 "sentiment_score",
                 snap.research.get(symbol, {}).get("sentiment_score", 0),
             )
-            confidence = _compute_auto_execute_confidence(iv.composite_score, intra_sent)
+            confidence = _compute_auto_execute_confidence(iv.composite_score, intra_sent, regime=snap.regime)
             decision = {
                 "action": "BUY", "confidence": confidence, "source": "auto_execute",
                 "reasoning": "auto-execute: composite+sentiment threshold met",

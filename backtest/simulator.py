@@ -412,8 +412,12 @@ def _sim_entry_signal_passes(
     fp = get_filter_params(regime, tier)
     gp = get_gate_params(regime, tier)
 
+    # Gate 0b: Price cap (mirrors check_all_gates Gate 0b — config is SoT)
+    if config.MAX_ENTRY_PRICE and iv.current_price > config.MAX_ENTRY_PRICE:
+        return False
+
     composite_floor = max(fp.composite_min, effective_composite_gate(iv, regime, params=params))
-    if iv.composite_score <= composite_floor:
+    if iv.composite_score < composite_floor:
         return False
     if iv.signal != "BUY":
         return False
@@ -429,6 +433,9 @@ def _sim_entry_signal_passes(
         return False
     # Gap-up skip (Gate 12)
     if iv.prev_close > 0 and iv.current_price > iv.prev_close * (1 + config.GAP_SKIP_PCT / 100):
+        return False
+    # Relative volume soft gate applied as hard block in backtest for conservatism
+    if hasattr(iv, "relative_volume") and iv.relative_volume < config.REL_VOLUME_MIN:
         return False
     return True
 
@@ -457,6 +464,8 @@ def simulate_day(
     force_ts      = _ts(FORCE_CLOSE_H, FORCE_CLOSE_M)
     swing_eval_ts = _ts(SWING_EVAL_H,  SWING_EVAL_M)
     entry_start = _ts(ENTRY_START_H)
+    # entry_end uses CONVICTION-tier hard_close_hour (most permissive outer window).
+    # Per-tier cutoffs are enforced inside the bar loop via get_day_trade_params().
     entry_end   = _ts(get_entry_params(regime).hard_close_hour)
     day_start_equity = state.cash
     halted = False

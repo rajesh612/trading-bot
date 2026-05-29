@@ -305,3 +305,101 @@ class TestBacktestFidelity:
         r1 = snap.research
         r2 = snap.research
         assert r1 is r2  # cached_property
+
+
+@pytest.mark.unit
+class TestSimEntrySignalGateParity:
+    """_sim_entry_signal_passes must mirror live check_all_gates hard gates."""
+
+    def _make_iv(self, **kw):
+        import types
+        base = dict(
+            composite_score=60.0, signal="BUY", rsi=55.0,
+            vwap_slope=0.05, stoch_d=50.0, parabolic=False,
+            current_price=100.0, prev_close=99.0,
+            relative_volume=1.0,
+            bot_herding_score=0, squeeze_setup=False, atr=2.0,
+            macd_hist=0.01, or_position="outside",
+            momentum_exhaustion=False, stop_hunt_zone=False,
+            vwap_std2_upper=120.0, vwap=98.0,
+        )
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def _make_quality(self, tier="MEDIUM"):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality(tier=tier, score=50, unlocks=frozenset(), quality_gaps=(), component_scores={})
+
+    @pytest.mark.unit
+    def test_max_entry_price_blocks(self, monkeypatch):
+        """Backtest must block entries above MAX_ENTRY_PRICE (mirrors Gate 0b)."""
+        import config
+        from backtest.simulator import _sim_entry_signal_passes
+        monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 50.0)
+        iv = self._make_iv(current_price=100.0)
+        assert not _sim_entry_signal_passes(iv, "NORMAL", self._make_quality(), {}, 70.0), \
+            "price > MAX_ENTRY_PRICE must block backtest entry"
+
+    @pytest.mark.unit
+    def test_max_entry_price_zero_means_no_cap(self, monkeypatch):
+        """MAX_ENTRY_PRICE=0 means no price cap — a high-priced stock is not blocked by price alone."""
+        import config
+        from backtest.simulator import _sim_entry_signal_passes
+        monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+        # Use prev_close close to current_price to avoid triggering gap-skip gate
+        iv = self._make_iv(current_price=749.0, prev_close=748.0, composite_score=60.0)
+        assert _sim_entry_signal_passes(iv, "NORMAL", self._make_quality(), {}, 70.0), \
+            "MAX_ENTRY_PRICE=0 must not cap entries by price"
+
+    @pytest.mark.unit
+    def test_composite_at_floor_passes_with_strict_lt(self, monkeypatch):
+        """composite_score exactly equal to floor now passes with strict < (changed from <=)."""
+        import config
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.regime_params import get_filter_params
+        monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+        tier = "MEDIUM"
+        regime = "NORMAL"
+        composite_min = get_filter_params(regime, tier).composite_min
+        # Score exactly at floor: strict < means it is NOT blocked (score < floor is False)
+        iv = self._make_iv(composite_score=float(composite_min))
+        assert _sim_entry_signal_passes(iv, regime, self._make_quality(tier), {}, 70.0), \
+            "composite exactly at floor must pass with strict < (only strictly below is blocked)"
+
+    @pytest.mark.unit
+    def test_composite_strictly_below_floor_is_blocked(self, monkeypatch):
+        """composite_score strictly below floor must block entry."""
+        import config
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.regime_params import get_filter_params
+        monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+        tier = "MEDIUM"
+        regime = "NORMAL"
+        composite_min = get_filter_params(regime, tier).composite_min
+        iv = self._make_iv(composite_score=float(composite_min - 1))
+        assert not _sim_entry_signal_passes(iv, regime, self._make_quality(tier), {}, 70.0), \
+            "composite strictly below floor must block"
+
+    @pytest.mark.unit
+    def test_composite_above_floor_passes(self, monkeypatch):
+        """composite_score strictly above floor passes the gate."""
+        import config
+        from backtest.simulator import _sim_entry_signal_passes
+        from utils.regime_params import get_filter_params
+        monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+        tier = "MEDIUM"
+        regime = "NORMAL"
+        composite_min = get_filter_params(regime, tier).composite_min
+        iv = self._make_iv(composite_score=float(composite_min + 1))
+        assert _sim_entry_signal_passes(iv, regime, self._make_quality(tier), {}, 70.0)
+
+    @pytest.mark.unit
+    def test_low_relative_volume_blocks(self, monkeypatch):
+        """Relative volume below REL_VOLUME_MIN blocks backtest entry."""
+        import config
+        from backtest.simulator import _sim_entry_signal_passes
+        monkeypatch.setattr(config, "MAX_ENTRY_PRICE", 0)
+        monkeypatch.setattr(config, "REL_VOLUME_MIN", 0.60)
+        iv = self._make_iv(relative_volume=0.50)
+        assert not _sim_entry_signal_passes(iv, "NORMAL", self._make_quality(), {}, 70.0), \
+            "relative_volume below threshold must block backtest entry"

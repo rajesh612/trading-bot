@@ -1207,9 +1207,9 @@ def test_auto_execute_reads_symbol_intraday_sentiment_not_shock(monkeypatch):
 
     original_confidence = __import__("trading.pipeline", fromlist=["_compute_auto_execute_confidence"])._compute_auto_execute_confidence
 
-    def spy_confidence(composite_score, intra_sentiment):
+    def spy_confidence(composite_score, intra_sentiment, regime="NORMAL"):
         captured_sentiment["intra_sentiment"] = intra_sentiment
-        return original_confidence(composite_score, intra_sentiment)
+        return original_confidence(composite_score, intra_sentiment, regime=regime)
 
     with patch("trading.pipeline._compute_auto_execute_confidence", side_effect=spy_confidence), \
          patch("trading.pipeline.execute_buy", return_value=None):
@@ -1457,3 +1457,30 @@ def test_usage_limit_400_exit_batch_trips_circuit_breaker(monkeypatch):
         _CLAUDE_DISABLED.clear()
         cc._CLAUDE_DISABLED_UNTIL = 0.0
         cc._CLAUDE_DISABLED_REASON = ""
+
+
+@pytest.mark.unit
+class TestAEConfidenceRegimeAnchor:
+    def test_composite_bonus_uses_regime_min_not_global(self, monkeypatch):
+        """AE confidence bonus must be positive when composite is above regime composite_min."""
+        import config
+        from trading.pipeline import _compute_auto_execute_confidence
+        from utils.regime_params import get_entry_params
+        regime = "BULL_TREND"
+        regime_min = get_entry_params(regime).composite_min
+        # Score 5 above regime_min should give a positive bonus
+        score = regime_min + 5
+        conf = _compute_auto_execute_confidence(score, 10, regime=regime)
+        base = config.AUTO_EXECUTE_CONFIDENCE_BASE
+        assert conf > base, f"confidence {conf} should exceed base {base} when composite > regime_min"
+
+    def test_composite_at_regime_min_gives_zero_bonus(self):
+        """composite_score exactly at regime_min → composite_bonus = 0."""
+        from trading.pipeline import _compute_auto_execute_confidence
+        from utils.regime_params import get_entry_params
+        regime = "NORMAL"
+        regime_min = get_entry_params(regime).composite_min
+        conf = _compute_auto_execute_confidence(float(regime_min), 0, regime=regime)
+        import config
+        assert conf == config.AUTO_EXECUTE_CONFIDENCE_BASE, \
+            "composite exactly at regime_min should give zero bonus"
