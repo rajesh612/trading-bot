@@ -56,8 +56,8 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `backtest/simulator.py` | `simulate_day()` — pure simulation engine; accepts optional `precomp_cache` to skip recomputation across param-sweep iterations (8× sweep speedup) |
 | `scripts/param_sweep.py` | Parameter sweep harness — fetches data once, iterates combos in-process via `unittest.mock.patch`, outputs ranked `sweep_results.csv`. Edit `SWEEP_AXES` to define the search space; `MAX_COMBOS` caps total runs. |
 | `signals/atr_tp.py` | `compute_atr_tp_pct()` — ATR-based take-profit: `ATR% × atr_tp_multiplier`, clamped to floor/ceiling |
-| `trading/pre_claude_filter.py` | **Quality router only** (5 layers): routes each symbol to SKIP / AUTO_EXECUTE / CLAUDE. No safety gates here — see Rule 23 |
-| `signals/entry_gates.py` | `check_all_gates()` — **sole enforcer of all safety gates** (time window, earnings, event risk, Stoch, parabolic, herding, gap-skip, stop-hunt zone [exempt in BULL_TREND/OPPORTUNITY], soft flags) |
+| `trading/pre_claude_filter.py` | **Quality router + correlation pre-check** (5 layers + Layer 5.5): routes each symbol to SKIP / AUTO_EXECUTE / CLAUDE. Runs correlation hard-gate before Claude call to save API budget. No other safety gates here — see Rule 23 |
+| `signals/entry_gates.py` | `check_all_gates()` — **sole enforcer of all safety gates** (time window, earnings, event risk, Stoch, parabolic, herding, gap-skip, stop-hunt zone [exempt in BULL_TREND/OPPORTUNITY], soft flags, soft-flag overload) |
 | `signals/volume_guard.py` | `is_volume_weak()` — relative-volume soft gate (< `REL_VOLUME_MIN`) |
 | `signals/opening_range_gate.py` | `get_or_position()` — opening range position (inside/outside/unknown) |
 | `trading/pipeline.py` | Per-cycle orchestrator: fetch bars → indicators → pre-filter → Claude → execute |
@@ -65,7 +65,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `trading/cycle_context.py` | `CycleSnapshot` dataclass: regime, params, research, intraday news, breadth ratio |
 | `trading/executor.py` | `execute_buy()` — calls `check_all_gates()`, places orders, records fills |
 | `trading/risk_manager.py` | Budget TOCTOU-safe R/W under `BUDGET_LOCK`; 75% intraday warning; gap guard |
-| `trading/monitor.py` | Position monitor: SL/TP enforcement, drawdown alerts at `-DRAWDOWN_WARN_PCT`; batch-fetches real sector ETF intraday % change for T2 Gate 11 |
+| `trading/monitor.py` | Position monitor: SL/TP enforcement, drawdown alerts at `-DRAWDOWN_WARN_PCT`; batch-fetches real sector ETF intraday % change for T2 Gate 11; midday profit-floor exit (NORMAL, ≥1% P&L after 2 PM held 2h+) |
 | `trading/swing_manager.py` | Overnight swing: EOD qualification via `get_swing_params(regime)` (profit-lock bypass + min P&L gate), tiered TP 40/30/30, trailing stop |
 | `macro/regime.py` | 9-state regime (CRISIS/BULL_TREND/CHOPPY/…) from VIX/SPY/SOXX/QQQ/WTI/TNX/Gold/DXY |
 | `macro/breadth_signals.py` | `get_advance_decline_ratio()` — IWM/SPY session return ratio; < 0.85 → soft flag |
@@ -76,7 +76,7 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `trading/closer.py` | `force_close_all()` — cancels orders and closes all day-trade positions at 3:55 PM |
 | `research/intraday.py` | `refresh_intraday_news()` — intraday headline refresh for active watch list |
 | `trading/journal.py` | JSON state R/W with locks: `_POSITIONS_LOCK`, `_DAILY_CLOSED_LOCK`, `_JOURNAL_LOCK` |
-| `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping, ATR-TP multiplier tuning, strategy_memory versioning |
+| `learning/agent.py` | Nightly: rolling 5-day trade analysis, weight clamping + re-normalisation, ATR-TP multiplier tuning, strategy_memory versioning; caps trade payload to most-recent `LEARNING_MAX_TRADES_FOR_CLAUDE` trades |
 | `utils/metrics.py` | `record_cycle_metric()` + `get_daily_summary()` — JSONL cycle telemetry |
 | `utils/regime_params.py` | **SoT for all regime × mode dispatch** — `EntryParams`, `SwingParams`, `T2Params`, `TPSLParams`, `DayTradeParams`, `FilterParams`, `GateParams`, `AutoExecuteParams` frozen dataclasses; lookup functions for each. All per-regime × tier thresholds live here. No caller should hold inline `if regime ==` or `if tier ==` dispatch chains. |
 | `utils/http.py` | Shared `yahoo_get()` — Session + 429 backoff (3 retries) |
@@ -86,11 +86,11 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 | `utils/ticker_quality.py` | `compute_ticker_quality()` — 4-tier quality scorer (LOW/MEDIUM/HIGH/CONVICTION); `derive_mode()` — trading mode derivation |
 | `utils/data_health.py` | `DataHealthTracker` singleton — per-source retry/staleness state; `StalenessGuard` frozen dataclass — composite penalty, `can_open`, T2/auto-execute flags; `get_staleness_guard()` — sole factory; `should_retry_proactive()` — age-based retry without prior failure |
 | `macro/fred_cache.py` | `refresh_fred_cache()` — fetches 13-series FRED data; `FRED_SCHEMA_KEYS` — frozenset of all keys this module writes (schema contract) |
-| `trading/context_builder.py` | `_build_market_context_block()` — assembles Claude prompt context; `FRED_KEYS_CONSUMED` — frozenset of FRED keys read here (tested against `FRED_SCHEMA_KEYS`) |
+| `trading/context_builder.py` | `_build_market_context_block()` — assembles Claude prompt context; `FRED_KEYS_CONSUMED` — frozenset of 9 FRED keys read here (fed_direction, cpi, unemployment, yield_curve_inverted, yield_curve_spread, credit_spread_bps, credit_spread_risk_off, claims_spike; tested against `FRED_SCHEMA_KEYS`) |
 
 ### Gate Architecture (Option A)
 
-**`pre_claude_filter`** is a quality/budget router only — it decides whether a symbol is worth calling Claude for. It enforces composite minimums, RSI ceiling, VWAP slope, macro health, and sentiment, but **no safety rules**.
+**`pre_claude_filter`** is a quality/budget router — it decides whether a symbol is worth calling Claude for. It enforces composite minimums, RSI ceiling, VWAP slope, macro health, and sentiment. It also runs one pre-check (Layer 5.5): **correlation hard-gate** — if `GateParams.correlation_hard_gate=True` for the regime/tier, it checks sector concentration before calling Claude. No other safety rules here — see Rule 23.
 
 **`check_all_gates()`** in `signals/entry_gates.py` is the sole enforcer of all safety gates:
 - Time window, daily P&L loss limit
@@ -101,8 +101,9 @@ Multi-agent intraday trader: Alpaca paper trading + Claude decisions. APSchedule
 - Gap-skip
 - Stop-hunt zone (round number / 5d hi/lo proximity) — **exempt in BULL_TREND/OPPORTUNITY** where near-high is a buy signal, not a trap (via `GateParams.stop_hunt_veto`)
 - Soft flags: relative volume weak, inside opening range, breadth weak
+- **Soft-flag overload gate**: ≥ `SOFT_FLAG_OVERLOAD_THRESHOLD` (4) simultaneous soft flags → hard block
 
-**Never add safety rules to `pre_claude_filter`** — they would duplicate `check_all_gates` and go stale independently.
+**Never add safety rules to `pre_claude_filter`** beyond the correlation pre-check — they would duplicate `check_all_gates` and go stale independently.
 
 ### Position Sizing
 
@@ -129,19 +130,20 @@ All JSON state files live under `data/state/`. Log files live under `logs/`.
 
 ### Claude Integration
 
-Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confidence, stop_loss_pct, take_profit_pct, reasoning }`. Decision bounds validated: confidence 0–100, SL 0.5–10%, TP 1–15%. HTTP 400 → HOLD (no disable); 402/429 → circuit breaker. Cache `strategy_memory` block when > 3000 chars. Strategy memory gets a dated `.bak` on every write (pruned to `STRATEGY_MEMORY_BACKUP_MAX=7`).
+Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confidence, stop_loss_pct, take_profit_pct, reasoning }`. Decision bounds validated: confidence 0–100, SL 0.5–10%, TP 1–15%. HTTP 400 → HOLD (no disable); 402/429 → circuit breaker. Both system blocks (`stable_system_text` and `volatile_text`) carry `cache_control: ephemeral` for Anthropic prompt caching. Cache `strategy_memory` block when > 3000 chars. Strategy memory gets a dated `.bak` on every write (pruned to `STRATEGY_MEMORY_BACKUP_MAX=7`). Stable context cache is invalidated on regime change (noon refresh) in addition to TTL expiry.
 
 ### Key Config
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `MAX_POSITION_PCT` | 0.05 | 5% per position |
+| `MAX_POSITION_USD` | 10_000 | Hard dollar cap per position regardless of portfolio size (0 = disabled) |
 | `RISK_PER_TRADE_PCT` | 0.005 | 0.5% ATR-based sizing |
-| `STOP_LOSS_PCT` / `TAKE_PROFIT_PCT` | 4.0 / 5.0 | Defaults (Claude can override within bounds) |
+| `STOP_LOSS_PCT` / `TAKE_PROFIT_PCT` | 3.0 / 5.0 | Defaults (Claude can override within bounds) |
 | `MAX_DAILY_LOSS_PCT` | 0.03 | 3% daily loss circuit breaker |
-| `DAILY_LOSS_WARN_PCT` | 0.015 | Warn Telegram at 1.5% intraday loss |
-| `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 30 / 35 | Pre-Claude composite threshold (regime-adjusted) |
-| `AUTO_EXECUTE_COMPOSITE_MIN` | 55 | Auto-execute (skip Claude) composite threshold |
+| `DAILY_LOSS_WARN_PCT` | 0.02 | Warn Telegram at 2% intraday loss |
+| `COMPOSITE_MIN_NORMAL` / `COMPOSITE_MIN_HIGH_VOL` | 50 / 55 | Pre-Claude composite threshold (regime-adjusted) |
+| `AUTO_EXECUTE_COMPOSITE_MIN` | 70 | Reference for AE confidence delta computation; actual AE threshold = `max(regime_floor, tier_floor) + ae.composite_offset` |
 | `ENTRY_START_HOUR` / `ENTRY_END_HOUR` | 10 / 15 | ET entry window (ENTRY_END_HOUR is the absolute market close; per-regime hard cutoff is `EntryParams.hard_close_hour` via `get_entry_params()`) |
 | `ENTRY_HARD_CLOSE_HOUR` | 13 | Default hard cutoff hour (NORMAL regime); CHOPPY/DEFENSIVE=12, BULL_TREND/OPPORTUNITY=14. Overrides `ENTRY_END_HOUR` earlier in the day. Per-tier overrides live in `DayTradeParams` table in `utils/regime_params.py`. |
 | `ENTRY_LATE_COMPOSITE_MIN` | 68 | Reference value only — live gate reads `DayTradeParams.late_composite` per regime × tier. NORMAL/MEDIUM: composite ≥ 68 required from 10 AM onward. |
@@ -150,8 +152,10 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `STOCH_SOFT_FLAG_THRESHOLD` | 85 | Stochastic ≥ this → soft flag for Claude |
 | `REL_VOLUME_MIN` | 0.60 | Current volume < 60% of 20d avg → soft flag |
 | `BREADTH_WEAK_THRESHOLD` | 0.85 | IWM/SPY ratio < this → breadth soft flag |
+| `SOFT_FLAG_OVERLOAD_THRESHOLD` | 4 | ≥ this many simultaneous soft flags → hard block (holistically poor setup) |
 | `OPENING_RANGE_MINUTES` | 60 | First N minutes define the opening range |
 | `LEARNING_ROLLING_DAYS` | 5 | Days of trade history for learning agent (prevents single-day overfit) |
+| `LEARNING_MAX_TRADES_FOR_CLAUDE` | 25 | Max trades sent to learning agent Claude call (most-recent tail; rest used for free deterministic pre-compute) |
 | `INDICATOR_WEIGHT_MAX_MULT` | 2.0 | Max multiplier vs default weight |
 | `INDICATOR_WEIGHT_MIN_MULT` | 0.3 | Min multiplier vs default weight |
 | `TRAILING_STOP_PCT_FALLBACK` | 0.03 | 3% trailing stop when ATR is unavailable |
@@ -162,6 +166,13 @@ Model: `claude-sonnet-4-6` (`config.py`). Structured output: `{ action, confiden
 | `ATR_TP_FLOOR_PCT` / `ATR_TP_CEILING_PCT` | 1.5 / 12.0 | Hard floor/ceiling for computed ATR-TP % |
 | `PROFIT_LOCK_SWING_PCT` | 2.5 | Positions with unrealised P&L ≥ this % qualify for swing in any non-CRISIS regime (per-regime override in `SwingParams.profit_lock_pct`) |
 | `SWING_PROMOTE_MIN_PNL_PCT` | 0.5 | Standard EOD swing promotion requires at least this % gain (per-regime override in `SwingParams.min_pnl_pct`; 0.3 BULL_TREND, 1.0 CRASH_RECOVERY) |
+| `MIDDAY_PROFIT_FLOOR_PCT` | 1.0 | NORMAL regime: lock profits ≥ this % after `MIDDAY_EXIT_HOUR` if held ≥ `MIDDAY_EXIT_MIN_HOLD_H` hours |
+| `MIDDAY_EXIT_HOUR` / `MIDDAY_EXIT_MAX_HOUR` | 14 / 15 | 2–3 PM ET window for midday profit-floor exit (force-close handles positions after 3 PM) |
+| `CIRCUIT_BREAKER_FC_LOOKBACK` | 5 | Look at last N force-closes; if all are losses → circuit fires |
+| `CIRCUIT_BREAKER_COMPOSITE_BOOST` | 10 | Raise composite floor by this when force-close losing streak detected |
+| `AUTO_EXECUTE_CONFIDENCE_TIER_ADJ` | `{CONVICTION:+5, LOW:-10, …}` | Per-tier delta added to AE confidence after base computation |
+| `AUTO_EXECUTE_CONFIDENCE_LOW_CAP` | 75 | LOW tier AE confidence never exceeds this |
+| `AUTO_EXECUTE_CONFIDENCE_MODE_ADJ` | `{PEAD:+5, CATALYST:+3, …}` | Per-mode delta added to AE confidence (PEAD drift and CATALYST event edges) |
 | `DATA_STALE_THRESHOLD_MINUTES` | `{"regime": 420, "research": 360, …}` | Per-source staleness threshold; exceeded → adds `DATA_COMPOSITE_PENALTY` to composite floor |
 | `DATA_REGIME_CANOPEN_MAX_MINUTES` | 480 | If regime data age exceeds this, `guard.can_open=False` — blocks ALL new entries until refresh |
 

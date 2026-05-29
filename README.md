@@ -174,15 +174,17 @@ Edit `config.py`. Key parameters:
 | Parameter | Default | Description |
 |---|---|---|
 | `MAX_POSITION_PCT` | `0.05` | Max 5% of portfolio per day-trade position |
+| `MAX_POSITION_USD` | `10_000` | Hard dollar cap per position (0 = disabled) — prevents oversizing on cheap stocks |
 | `RISK_PER_TRADE_PCT` | `0.005` | Risk 0.5% per trade (ATR-based sizing) |
-| `STOP_LOSS_PCT` | `4.0` | Fallback stop loss % (overridden by mode/regime table) |
+| `STOP_LOSS_PCT` | `3.0` | Fallback stop loss % (overridden by mode/regime table) |
 | `TAKE_PROFIT_PCT` | `5.0` | Fallback take profit % (overridden by mode/regime table) |
 | `ATR_TP_MULT_DEFAULT` | `2.0` | ATR-based TP multiplier — TP = ATR% × this; tuned nightly by learning agent (bounds: 1.0×–4.0×) |
 | `MAX_DAILY_LOSS_PCT` | `0.03` | Circuit breaker — halts new entries if down 3% |
-| `DAILY_LOSS_WARN_PCT` | `0.015` | Telegram alert when intraday loss hits 1.5% |
-| `AUTO_EXECUTE_COMPOSITE_MIN` | `55` | composite > this + positive intraday sentiment → skip Claude, auto-execute |
-| `COMPOSITE_MIN_NORMAL` | `20` | Minimum composite score to pass pre-Claude filter (NORMAL regime) |
-| `COMPOSITE_MIN_HIGH_VOL` | `35` | Minimum composite score in HIGH_VOL / CRISIS regime |
+| `DAILY_LOSS_WARN_PCT` | `0.02` | Telegram alert when intraday loss hits 2% |
+| `AUTO_EXECUTE_COMPOSITE_MIN` | `70` | Reference for auto-execute confidence delta; actual AE threshold accounts for tier floor and regime |
+| `COMPOSITE_MIN_NORMAL` | `50` | Minimum composite score to pass pre-Claude filter (NORMAL regime) |
+| `COMPOSITE_MIN_HIGH_VOL` | `55` | Minimum composite score in HIGH_VOL / DEFENSIVE regime |
+| `SOFT_FLAG_OVERLOAD_THRESHOLD` | `4` | ≥ this many simultaneous soft flags (volume, breadth, Stoch, OR) → hard block |
 | `ENTRY_HARD_CLOSE_HOUR` | `13` | Default per-regime hard entry cutoff (1 PM NORMAL; CHOPPY/DEFENSIVE=12, BULL_TREND/OPPORTUNITY=14). Overrides `ENTRY_END_HOUR` earlier. |
 | `PROFIT_LOCK_SWING_PCT` | `2.5` | Positions with P&L ≥ this qualify for swing in any non-CRISIS regime (per-regime override in `SwingParams`) |
 | `SWING_PROMOTE_MIN_PNL_PCT` | `0.5` | Standard swing promotion floor (per-regime: 0.3 BULL_TREND, 1.0 CRASH_RECOVERY) |
@@ -257,6 +259,9 @@ What you'll receive on Telegram:
   │ Position drawdown    │ ⚠️ NVDA drawdown -2.1% — approaching stop               │
   ├──────────────────────┼──────────────────────────────────────────────────────────┤
   │ API budget 75%       │ ⚠️ API budget at 75% ($0.75 / $1.00)                    │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ Bracket timeout      │ ⚠️ BRACKET TIMEOUT AAPL: fill-slippage correction timed  │
+  │                      │    out. Journaled with indicative entry ~$XXX — verify   │
   ├──────────────────────┼──────────────────────────────────────────────────────────┤
   │ Stale research       │ ⚠️ Research report is 95 min old — sentiment may drift   │
   ├──────────────────────┼──────────────────────────────────────────────────────────┤
