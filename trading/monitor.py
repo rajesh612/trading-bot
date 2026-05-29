@@ -337,6 +337,31 @@ def run_position_monitor():
                     symbol, alpaca, open_positions, current_price,
                     current_iv, "momentum_reversal",
                 )
+        elif (
+            regime == "NORMAL"
+            and not pos.get("is_swing", False)
+            and pos.get("mode_at_entry") == "DAY_TRADE"
+            and pnl_pct >= config.MIDDAY_PROFIT_FLOOR_PCT
+            and config.MIDDAY_EXIT_HOUR <= now.hour < config.MIDDAY_EXIT_MAX_HOUR
+        ):
+            entry_ts_str = pos.get("entry_time")
+            if entry_ts_str:
+                try:
+                    entry_dt = datetime.fromisoformat(entry_ts_str)
+                    if entry_dt.tzinfo is None:
+                        entry_dt = entry_dt.replace(tzinfo=ET)
+                    hold_hours = (now - entry_dt).total_seconds() / 3600
+                    if hold_hours >= config.MIDDAY_EXIT_MIN_HOLD_H:
+                        logger.info(
+                            "MIDDAY PROFIT FLOOR: %s held %.1fh P&L=%+.2f%% — locking gain at %02d:xx",
+                            symbol, hold_hours, pnl_pct, now.hour,
+                        )
+                        close_position(
+                            symbol, alpaca, open_positions, current_price,
+                            _try_compute_iv(symbol, alpaca), "midday_profit_floor",
+                        )
+                except Exception as exc:
+                    logger.debug("MIDDAY profit floor: entry_time parse failed for %s: %s", symbol, exc)
 
     flush_profit_lock_updates(open_positions)
 
