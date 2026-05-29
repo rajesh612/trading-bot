@@ -1,6 +1,5 @@
 import logging
 import threading
-import time
 from datetime import datetime
 import anthropic
 
@@ -135,16 +134,33 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
         _api_failures = 0
         _api_limit_hit = False
 
-        for symbol in watch_list:
-            stocktwits  = {}
-            reddit_data = {}
-            x_data      = {}
+        # ── Phase A: Parallel data fetch (news/social sources are independent) ──
+        def _fetch_all_sources(symbol: str) -> tuple:
             try:
-                stock_news  = _fetch_stock_news(symbol)
-                stocktwits  = _fetch_stocktwits(symbol)
-                reddit_data = _fetch_reddit(symbol)
-                x_data      = _fetch_x_posts(symbol)
+                return (
+                    _fetch_stock_news(symbol),
+                    _fetch_stocktwits(symbol),
+                    _fetch_reddit(symbol),
+                    _fetch_x_posts(symbol),
+                )
+            except Exception:
+                return [], {}, {}, {}
 
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        fetched: dict[str, tuple] = {}
+        with ThreadPoolExecutor(max_workers=min(6, len(watch_list))) as pool:
+            future_to_sym = {pool.submit(_fetch_all_sources, sym): sym for sym in watch_list}
+            for future in as_completed(future_to_sym):
+                sym = future_to_sym[future]
+                try:
+                    fetched[sym] = future.result()
+                except Exception:
+                    fetched[sym] = ([], {}, {}, {})
+
+        # ── Phase B: Sequential Claude analysis (rate-limit safe) ─────────────
+        for symbol in watch_list:
+            stock_news, stocktwits, reddit_data, x_data = fetched.get(symbol, ([], {}, {}, {}))
+            try:
                 quick = _quick_sentiment_result(stocktwits, stock_news)
                 if quick is not None:
                     logger.info(
@@ -182,8 +198,6 @@ def _run_research_agent_impl(watch_list: list[str]) -> dict:
 
             # Flush partial results after each stock so we never lose all work on a crash
             save_json(config.RESEARCH_REPORT_FILE, report)
-
-            time.sleep(0.3)
 
         # ── Failure-rate gate (mirrors earnings calendar pattern) ──────────────
         failure_rate = _api_failures / max(len(watch_list), 1)
