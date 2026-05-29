@@ -251,6 +251,7 @@ vix_regime.json
 # ── Backtest outputs ──────────────────────────────────────────────────────────
 backtest_trades.csv
 backtest_equity.json
+sweep_results.csv
 
 # ── Claude Code project files ─────────────────────────────────────────────────
 .claude/
