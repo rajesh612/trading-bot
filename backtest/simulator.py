@@ -99,6 +99,7 @@ class SimState:
     sl_blacklist: set = field(default_factory=set)
     sl_blacklist_pending: set = field(default_factory=set)
     t2_fire_count: int = 0
+    fc_pnls: list = field(default_factory=list)  # rolling FORCE_CLOSE pnl_pct history
 
 
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
@@ -181,6 +182,9 @@ def _close_trade(
         exit_reason=reason, pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 2),
         entry_hour=_entry_hour,
     ))
+    if reason.startswith("FORCE_CLOSE") or reason.startswith("eod_force"):
+        state.fc_pnls.append(round(pnl_pct, 2))
+        state.fc_pnls = state.fc_pnls[-config.CIRCUIT_BREAKER_FC_LOOKBACK:]
     remaining = pos["qty"] - close_qty
     if remaining > 0:
         pos["qty"] = remaining
@@ -406,11 +410,13 @@ def _sim_entry_signal_passes(
     quality: "TickerQuality | None",
     params: dict,
     rsi_max: float,
+    cb_boost: int = 0,
 ) -> bool:
     """Return True iff the bar's signals pass all backtest entry gates.
 
     Mirrors the hard-gate checks in check_all_gates() that are computable
     from precomputed IndicatorValues — no calendar/journal data required.
+    cb_boost mirrors the force-close circuit breaker composite raise from cycle.py.
     """
     tier = quality.tier if quality else "MEDIUM"
     fp = get_filter_params(regime, tier)
@@ -420,7 +426,7 @@ def _sim_entry_signal_passes(
     if config.MAX_ENTRY_PRICE and iv.current_price > config.MAX_ENTRY_PRICE:
         return False
 
-    composite_floor = max(fp.composite_min, effective_composite_gate(iv, regime, params=params))
+    composite_floor = max(fp.composite_min, effective_composite_gate(iv, regime, params=params)) + cb_boost
     if iv.composite_score < composite_floor:
         return False
     if iv.signal != "BUY":
@@ -483,6 +489,20 @@ def simulate_day(
     if not sorted_ts:
         logger.info("  No bars for this day — skipping.")
         return
+
+    cb_boost = (
+        config.CIRCUIT_BREAKER_COMPOSITE_BOOST
+        if (
+            len(state.fc_pnls) == config.CIRCUIT_BREAKER_FC_LOOKBACK
+            and all(p < 0 for p in state.fc_pnls)
+        )
+        else 0
+    )
+    if cb_boost:
+        logger.info(
+            "  [CIRCUIT BREAKER] %d consecutive FC losses — composite floor +%d for %s",
+            config.CIRCUIT_BREAKER_FC_LOOKBACK, cb_boost, date_str,
+        )
 
     # Precompute indicators for all watch-list symbols for this day (vectorized, ~60× faster).
     # If precomp_cache is provided (e.g. by param_sweep.py), reuse it to avoid redundant work.
@@ -547,6 +567,19 @@ def simulate_day(
                     reason, exit_price = "TP", pos["tp"]
                 elif bar["low"] <= pos["sl"]:
                     reason, exit_price = "SL", pos["sl"]
+                elif (
+                    regime == "NORMAL"
+                    and not is_force
+                    and config.MIDDAY_EXIT_HOUR <= ts_et.hour < config.MIDDAY_EXIT_MAX_HOUR
+                ):
+                    try:
+                        _entry_dt = datetime.fromisoformat(pos["entry_ts"]).astimezone(ET)
+                        _hold_h = (ts_et - _entry_dt).total_seconds() / 3600
+                    except Exception:
+                        _hold_h = 0.0
+                    _pnl_pct = (float(bar["close"]) / pos["entry"] - 1) * 100
+                    if _pnl_pct >= config.MIDDAY_PROFIT_FLOOR_PCT and _hold_h >= config.MIDDAY_EXIT_MIN_HOLD_H:
+                        reason, exit_price = "midday_profit_floor", float(bar["close"])
                 elif is_force:
                     reason, exit_price = "FORCE_CLOSE", bar["close"]
                 if reason:
@@ -598,7 +631,7 @@ def simulate_day(
                 fred_cache={},
             )
             tier = quality.tier
-            if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max):
+            if not _sim_entry_signal_passes(iv, regime, quality, p, rsi_max, cb_boost=cb_boost):
                 continue
             from utils.regime_params import get_day_trade_params
             _dtp = get_day_trade_params(regime, tier)
