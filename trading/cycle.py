@@ -150,11 +150,29 @@ def run_trading_cycle() -> None:
         return
 
     portfolio_gain_pct = (portfolio_value - last_equity) / last_equity * 100 if last_equity else 0.0
+
+    # Circuit breaker: if last N force-closes are all losses, raise composite floor this cycle
+    from trading.journal import get_recent_force_close_pnls
+    _fc_pnls = get_recent_force_close_pnls(config.CIRCUIT_BREAKER_FC_LOOKBACK)
+    _cb_boost = (
+        config.CIRCUIT_BREAKER_COMPOSITE_BOOST
+        if len(_fc_pnls) == config.CIRCUIT_BREAKER_FC_LOOKBACK and all(p < 0 for p in _fc_pnls)
+        else 0
+    )
+    if _cb_boost:
+        logger.warning(
+            "CIRCUIT BREAKER: last %d force-closes all losses (%s) — raising composite floor by +%d",
+            config.CIRCUIT_BREAKER_FC_LOOKBACK,
+            ", ".join(f"${p:+.0f}" for p in _fc_pnls),
+            _cb_boost,
+        )
+
     snap = build_cycle_snapshot(
         portfolio_gain_pct=portfolio_gain_pct,
         regime_info=regime_info,
         params=params,
         staleness_guard=guard,
+        circuit_breaker_composite_boost=_cb_boost,
     )
 
     ai = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)

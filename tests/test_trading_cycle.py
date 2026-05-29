@@ -208,3 +208,106 @@ class TestCanOpenLogMessage:
         assert can_open_logs, "Expected at least one can_open=False log line"
         for msg in can_open_logs:
             assert "not open yet" not in msg, f"Misleading 'not open yet' in: {msg}"
+
+
+# ── Rolling force-close circuit breaker ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestCircuitBreakerCompositeBoost:
+    """Rolling force-close circuit breaker raises composite floor after consecutive losses."""
+
+    def test_boost_applied_when_all_fc_losses(self, monkeypatch, tmp_path):
+        """If last N force-closes are all losses, circuit_breaker_composite_boost > 0."""
+        import config
+        import trading.journal as journal_mod
+
+        monkeypatch.setattr(config, "CIRCUIT_BREAKER_FC_LOOKBACK", 3)
+        monkeypatch.setattr(config, "CIRCUIT_BREAKER_COMPOSITE_BOOST", 10)
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "journal.json")
+
+        from utils.io_utils import save_json
+        from zoneinfo import ZoneInfo
+        ET = ZoneInfo("America/New_York")
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+
+        save_json(tmp_path / "journal.json", [
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -30.0, "timestamp": f"{today}T11:00:00"},
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -20.0, "timestamp": f"{today}T12:00:00"},
+        ])
+
+        pnls = journal_mod.get_recent_force_close_pnls(3)
+        assert len(pnls) == 3
+        assert all(p < 0 for p in pnls)
+
+        boost = config.CIRCUIT_BREAKER_COMPOSITE_BOOST if (
+            len(pnls) == config.CIRCUIT_BREAKER_FC_LOOKBACK and all(p < 0 for p in pnls)
+        ) else 0
+        assert boost == 10
+
+    def test_no_boost_when_mixed_results(self, monkeypatch, tmp_path):
+        """No boost when last N force-closes include a profit."""
+        import config
+        import trading.journal as journal_mod
+
+        monkeypatch.setattr(config, "CIRCUIT_BREAKER_FC_LOOKBACK", 3)
+        monkeypatch.setattr(config, "CIRCUIT_BREAKER_COMPOSITE_BOOST", 10)
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "journal.json")
+
+        from utils.io_utils import save_json
+        from zoneinfo import ZoneInfo
+        ET = ZoneInfo("America/New_York")
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+
+        save_json(tmp_path / "journal.json", [
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": +30.0, "timestamp": f"{today}T11:00:00"},
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -20.0, "timestamp": f"{today}T12:00:00"},
+        ])
+
+        pnls = journal_mod.get_recent_force_close_pnls(3)
+        boost = config.CIRCUIT_BREAKER_COMPOSITE_BOOST if (
+            len(pnls) == config.CIRCUIT_BREAKER_FC_LOOKBACK and all(p < 0 for p in pnls)
+        ) else 0
+        assert boost == 0
+
+    def test_no_boost_when_fewer_than_lookback(self, monkeypatch, tmp_path):
+        """No boost when today has fewer than CIRCUIT_BREAKER_FC_LOOKBACK force-closes."""
+        import config
+        import trading.journal as journal_mod
+
+        monkeypatch.setattr(config, "CIRCUIT_BREAKER_FC_LOOKBACK", 5)
+        monkeypatch.setattr(config, "CIRCUIT_BREAKER_COMPOSITE_BOOST", 10)
+        monkeypatch.setattr(config, "TRADE_JOURNAL_FILE", tmp_path / "journal.json")
+
+        from utils.io_utils import save_json
+        from zoneinfo import ZoneInfo
+        ET = ZoneInfo("America/New_York")
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+
+        save_json(tmp_path / "journal.json", [
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -50.0, "timestamp": f"{today}T10:00:00"},
+            {"type": "CLOSE", "close_reason": "FORCE_CLOSE", "pnl_dollar": -30.0, "timestamp": f"{today}T11:00:00"},
+        ])
+
+        pnls = journal_mod.get_recent_force_close_pnls(5)
+        boost = config.CIRCUIT_BREAKER_COMPOSITE_BOOST if (
+            len(pnls) == config.CIRCUIT_BREAKER_FC_LOOKBACK and all(p < 0 for p in pnls)
+        ) else 0
+        assert boost == 0
+
+    def test_boost_stored_in_cycle_snapshot(self, monkeypatch, tmp_path):
+        """build_cycle_snapshot stores circuit_breaker_composite_boost correctly."""
+        from trading.cycle_context import build_cycle_snapshot
+        import config
+
+        monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "research.json")
+        monkeypatch.setattr(config, "INDICATOR_WEIGHTS_FILE", tmp_path / "weights.json")
+        monkeypatch.setattr(config, "STRATEGY_MEMORY_FILE", tmp_path / "strategy.md")
+        monkeypatch.setattr(config, "FRED_CACHE_FILE", tmp_path / "fred.json")
+
+        snap = build_cycle_snapshot(
+            portfolio_gain_pct=0.5,
+            circuit_breaker_composite_boost=10,
+        )
+        assert snap.circuit_breaker_composite_boost == 10

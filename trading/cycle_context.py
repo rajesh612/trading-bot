@@ -80,6 +80,8 @@ class CycleSnapshot:
     # CATALYST_WINDOW_MINUTES, or None. Populated once per cycle by cycle.py.
     catalyst_surprise_score: float = 0.0
     # Pre-fetched from get_catalyst_surprise_score(); 0.0 = no data or neutral.
+    circuit_breaker_composite_boost: int = 0
+    # > 0 when last CIRCUIT_BREAKER_FC_LOOKBACK force-closes are all losses — raises composite floor
 
 
 def build_cycle_snapshot(
@@ -88,6 +90,7 @@ def build_cycle_snapshot(
     regime_info: dict | None = None,
     params: dict | None = None,
     staleness_guard: StalenessGuard | None = None,
+    circuit_breaker_composite_boost: int = 0,
 ) -> CycleSnapshot:
     """
     Load all cycle data in one place. Called once by run_trading_cycle().
@@ -170,4 +173,5 @@ def build_cycle_snapshot(
         major_event_today=major_event_today,
         post_event_window=_post_event_window,
         catalyst_surprise_score=_catalyst_surprise,
+        circuit_breaker_composite_boost=circuit_breaker_composite_boost,
     )

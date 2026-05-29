@@ -68,10 +68,12 @@ def apply_pre_claude_filter(
         iv, snap.regime, params=snap.params,
         staleness_guard=snap.staleness_guard,
     )
-    composite_min = max(eff_gate, fp.composite_min)
+    cb_boost = int(getattr(snap, "circuit_breaker_composite_boost", 0) or 0)
+    composite_min = max(eff_gate, fp.composite_min) + cb_boost
     if iv.composite_score < composite_min:
+        boost_note = f" +{cb_boost}cb" if cb_boost else ""
         return FilterResult("SKIP",
-            f"composite {iv.composite_score:+.1f} < {composite_min}"
+            f"composite {iv.composite_score:+.1f} < {composite_min}{boost_note}"
             f" ({snap.regime} tier={quality.tier})", quality)
 
     # Layer 2 — RSI maximum (regime-adjusted)

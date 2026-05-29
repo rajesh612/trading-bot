@@ -186,6 +186,9 @@ OBV_PRICE_LOW_PROXIMITY  = 1.001  # OBV bullish divergence: price within 0.1% of
 DEFENSIVE_COMPOSITE_MULT = 1.5  # multiplier applied to COMPOSITE_MIN_HIGH_VOL in DEFENSIVE pre-filter
 MAX_SAME_SECTOR_POSITIONS = 2   # block entry if >= this many open positions share sector
 
+CIRCUIT_BREAKER_FC_LOOKBACK: int = 5    # look at last N force-closes to detect losing streak
+CIRCUIT_BREAKER_COMPOSITE_BOOST: int = 10  # raise composite floor by this when streak detected
+
 # ── REGIME & MACRO ────────────────────────────────────────────────────────────
 
 MACRO_HEALTH_BULL_THRESHOLD = 20   # score above this → bullish regimes eligible
@@ -232,6 +235,13 @@ EOD_FORCE_CLOSE_MINUTE = 55  # minute at which force_close_all() runs (ET)
 HIGH_VOL_EARLY_EXIT_HOUR: int = 14        # 2 PM ET: window opens
 HIGH_VOL_EARLY_EXIT_MIN_HOLD_H: float = 2.0   # position must be held ≥ 2h to qualify
 HIGH_VOL_EARLY_EXIT_MIN_LOSS_PCT: float = 0.5  # must be down ≥ 0.5% (avoids noise exits)
+
+# NORMAL regime midday profit-floor exit — lock in gains ≥ 1% between 2–3 PM when held 2+ hours.
+# Prevents afternoon drift from converting profitable day trades into losses before EOD force-close.
+MIDDAY_PROFIT_FLOOR_PCT: float = 1.0    # NORMAL regime: lock profit ≥ this % after MIDDAY_EXIT_HOUR
+MIDDAY_EXIT_HOUR: int = 14              # 2 PM ET: profit-floor window opens
+MIDDAY_EXIT_MAX_HOUR: int = 15          # 3 PM ET: after this the swing eval or force-close handles it
+MIDDAY_EXIT_MIN_HOLD_H: float = 2.0     # position must be held ≥ this many hours
 
 # Momentum-reversal early exit — cuts day-trade losses when MACD flips negative after entry
 # Fires when position is between MIN_LOSS and MAX_LOSS AND MACD_hist reverses from positive to negative.
