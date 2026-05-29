@@ -1423,8 +1423,8 @@ class TestClaudeCallerCacheControl:
             staleness_guard=FRESH_GUARD,
         )
 
-    def test_entry_batch_system_blocks_have_no_cache_control(self):
-        """_ask_claude_batch must not set cache_control on any system block."""
+    def test_entry_batch_system_blocks_have_cache_control(self):
+        """_ask_claude_batch must set cache_control on system blocks (Anthropic prompt caching)."""
         from unittest.mock import MagicMock, patch
         from tests.test_signals import make_full_iv
         from trading.pre_claude_filter import FilterResult
@@ -1457,7 +1457,7 @@ class TestClaudeCallerCacheControl:
 
         system_blocks = captured_kwargs.get("system", [])
         assert system_blocks, "No system blocks captured"
-        for block in system_blocks:
-            assert "cache_control" not in block, (
-                f"cache_control found in entry system block: {block}"
-            )
+        cached_blocks = [b for b in system_blocks if "cache_control" in b]
+        assert len(cached_blocks) >= 1, (
+            f"Expected ≥1 system block with cache_control for prompt caching, got 0"
+        )

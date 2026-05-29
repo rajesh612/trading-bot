@@ -182,8 +182,8 @@ def _ask_claude_batch(
         volatile_text += f"\n\nToday's strategy memory:\n{snap.strategy_memory}"
 
     system_blocks = [
-        {"type": "text", "text": stable_system_text},
-        {"type": "text", "text": volatile_text},
+        {"type": "text", "text": stable_system_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": volatile_text, "cache_control": {"type": "ephemeral"}},
     ]
 
     user_msg = (
@@ -323,12 +323,10 @@ def _ask_claude_exit_batch(
         {"type": "text", "text": f"Strategy memory:\n{snap.strategy_memory or '(no strategy memory yet)'}"},
     ]
 
-    pnl_note = f"{snap.portfolio_gain_pct:+.2f}%"
-    if snap.portfolio_gain_pct <= -config.DAILY_LOSS_WARN_PCT * 100:
-        pnl_note += " ⚠ elevated daily loss — lean toward protecting remaining capital"
+    dynamic_ctx = build_dynamic_user_context(now_exit, portfolio_gain_pct=snap.portfolio_gain_pct)
 
     user_msg = (
-        f"Portfolio P&L today: {pnl_note} | Time: {now_exit.strftime('%H:%M')} ET\n\n"
+        f"{dynamic_ctx}\n\n"
         f"Thesis-break evaluation for {len(exit_candidates)} open position(s):\n\n"
         f"{exit_blocks}\n\n"
         "For each position: should we CLOSE (thesis broken) or HOLD?\n"

@@ -19,6 +19,9 @@ from utils.market_monitor import is_flash_crash_active
 # "cpi_trend" is a legacy fallback key that may not be in the schema; excluded intentionally.
 FRED_KEYS_CONSUMED: frozenset[str] = frozenset({
     "fed_direction", "cpi_vs_target", "cpi_trend", "unemployment_rising",
+    "yield_curve_inverted", "yield_curve_spread",
+    "credit_spread_bps", "credit_spread_risk_off",
+    "claims_spike",
 })
 
 
@@ -277,6 +280,15 @@ def build_stable_system_context(
     cpi   = fred_cache.get("cpi_vs_target") or fred_cache.get("cpi_trend", "unknown")
     unemp = "rising" if fred_cache.get("unemployment_rising") else "stable"
 
+    yield_inv    = fred_cache.get("yield_curve_inverted", False)
+    yield_spread = fred_cache.get("yield_curve_spread")
+    credit_bps   = fred_cache.get("credit_spread_bps")
+    credit_ro    = fred_cache.get("credit_spread_risk_off", False)
+    claims_spike = fred_cache.get("claims_spike", False)
+    yield_str  = "INVERTED" if yield_inv else (f"{yield_spread:.0f}bps" if yield_spread is not None else "unknown")
+    credit_str = "RISK-OFF" if credit_ro else (f"{credit_bps:.0f}bps" if credit_bps is not None else "unknown")
+    claims_str = "spiking ⚠" if claims_spike else "normal"
+
     shock      = research_meta.get("macro_shock_score", 0)
     shock_line = f"{shock}/100" + (" — elevated macro stress" if shock >= 40 else "")
     caps       = research_meta.get("capitulation_candidates", [])
@@ -304,6 +316,7 @@ def build_stable_system_context(
         f"{breadth_line}\n"
         f"Sector scores: {sector_score_str}\n"
         f"FRED: Fed {fed} | CPI {cpi} | Unemployment {unemp}\n"
+        f"Yield curve: {yield_str} | Credit spread: {credit_str} | Claims: {claims_str}\n"
         f"Macro shock: {shock_line} | Capitulation watch: {cap_str}"
     )
 

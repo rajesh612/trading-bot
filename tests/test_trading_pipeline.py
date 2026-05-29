@@ -856,10 +856,10 @@ def test_entry_batch_system_prompt_has_cache_control(monkeypatch, tmp_path):
     assert calls, "Claude was not called"
     system_blocks = calls[0].get("system", [])
     assert system_blocks, "No system blocks in entry-batch call"
-    assert not any(
-        isinstance(b, dict) and b.get("cache_control")
-        for b in system_blocks
-    ), "entry-batch system blocks must not have cache_control (TTL 5min < 10min cycle)"
+    cached = [b for b in system_blocks if isinstance(b, dict) and b.get("cache_control")]
+    assert len(cached) >= 1, (
+        f"Expected ≥1 system block with cache_control for Anthropic prompt caching, got 0"
+    )
 
 
 # ── P4-T5: _compute_auto_execute_confidence ───────────────────────────────────
