@@ -1206,6 +1206,63 @@ class TestDynamicPreClaudeFilter:
         assert 'regime == "DEFENSIVE"' not in src or "Rule 23" in src
 
     @pytest.mark.unit
+    def test_layer0_skip_does_not_compute_quality(self, monkeypatch):
+        """SKIP for already_closed_today must not invoke compute_ticker_quality."""
+        from unittest.mock import MagicMock
+        import trading.pre_claude_filter as pcf
+
+        quality_calls = []
+
+        def fake_quality(*args, **kwargs):
+            quality_calls.append(True)
+            from utils.ticker_quality import TickerQuality
+            return TickerQuality("MEDIUM", 50, frozenset(), (), {})
+
+        monkeypatch.setattr(pcf, "compute_ticker_quality", fake_quality)
+
+        snap = self._make_snap("NORMAL")
+        iv = MagicMock()
+        iv.composite_score = 50.0
+
+        result = pcf.apply_pre_claude_filter("AAPL", iv, snap, daily_closed={"AAPL"})
+        assert result.decision == "SKIP"
+        assert len(quality_calls) == 0, (
+            f"compute_ticker_quality was called {len(quality_calls)} times — should be 0 for closed-today SKIP"
+        )
+
+    @pytest.mark.unit
+    def test_correlation_hard_gate_skips_before_claude(self, monkeypatch):
+        """When correlation_hard_gate=True and sector is concentrated, pre-filter returns SKIP."""
+        from unittest.mock import MagicMock
+        import trading.pre_claude_filter as pcf
+        from utils.regime_params import GateParams
+
+        monkeypatch.setattr(pcf, "get_gate_params",
+            lambda regime, tier: GateParams(
+                stoch_soft_flag=85, stoch_hard_veto=97,
+                rel_volume_min=0.6, breadth_weak_threshold=0.85,
+                stop_hunt_veto=True, correlation_hard_gate=True,
+            ))
+        monkeypatch.setattr(pcf, "passes_correlation_guard", lambda symbol, open_pos: False)
+
+        snap = self._make_snap("NORMAL")
+        snap.fred_cache = {}
+        iv = MagicMock()
+        iv.composite_score = 65.0
+        iv.rsi = 55.0
+        iv.relative_volume = 1.2
+        iv.vwap_slope = 0.01
+        iv.squeeze_setup = False
+        iv.bot_herding_score = 0
+
+        result = pcf.apply_pre_claude_filter(
+            "AAPL", iv, snap,
+            open_positions={"MSFT": {"sector": "XLK"}},
+        )
+        assert result.decision == "SKIP"
+        assert "sector concentration" in result.reason
+
+    @pytest.mark.unit
     def test_ae_threshold_respects_tier_composite_floor(self, monkeypatch):
         """AE threshold uses max(regime_floor, tier_floor) to prevent premature auto-execute.
 

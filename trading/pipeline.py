@@ -342,7 +342,8 @@ class TradingPipeline:
                 continue
             _catalyst_active = is_catalyst_active(symbol, snap)
             filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed,
-                                           catalyst_active=_catalyst_active)
+                                           catalyst_active=_catalyst_active,
+                                           open_positions=open_positions)
             quality_map[symbol] = filt.quality
             if filt.decision == "SKIP":
                 logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)

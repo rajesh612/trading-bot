@@ -17,7 +17,8 @@ from trading.cycle_context import CycleSnapshot
 from signals.entry_gates import effective_composite_gate, GateResult
 from utils import regimes
 from utils.ticker_quality import TickerQuality, compute_ticker_quality, derive_mode
-from utils.regime_params import get_filter_params, get_auto_execute_params, get_entry_params
+from utils.regime_params import get_filter_params, get_auto_execute_params, get_entry_params, get_gate_params
+from signals.correlation_guard import passes_correlation_guard
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ def apply_pre_claude_filter(
     pead_score: int = 0,
     event_active: bool = False,
     catalyst_active: bool = False,
+    open_positions: dict | None = None,
 ) -> FilterResult:
     """Pre-Claude filter with dynamic FilterParams per regime×tier and quality scoring.
 
@@ -48,13 +50,9 @@ def apply_pre_claude_filter(
 
     fred_cache = getattr(snap, "fred_cache", None) or {}
 
-    # Layer 0 — Already closed today
+    # Layer 0 — Already closed today (check before quality computation — quality is wasted on a SKIP)
     if daily_closed and symbol in daily_closed:
-        quality = compute_ticker_quality(symbol, iv, snap, mode,
-                                         sub_etf_chg, earnings_clear_days,
-                                         pead_ok, pead_score, event_active,
-                                         fred_cache=fred_cache)
-        return FilterResult("SKIP", "already closed today", quality)
+        return FilterResult("SKIP", "already closed today", quality=None)
 
     # Compute quality first — tier drives all subsequent thresholds
     quality = compute_ticker_quality(symbol, iv, snap, mode,
@@ -118,6 +116,16 @@ def apply_pre_claude_filter(
         return FilterResult("SKIP",
             f"intraday sentiment {intra_sent:+d} < {fp.intraday_block}"
             f" (tier={quality.tier})", quality)
+
+    # Layer 5.5 — Correlation hard gate: save Claude API call for concentrated sectors
+    if open_positions is not None:
+        gp_corr = get_gate_params(snap.regime, quality.tier)
+        if gp_corr.correlation_hard_gate and not passes_correlation_guard(symbol, open_positions):
+            return FilterResult(
+                "SKIP",
+                f"sector concentration hard gate ({snap.regime} tier={quality.tier})",
+                quality,
+            )
 
     # Auto-execute — dynamic 9×4 table (regime × tier); disabled entries have composite_offset=999
     ae = get_auto_execute_params(snap.regime, quality.tier)
