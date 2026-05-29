@@ -27,12 +27,15 @@ FRED_KEYS_CONSUMED: frozenset[str] = frozenset({
 def _pos_line(iv, existing_pos: dict | None) -> str:
     if not existing_pos:
         return ""
+    ep = existing_pos.get("entry_price") or 0.0
+    if ep <= 0:
+        return ""
     price = iv.current_price
-    pnl_pct = (price - existing_pos["entry_price"]) / existing_pos["entry_price"] * 100
+    pnl_pct = (price - ep) / ep * 100
     sl = existing_pos.get("stop_loss_pct", config.STOP_LOSS_PCT)
     tp = existing_pos.get("take_profit_pct", config.TAKE_PROFIT_PCT)
     return (
-        f" POS:${existing_pos['entry_price']:.2f}×{existing_pos['qty']:.0f}"
+        f" POS:${ep:.2f}×{existing_pos.get('qty', 0):.0f}"
         f" P&L={pnl_pct:+.2f}% SL={sl:.1f}% TP={tp:.1f}%"
     )
 
@@ -224,7 +227,7 @@ def build_exit_stock_block(
     sl_pct = position.get("stop_loss_pct", config.STOP_LOSS_PCT)
 
     held_str = ""
-    entry_ts = position.get("timestamp", "")
+    entry_ts = position.get("entry_time", "")
     if entry_ts and now:
         try:
             entry_dt = datetime.fromisoformat(entry_ts)

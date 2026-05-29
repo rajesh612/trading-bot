@@ -42,9 +42,11 @@ class TestComputeTpSl:
         # CONVICTION allows higher ceiling (4.5) vs MEDIUM (3.5)
         assert p_con[0] >= p_med[0]
 
-    def test_crisis_raises(self):
-        with pytest.raises(ValueError):
-            compute_tp_sl(2.0, 1.5, _et(10, 30), "LOW", "CRISIS")
+    def test_crisis_returns_fallback(self):
+        """Disabled combos return base values instead of raising."""
+        tp, sl = compute_tp_sl(2.0, 1.5, _et(10, 30), "LOW", "CRISIS")
+        assert isinstance(tp, float) and tp > 0
+        assert isinstance(sl, float) and sl > 0
 
     def test_sl_clamped_to_floor(self):
         _, sl = compute_tp_sl(2.0, 0.1, _et(10, 30), "MEDIUM", "NORMAL")

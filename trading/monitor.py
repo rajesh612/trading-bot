@@ -266,7 +266,10 @@ def run_position_monitor():
             logger.warning("Position monitor: could not get price for %s: %s", symbol, exc)
             continue
 
-        pos = _apply_profit_lock(pos, current_price)
+        updated_pos = _apply_profit_lock(pos, current_price)
+        if updated_pos.get("stop_loss_price") != pos.get("stop_loss_price"):
+            flush_profit_lock_updates({symbol: updated_pos})
+        pos = updated_pos
         open_positions[symbol] = pos
 
         entry_price = pos.get("entry_price", 0)

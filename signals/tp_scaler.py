@@ -41,9 +41,12 @@ def compute_tp_sl(
     """
     p = get_tp_sl_params(regime, tier, mode)
     if p.is_disabled:
-        raise ValueError(
-            f"compute_tp_sl called for disabled combo ({regime}, {tier}, {mode})"
+        import logging
+        logging.getLogger(__name__).warning(
+            "compute_tp_sl called for disabled combo (%s, %s, %s) — using base values",
+            regime, tier, mode,
         )
+        return round(base_tp, 2), round(base_sl, 2)
     time_mult = compute_time_multiplier(entry_time)
     raw_tp    = base_tp * p.atr_mult * time_mult
     return round(p.clamp_tp(raw_tp), 2), round(p.clamp_sl(base_sl), 2)

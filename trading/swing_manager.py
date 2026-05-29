@@ -65,7 +65,7 @@ def _evaluate_gap_action(position: dict, current_price: float) -> str:
     if entry <= 0:
         return "NONE"
     gap_pct = (current_price - entry) / entry * 100
-    sl_pct = position.get("stop_loss_pct", 7.0)
+    sl_pct = position.get("stop_loss_pct", config.SWING_OVERNIGHT_SL_PCT)
 
     pos_tier = position.get("quality_tier", "MEDIUM")
     gap_close_threshold = -1.5 if pos_tier == "CONVICTION" else -1.0

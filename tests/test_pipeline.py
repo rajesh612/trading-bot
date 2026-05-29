@@ -1214,16 +1214,15 @@ class TestComputeTpSlWithMode:
         assert 7.0 <= tp <= 12.0
 
     @pytest.mark.unit
-    def test_disabled_combo_raises(self):
+    def test_disabled_combo_returns_fallback(self):
+        """Disabled combos return (base_tp, base_sl) instead of raising."""
         from signals.tp_scaler import compute_tp_sl
         from datetime import datetime
-        from utils.constants import ET
-        with pytest.raises(ValueError):
-            compute_tp_sl(
-                base_tp=2.0, base_sl=1.5,
-                entry_time=datetime(2026, 5, 24, 10, 0, tzinfo=ET),
-                tier="LOW", regime="CRISIS", mode="DAY_TRADE",
-            )
+        from zoneinfo import ZoneInfo
+        now = datetime(2024, 1, 15, 11, 0, tzinfo=ZoneInfo("America/New_York"))
+        tp, sl = compute_tp_sl(5.0, 2.0, now, tier="MEDIUM", regime="CRISIS")
+        assert isinstance(tp, float) and tp > 0
+        assert isinstance(sl, float) and sl > 0
 
 
 class TestContextBuilderAdditions:

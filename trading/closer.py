@@ -187,17 +187,21 @@ def _force_close_body() -> None:
         pnl_pct    = (price - entry_price) / entry_price * 100 if entry_price else 0.0
         pnl_dollar = (price - entry_price) * pos["qty"] if entry_price else 0.0
 
+        alpaca_close_ok = False
         try:
             alpaca.close_position(symbol)
+            alpaca_close_ok = True
         except Exception as e:
             logger.warning("EOD close failed for %s, retrying: %s", symbol, e)
             time.sleep(2)
             try:
                 alpaca.close_position(symbol)
+                alpaca_close_ok = True
             except Exception as e2:
                 logger.error("EOD close retry failed for %s: %s", symbol, e2)
                 try:
                     alpaca.close_all_positions()
+                    alpaca_close_ok = True
                 except Exception:
                     pass
                 try:
@@ -206,6 +210,10 @@ def _force_close_body() -> None:
                         telegram_notify._send(f"⚠️ EOD close failed, positions still open: {remaining}")
                 except Exception:
                     pass
+
+        if not alpaca_close_ok:
+            logger.error("EOD close: all attempts failed for %s — skipping journal write", symbol)
+            continue
 
         append_trade({
             "type": "CLOSE",
