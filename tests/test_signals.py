@@ -684,3 +684,60 @@ def test_gate2_removed_from_check_all_gates():
     assert "entries_this_cycle" not in sig.parameters, (
         "entries_this_cycle must not be a parameter of check_all_gates()"
     )
+
+
+# ── Task 5: soft-flag overload gate ──────────────────────────────────────────
+
+@pytest.mark.unit
+class TestSoftFlagOverloadGate:
+    def _now(self):
+        from zoneinfo import ZoneInfo
+        # 10:05 ET — in entry window; composite=75 passes late-entry gate (≥68)
+        return datetime(2026, 5, 29, 10, 5, tzinfo=ZoneInfo("America/New_York"))
+
+    def test_four_soft_flags_blocks_entry(self, monkeypatch):
+        """≥4 simultaneous soft flags must return GateResult(passed=False)."""
+        import config
+        from signals.entry_gates import check_all_gates
+
+        monkeypatch.setattr(config, "SOFT_FLAG_OVERLOAD_THRESHOLD", 4)
+
+        # stoch_elevated (stoch_d=87), rel_vol_low (rel_vol=0.4),
+        # inside_opening_range (or_position="inside"), breadth_weak (ad_ratio=0.70)
+        # composite=75 so late-entry gate doesn't fire
+        iv = make_full_iv(
+            composite_score=75.0,
+            stoch_d=87.0,          # stoch_soft_flag=85 → stoch_elevated
+            relative_volume=0.4,   # below REL_VOLUME_MIN → rel_vol_low
+            or_position="inside",  # → inside_opening_range
+            macd_hist=0.05,        # positive, no macd flag
+        )
+        result = check_all_gates(
+            symbol="AAPL", iv=iv, open_positions={}, daily_closed=set(),
+            bars_15min=None, now=self._now(),
+            advance_decline_ratio=0.70,  # breadth_weak (4th flag)
+            regime="NORMAL",
+        )
+        assert not result.passed, f"Expected hard block on 4 soft flags, got passed=True flags={result.flags}"
+        assert "soft-flag overload" in result.reason, f"Unexpected reason: {result.reason}"
+
+    def test_three_soft_flags_still_passes(self, monkeypatch):
+        """3 soft flags (below threshold=4) must still pass to Claude."""
+        import config
+        from signals.entry_gates import check_all_gates
+
+        monkeypatch.setattr(config, "SOFT_FLAG_OVERLOAD_THRESHOLD", 4)
+
+        iv = make_full_iv(
+            composite_score=75.0,
+            stoch_d=87.0,         # stoch_elevated
+            relative_volume=0.4,  # rel_vol_low
+            or_position="inside", # inside_opening_range  (3 flags total, below threshold=4)
+        )
+        result = check_all_gates(
+            symbol="AAPL", iv=iv, open_positions={}, daily_closed=set(),
+            bars_15min=None, now=self._now(),
+            advance_decline_ratio=1.0,  # no breadth flag
+            regime="NORMAL",
+        )
+        assert result.passed, f"3 flags should pass (threshold=4), got reason={result.reason}"

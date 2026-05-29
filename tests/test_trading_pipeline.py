@@ -213,8 +213,8 @@ class TestPipelinePerCycleCap:
                 prev_close=100.0, relative_volume=1.2, or_position="outside",
             )
 
-        candidates = [("SYM1", _iv(), None), ("SYM2", _iv(), None),
-                      ("SYM3", _iv(), None), ("SYM4", _iv(), None)]
+        candidates = [("SYM1", _iv(), None, 0.0), ("SYM2", _iv(), None, 0.0),
+                      ("SYM3", _iv(), None, 0.0), ("SYM4", _iv(), None, 0.0)]
         mock_snap = MagicMock()
         mock_snap.regime = "BULL_TREND"
         mock_snap.staleness_guard.auto_execute_allowed = True
@@ -1165,7 +1165,7 @@ def test_auto_execute_blocked_when_guard_disallows(monkeypatch):
     with patch("trading.pipeline.execute_buy", side_effect=lambda *a, **kw: buy_called.append(True)), \
          patch("trading.pipeline.compute_atr_tp_pct", return_value=5.0):
         result_entries, result_bp, result_batch = _execute_auto_entries(
-            auto_execute=[("AAPL", iv)],
+            auto_execute=[("AAPL", iv, None, 0.0)],
             snap=snap,
             alpaca=MagicMock(),
             open_positions={},
@@ -1208,14 +1208,14 @@ def test_auto_execute_reads_symbol_intraday_sentiment_not_shock(monkeypatch):
 
     original_confidence = __import__("trading.pipeline", fromlist=["_compute_auto_execute_confidence"])._compute_auto_execute_confidence
 
-    def spy_confidence(composite_score, intra_sentiment, regime="NORMAL"):
+    def spy_confidence(composite_score, intra_sentiment, regime="NORMAL", tier="MEDIUM", mode="DAY_TRADE"):
         captured_sentiment["intra_sentiment"] = intra_sentiment
-        return original_confidence(composite_score, intra_sentiment, regime=regime)
+        return original_confidence(composite_score, intra_sentiment, regime=regime, tier=tier, mode=mode)
 
     with patch("trading.pipeline._compute_auto_execute_confidence", side_effect=spy_confidence), \
          patch("trading.pipeline.execute_buy", return_value=None):
         _execute_auto_entries(
-            auto_execute=[("AAPL", iv, None)],
+            auto_execute=[("AAPL", iv, None, 0.0)],
             snap=snap,
             alpaca=MagicMock(),
             open_positions={},

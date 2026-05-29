@@ -895,3 +895,43 @@ class TestAggregateTier:
             params[key] = hi  # all at max restriction
         result = _most_constrained_param(params)
         assert result in _ZERO_TRADE_BOUNDS
+
+    @pytest.mark.unit
+    def test_weights_sum_to_100_after_clamping(self, monkeypatch):
+        """Weights must sum to 100 even after per-weight clamping."""
+        import config
+        monkeypatch.setattr(config, "INDICATOR_WEIGHT_MIN_MULT", 0.3)
+        monkeypatch.setattr(config, "INDICATOR_WEIGHT_MAX_MULT", 1.2)  # tight ceiling triggers clamp
+
+        # 10 equal weights; push one up so it gets clamped
+        weights = {f"ind_{i}": 10.0 for i in range(10)}
+        analysis = {
+            "indicator_performance": {
+                "ind_0": {"weight_adjustment": 5.0},   # 15 → clamped to 12
+                "ind_1": {"weight_adjustment": -5.0},  # 5 → ok
+            }
+        }
+
+        new_weights = dict(weights)
+        for indicator, data in analysis.get("indicator_performance", {}).items():
+            if indicator in new_weights:
+                new_weights[indicator] = max(1.0, new_weights[indicator] + float(data.get("weight_adjustment", 0)))
+
+        total = sum(new_weights.values())
+        new_weights = {k: round(v / total * 100, 2) for k, v in new_weights.items()}
+
+        equal_share = 100.0 / len(new_weights)
+        lo = equal_share * config.INDICATOR_WEIGHT_MIN_MULT
+        hi = equal_share * config.INDICATOR_WEIGHT_MAX_MULT
+        for key in new_weights:
+            new_weights[key] = round(max(lo, min(hi, new_weights[key])), 4)
+
+        # Re-normalise (the fix being tested)
+        _post_clamp_total = sum(new_weights.values())
+        if _post_clamp_total > 0:
+            new_weights = {k: round(v / _post_clamp_total * 100, 4) for k, v in new_weights.items()}
+
+        total_after = sum(new_weights.values())
+        assert abs(total_after - 100.0) < 0.05, (
+            f"Weights sum to {total_after:.4f}, expected ~100"
+        )

@@ -1150,3 +1150,59 @@ class TestStaleResearchDedup:
         # Call the patched public function — conftest autouse patches this to lambda
         tg.notify_stale_research(999.0)
         assert sent == [], "autouse fixture must suppress notify_stale_research in all unit tests"
+
+
+# ── Task 4: stable context cache regime invalidation ─────────────────────────
+
+@pytest.mark.unit
+class TestStableContextRegimeCache:
+    def test_cache_hit_on_same_regime(self, monkeypatch):
+        """Cache returns stored text when regime is unchanged and TTL not expired."""
+        import time
+        import trading.claude_caller as cc
+
+        cc._stable_ctx_text = "cached-normal"
+        cc._stable_ctx_time = time.monotonic()
+        cc._stable_ctx_regime = "NORMAL"
+
+        calls = []
+        monkeypatch.setattr(cc, "build_stable_system_context", lambda *a, **kw: calls.append(1) or "rebuilt")
+
+        result = cc._get_cached_stable_context({}, {}, {"regime": "NORMAL"})
+        assert result == "cached-normal"
+        assert len(calls) == 0, "should not rebuild on cache hit"
+
+    def test_cache_invalidated_on_regime_change(self, monkeypatch):
+        """Cache must rebuild when regime changes (noon refresh scenario)."""
+        import time
+        import trading.claude_caller as cc
+
+        cc._stable_ctx_text = "cached-normal"
+        cc._stable_ctx_time = time.monotonic()
+        cc._stable_ctx_regime = "NORMAL"
+
+        monkeypatch.setattr(cc, "build_stable_system_context",
+                            lambda ri, fc, rm: f"rebuilt-{ri.get('regime')}")
+
+        result = cc._get_cached_stable_context({}, {}, {"regime": "HIGH_VOL"})
+        assert result == "rebuilt-HIGH_VOL"
+        assert cc._stable_ctx_regime == "HIGH_VOL"
+
+
+# ── Task 6: AE confidence tier-aware ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestAeConfidenceTierAware:
+    def test_conviction_higher_than_low(self):
+        from trading.pipeline import _compute_auto_execute_confidence
+        conf_conv = _compute_auto_execute_confidence(70.0, 10, "NORMAL", "CONVICTION")
+        conf_low  = _compute_auto_execute_confidence(70.0, 10, "NORMAL", "LOW")
+        assert conf_conv > conf_low, f"CONVICTION ({conf_conv}) should > LOW ({conf_low})"
+
+    def test_low_tier_capped(self):
+        from trading.pipeline import _compute_auto_execute_confidence
+        import config
+        conf = _compute_auto_execute_confidence(90.0, 50, "BULL_TREND", "LOW")
+        assert conf <= config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP, (
+            f"LOW tier capped at {config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP}, got {conf}"
+        )

@@ -228,6 +228,11 @@ def run_learning_agent():
             logger.warning("Weight %s clamped: %.2f → %.2f (bounds: %.2f–%.2f)", key, raw, clamped, lo, hi)
         new_weights[key] = round(clamped, 4)
 
+    # Re-normalise after clamping — individual clamps push the total away from 100
+    _post_clamp_total = sum(new_weights.values())
+    if _post_clamp_total > 0:
+        new_weights = {k: round(v / _post_clamp_total * 100, 4) for k, v in new_weights.items()}
+
     _save_weights(new_weights)
     logger.info(f"Weights updated: {new_weights}")
 

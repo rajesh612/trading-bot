@@ -151,6 +151,19 @@ HERD_ENTRY_GATE        = 25   # raise gate when bot-herding detected
 AUTO_EXECUTE_COMPOSITE_MIN   = 70  # used by _compute_auto_execute_confidence for bonus delta
 AUTO_EXECUTE_CONFIDENCE      = 90  # confidence score assigned to auto-execute decisions (legacy fallback)
 AUTO_EXECUTE_CONFIDENCE_BASE = 75  # base confidence for dynamic auto-execute derivation
+AUTO_EXECUTE_CONFIDENCE_TIER_ADJ: dict = {   # per-tier delta applied after base computation
+    "CONVICTION": 5,
+    "HIGH":       0,
+    "MEDIUM":     0,
+    "LOW":       -10,
+}
+AUTO_EXECUTE_CONFIDENCE_LOW_CAP: int = 75   # LOW tier never exceeds this confidence
+AUTO_EXECUTE_CONFIDENCE_MODE_ADJ: dict = {  # per-mode delta (PEAD drift and CATALYST have known edges)
+    "PEAD":      5,
+    "CATALYST":  3,
+    "DAY_TRADE": 0,
+    "SWING":     0,
+}
 SQUEEZE_COMPOSITE_MIN        = 12  # composite threshold when squeeze_setup is True
 
 SQUEEZE_CONFIDENCE_GATE = 70   # min confidence to act on a squeeze setup
@@ -170,6 +183,7 @@ PARABOLIC_ENTRY_BLOCK     = True  # block parabolic=True entries
 MAX_ENTRY_PRICE        = 750   # hard block: stocks > $750 excluded (covers CIEN ~$590, META ~$600)
 SECTOR_ENTRY_MIN_SCORE = 0     # soft flag threshold: sector NLP sentiment
 SWING_NEWS_MIN_SCORE   = 50    # soft flag: news sentiment for swing candidates
+SOFT_FLAG_OVERLOAD_THRESHOLD: int = 4   # ≥ this many soft flags → hard block entry
 MIN_MARKET_CAP_B       = 25    # screener pre-filter: $25B minimum market cap
 
 RS_MIN_RATIO          = 0.0    # symbol must not underperform SPY by more than this

@@ -32,14 +32,23 @@ logger = logging.getLogger(__name__)
 
 
 def _compute_auto_execute_confidence(
-    composite_score: float, intra_sentiment: int, regime: str = "NORMAL"
+    composite_score: float, intra_sentiment: int,
+    regime: str = "NORMAL", tier: str = "MEDIUM", mode: str = "DAY_TRADE",
 ) -> int:
     from utils.regime_params import get_entry_params
     regime_composite_min = get_entry_params(regime).composite_min
     base = config.AUTO_EXECUTE_CONFIDENCE_BASE
     composite_bonus = min(15, max(0, int((composite_score - regime_composite_min) * 0.5)))
     sentiment_bonus = min(5, max(0, int(intra_sentiment / 10)))
-    return min(95, base + composite_bonus + sentiment_bonus)
+    confidence = min(95, base + composite_bonus + sentiment_bonus)
+    # Tier adjustment — CONVICTION setups deserve higher confidence; LOW tier is capped
+    adj_tier = config.AUTO_EXECUTE_CONFIDENCE_TIER_ADJ.get(tier, 0)
+    # Mode adjustment — PEAD drift and CATALYST event plays have known edges
+    adj_mode = config.AUTO_EXECUTE_CONFIDENCE_MODE_ADJ.get(mode, 0)
+    confidence = confidence + adj_tier + adj_mode
+    if tier == "LOW":
+        confidence = min(confidence, config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP)
+    return max(0, min(95, confidence))
 
 
 def _record_telemetry(ts: str, symbol: str, decision: str, reason: str, iv) -> None:
@@ -181,7 +190,14 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
                 "sentiment_score",
                 snap.research.get(symbol, {}).get("sentiment_score", 0),
             )
-            confidence = _compute_auto_execute_confidence(iv.composite_score, intra_sent, regime=snap.regime)
+            pead_ok_flag = "PEAD_EXTENDED_WINDOW" in (quality.unlocks if quality else frozenset())
+            ae_mode = "PEAD" if pead_ok_flag else "DAY_TRADE"
+            confidence = _compute_auto_execute_confidence(
+                iv.composite_score, intra_sent,
+                regime=snap.regime,
+                tier=quality.tier if quality else "MEDIUM",
+                mode=ae_mode,
+            )
             decision = {
                 "action": "BUY", "confidence": confidence, "source": "auto_execute",
                 "reasoning": "auto-execute: composite+sentiment threshold met",
@@ -190,7 +206,6 @@ def _execute_auto_entries(auto_execute, snap, alpaca, open_positions, portfolio_
             }
             kwargs = _shared_buy_kwargs(symbol, iv, snap, alpaca, open_positions, portfolio_value,
                                         pos_mult, spy_ret5d, rsi_max, now, daily_pnl_pct)
-            pead_ok_flag = "PEAD_EXTENDED_WINDOW" in (quality.unlocks if quality else frozenset())
             pos_data = execute_buy(symbol=symbol, iv=iv, decision=decision, symbol_ret5d=symbol_ret5d,
                                    quality=quality, pead_ok=pead_ok_flag, **kwargs)
             if pos_data is not None:

@@ -258,6 +258,13 @@ def check_all_gates(
     if swing_eligible and sentiment_score < config.SWING_NEWS_MIN_SCORE:
         flags.append(f"swing_news_weak({sentiment_score:.0f}<{config.SWING_NEWS_MIN_SCORE})")
 
+    # Soft-flag overload — too many independent warnings signals a holistically poor setup
+    if len(flags) >= config.SOFT_FLAG_OVERLOAD_THRESHOLD:
+        return GateResult(
+            False,
+            f"soft-flag overload ({len(flags)} flags: {', '.join(list(flags)[:4])})",
+        )
+
     return GateResult(True, "", tuple(flags))
 
 

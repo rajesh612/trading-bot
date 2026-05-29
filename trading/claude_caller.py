@@ -34,20 +34,28 @@ _CLAUDE_DISABLED_REASON: str = ""
 _CLAUDE_DISABLED_UNTIL: float = 0.0
 _CLAUDE_LOCK = threading.Lock()
 
-# ── Stable context cache — TTL 1 hour; string is identical within a trading day ─
+# ── Stable context cache — TTL 1 hour; invalidated on regime change (noon refresh) ─
 _stable_ctx_text: str = ""
 _stable_ctx_time: float = 0.0
+_stable_ctx_regime: str = ""   # invalidate when regime changes mid-session
 _STABLE_CTX_TTL: float = 3600.0
 _STABLE_CTX_LOCK = threading.Lock()
 
 
 def _get_cached_stable_context(fred_cache: dict, research_meta: dict, regime_info: dict) -> str:
-    global _stable_ctx_text, _stable_ctx_time
+    global _stable_ctx_text, _stable_ctx_time, _stable_ctx_regime
+    current_regime = regime_info.get("regime", "NORMAL")
     with _STABLE_CTX_LOCK:
-        if _stable_ctx_text and (time.monotonic() - _stable_ctx_time) < _STABLE_CTX_TTL:
+        age = time.monotonic() - _stable_ctx_time
+        if (
+            _stable_ctx_text
+            and age < _STABLE_CTX_TTL
+            and _stable_ctx_regime == current_regime
+        ):
             return _stable_ctx_text
-        _stable_ctx_text = build_stable_system_context(regime_info, fred_cache, research_meta)
-        _stable_ctx_time = time.monotonic()
+        _stable_ctx_text  = build_stable_system_context(regime_info, fred_cache, research_meta)
+        _stable_ctx_time  = time.monotonic()
+        _stable_ctx_regime = current_regime
         return _stable_ctx_text
 
 
