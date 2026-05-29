@@ -1206,3 +1206,74 @@ class TestAeConfidenceTierAware:
         assert conf <= config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP, (
             f"LOW tier capped at {config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP}, got {conf}"
         )
+
+
+# ── Task 16: context_builder uses actual mode for compute_tp_sl ───────────────
+
+@pytest.mark.unit
+class TestContextBuilderModeAware:
+    def test_block_conviction_uses_actual_mode(self):
+        """_block_conviction must pass actual mode to compute_tp_sl, not hardcoded DAY_TRADE."""
+        from unittest.mock import MagicMock, patch
+        from trading.context_builder import _block_conviction
+
+        captured_modes = []
+
+        def spy_compute(base_tp, base_sl, entry_time, tier, regime, mode="DAY_TRADE"):
+            captured_modes.append(mode)
+            return base_tp, base_sl
+
+        snap = MagicMock()
+        snap.regime = "NORMAL"
+        quality = MagicMock()
+        quality.tier = "CONVICTION"
+        quality.unlocks = frozenset()
+        quality.component_scores = {}
+        gate_result = MagicMock()
+        gate_result.flags = ()
+
+        from zoneinfo import ZoneInfo
+        entry_time = datetime(2026, 5, 29, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+
+        with patch("trading.context_builder.compute_tp_sl", spy_compute):
+            _block_conviction(
+                "AAPL", MagicMock(current_price=100.0, rsi=55.0, composite_score=70.0,
+                                   signal="BUY"),
+                snap, gate_result, quality,
+                mode="PEAD", entry_time=entry_time,
+                existing_pos=None, atr_suggested_tp_pct=3.0, intraday_news=None,
+            )
+
+        assert captured_modes and captured_modes[0] == "PEAD", (
+            f"Expected PEAD passed to compute_tp_sl, got {captured_modes}"
+        )
+
+
+# ── Task 17: exit block includes mode_at_entry ────────────────────────────────
+
+@pytest.mark.unit
+class TestExitBlockModeAware:
+    def test_exit_block_includes_mode_at_entry(self):
+        """build_exit_stock_block must include mode_at_entry from position dict."""
+        from unittest.mock import MagicMock
+        from trading.context_builder import build_exit_stock_block
+
+        pos = {
+            "entry_price": 100.0, "qty": 10, "stop_loss_pct": 3.0,
+            "entry_time": "2026-05-29T10:30:00",
+            "mode_at_entry": "PEAD",
+        }
+        iv = MagicMock()
+        iv.current_price = 103.0
+        iv.composite_score = 65.0
+
+        block = build_exit_stock_block("AAPL", iv, pos, research={})
+        assert "PEAD" in block, f"mode_at_entry 'PEAD' not in exit block:\n{block}"
+
+    def test_ae_confidence_higher_for_pead_than_day_trade(self):
+        """PEAD mode AE confidence must exceed DAY_TRADE for same composite + sentiment."""
+        from trading.pipeline import _compute_auto_execute_confidence
+
+        conf_pead = _compute_auto_execute_confidence(65.0, 5, "NORMAL", "HIGH", "PEAD")
+        conf_day  = _compute_auto_execute_confidence(65.0, 5, "NORMAL", "HIGH", "DAY_TRADE")
+        assert conf_pead > conf_day, f"PEAD ({conf_pead}) should > DAY_TRADE ({conf_day})"

@@ -117,7 +117,7 @@ def _block_high(symbol, iv, snap, gate_result, quality, mode, entry_time,
     intra_sent = intra.get("sentiment_score", sentiment_score)
     # time-adjusted TP
     base_tp = atr_suggested_tp_pct or config.TAKE_PROFIT_PCT
-    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime, mode="DAY_TRADE")
+    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime, mode=mode)
     # sub-sector ETF
     try:
         from sectors import get_sub_sector_etf
@@ -155,7 +155,7 @@ def _block_conviction(symbol, iv, snap, gate_result, quality, mode, entry_time,
         return f'<stock symbol="{symbol}">\n  CRISIS: entries blocked — no evaluation.\n</stock>'
     price = iv.current_price
     base_tp = atr_suggested_tp_pct or config.TAKE_PROFIT_PCT
-    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime, mode="DAY_TRADE")
+    adj_tp, _ = compute_tp_sl(base_tp, config.STOP_LOSS_PCT, entry_time, quality.tier, snap.regime, mode=mode)
     # sub-sector ETF
     try:
         from sectors import get_sub_sector_etf
@@ -244,8 +244,9 @@ def build_exit_stock_block(
     intra_shock = intraday.get("shock_score", 0)
     intra_sent  = intraday.get("sentiment_score", sentiment_score)
 
+    mode_str = position.get("mode_at_entry", "DAY_TRADE")
     return (
-        f'<stock symbol="{symbol}">\n'
+        f'<stock symbol="{symbol}" mode="{mode_str}">\n'
         f"  P=${iv.current_price:.2f} entry=${entry_price:.2f}"
         f" PnL={pnl_pct:+.2f}% SL={sl_pct:.1f}%{held_str}\n"
         f"  composite={iv.composite_score:+.1f} (Δ{composite_delta:+.1f} from entry)"

@@ -257,13 +257,14 @@ def execute_buy(
     if iv.squeeze_setup and decision.get("confidence", 0) >= config.SQUEEZE_CONFIDENCE_GATE:
         sl_pct, tp_pct = config.SQUEEZE_SL_PCT, config.SQUEEZE_TP_PCT
 
-    # Apply time-aware + tier adjustment to TP/SL (Rule 30)
+    # Apply time-aware + tier + mode adjustment to TP/SL (Rule 30)
     tp_pct, sl_pct = compute_tp_sl(
         base_tp=tp_pct,
         base_sl=sl_pct,
         entry_time=now,
         tier=quality.tier if quality else "MEDIUM",
         regime=regime,
+        mode=mode,   # mode derived from derive_mode() earlier in execute_buy
     )
 
     # Concurrent guard: re-read disk inside lock immediately before placing order
