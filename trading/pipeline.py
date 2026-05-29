@@ -94,6 +94,58 @@ def _fetch_symbol_data(symbol: str, alpaca: AlpacaClient, open_positions: dict):
     return (symbol, iv, open_positions.get(symbol), _compute_symbol_5day_return(daily))
 
 
+def _fetch_sub_etf_changes(symbols: list[str], alpaca: AlpacaClient) -> dict[str, float]:
+    """Batch-fetch intraday % change for each unique sub-sector ETF in the symbol list.
+
+    Returns {etf_ticker: intraday_pct_change}.  Missing or errored ETFs return 0.0.
+    Called once per cycle, before the pre-Claude filter loop, so every symbol's
+    sub_etf_chg is available without per-symbol API calls.
+    """
+    unique_etfs: set[str] = set()
+    for sym in symbols:
+        etf = sectors.get_sub_sector_etf(sym)
+        if etf and etf != "OTHER":
+            unique_etfs.add(etf)
+    result: dict[str, float] = {}
+    for etf in unique_etfs:
+        try:
+            bars = alpaca.get_intraday_bars(etf)
+            if bars is not None and not bars.empty:
+                session_open = float(bars.iloc[0]["open"])
+                latest = float(bars.iloc[-1]["close"])
+                if session_open > 0:
+                    result[etf] = round((latest - session_open) / session_open * 100, 2)
+        except Exception as exc:
+            logger.debug("Sub-ETF fetch failed for %s: %s", etf, exc)
+    return result
+
+
+def _run_pre_filter_for_symbol(
+    symbol: str,
+    iv,
+    snap: CycleSnapshot,
+    daily_closed: set,
+    open_positions: dict | None,
+    catalyst_active: bool = False,
+) -> "FilterResult":
+    """Apply pre-Claude filter with sub_etf_chg drawn from snap.sector_etf_cache.
+
+    Extracts the sub-sector ETF for symbol and reads its cached intraday % change
+    so the filter (and quality scorer) see real tailwind data instead of the
+    default 0.0.  This is the fix for OPPORTUNITY HIGH/CONVICTION AE being dead
+    code: the AE gate checks sub_etf_chg >= 0.3/0.5, which was always False when
+    the pipeline omitted this argument.
+    """
+    sub_etf = sectors.get_sub_sector_etf(symbol)
+    sub_etf_chg = snap.sector_etf_cache.get(sub_etf, 0.0) if sub_etf else 0.0
+    return apply_pre_claude_filter(
+        symbol, iv, snap, daily_closed,
+        sub_etf_chg=sub_etf_chg,
+        catalyst_active=catalyst_active,
+        open_positions=open_positions,
+    )
+
+
 def _check_research_staleness(snap: CycleSnapshot) -> None:
     ts_str = snap.research_meta.get("timestamp")
     if not ts_str:
@@ -325,6 +377,15 @@ class TradingPipeline:
             result.skipped = True
             return result
 
+        # ── Phase 1b: Populate sub-sector ETF changes into sector_etf_cache ─────
+        # Needed for OPPORTUNITY HIGH/CONVICTION AE (SUB_ETF_CONFIRM gate) and
+        # for the CATALYST gate in entry_gates.py.  Broad ETFs from intraday_context
+        # are already in the cache; we add sub-sector ETFs (SOXX, XBI, etc.) here.
+        if alpaca is not None and hasattr(snap, "sector_etf_cache"):
+            _sub_etf_syms = [sym for sym, *_ in stock_data]
+            _new_etf_chgs = _fetch_sub_etf_changes(_sub_etf_syms, alpaca)
+            snap.sector_etf_cache.update(_new_etf_chgs)
+
         # ── Phase 2: Pre-Claude filter ────────────────────────────────────────
         t_gates = time.monotonic()
         needs_claude: list[tuple[str, IndicatorValues, dict | None, FilterResult]] = []
@@ -341,9 +402,8 @@ class TradingPipeline:
                 logger.info("BRACKET-MANAGED %s: P&L=%+.2f%% composite=%+.1f", symbol, pnl_pct, iv.composite_score)
                 continue
             _catalyst_active = is_catalyst_active(symbol, snap)
-            filt = apply_pre_claude_filter(symbol, iv, snap, daily_closed,
-                                           catalyst_active=_catalyst_active,
-                                           open_positions=open_positions)
+            filt = _run_pre_filter_for_symbol(symbol, iv, snap, daily_closed,
+                                              open_positions, catalyst_active=_catalyst_active)
             quality_map[symbol] = filt.quality
             if filt.decision == "SKIP":
                 logger.info("SKIP-PRECLAUDE %s: composite=%+.1f — %s", symbol, iv.composite_score, filt.reason)

@@ -383,3 +383,46 @@ def test_recurring_notify_functions_use_once_guard():
         f"Add `if not _once.should_send('scope', key): return` before `_send(...)`\n"
         f"or add the function name to _NOTIFY_DEDUP_EXEMPT with a justification comment."
     )
+
+
+# ---------------------------------------------------------------------------
+# Rule 34 (new): param tables must honour monkeypatch — no frozen module-level
+# constants that silently ignore config overrides after import.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_filter_params_composite_min_reflects_monkeypatched_config(monkeypatch):
+    """get_filter_params must re-read config so monkeypatch.setattr works in tests.
+
+    The _FILTER_TABLE was previously built at module import time, so patching
+    config.COMPOSITE_MIN_NORMAL in a test had no effect on get_filter_params.
+    This caused tests that changed the composite floor to silently test nothing.
+    """
+    import config
+    from utils.regime_params import get_filter_params
+    original = config.COMPOSITE_MIN_NORMAL
+    monkeypatch.setattr(config, "COMPOSITE_MIN_NORMAL", original + 20)
+    p = get_filter_params("NORMAL", "MEDIUM")
+    assert p.composite_min != original, (
+        f"get_filter_params returned composite_min={p.composite_min} "
+        f"which equals the OLD value {original} — the table was frozen at import. "
+        f"Convert _FILTER_TABLE to a per-call builder (like get_entry_params)."
+    )
+
+
+@pytest.mark.unit
+def test_gate_params_stoch_veto_reflects_monkeypatched_config(monkeypatch):
+    """get_gate_params stoch_hard_veto must track config.STOCH_HARD_VETO_THRESHOLD.
+
+    Previously the _GATE_TABLE was frozen at import, so patching the threshold
+    in tests did not affect the veto value seen by the filter — tests were silently
+    passing without exercising the intended code path.
+    """
+    import config
+    from utils.regime_params import get_gate_params
+    monkeypatch.setattr(config, "STOCH_HARD_VETO_THRESHOLD", 85)
+    gp = get_gate_params("NORMAL", "MEDIUM")
+    assert gp.stoch_hard_veto == 85, (
+        f"get_gate_params returned stoch_hard_veto={gp.stoch_hard_veto} "
+        f"but config was patched to 85 — the table was frozen at import."
+    )

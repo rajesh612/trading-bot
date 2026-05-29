@@ -549,3 +549,128 @@ class TestBacktestTranche2CashConservation:
             "round-trip cash must reconcile with realized P&L — phantom cash leak "
             f"(cash={state.cash}, expected={start_cash + realized})"
         )
+
+
+# ── TestBacktestSimulatorConstants ───────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBacktestSimulatorConstants:
+    """Verify backtest/simulator.py constants match config.py."""
+
+    def test_simulator_starting_capital_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.STARTING_CAPITAL == config.BACKTEST_STARTING_CAPITAL
+
+    def test_simulator_slippage_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.SLIPPAGE_PCT == config.BACKTEST_SLIPPAGE_PCT
+
+    def test_simulator_max_positions_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.MAX_POSITIONS == config.BACKTEST_MAX_POSITIONS
+
+    def test_simulator_market_open_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.MARKET_OPEN_H == config.MARKET_OPEN_HOUR
+        assert simulator.MARKET_OPEN_M == config.MARKET_OPEN_MINUTE
+
+    def test_simulator_force_close_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.FORCE_CLOSE_H == config.EOD_FORCE_CLOSE_HOUR
+        assert simulator.FORCE_CLOSE_M == config.EOD_FORCE_CLOSE_MINUTE
+
+    def test_simulator_swing_eval_matches_config(self):
+        from backtest import simulator
+        import config
+        assert simulator.SWING_EVAL_H == config.EOD_HOLDS_EVAL_HOUR
+        assert simulator.SWING_EVAL_M == config.EOD_HOLDS_EVAL_MINUTE
+
+
+@pytest.mark.unit
+class TestBacktestCrashRecoveryGate:
+    """_classify_vix_day must require >= 2 consecutive green SPY days for CRASH_RECOVERY."""
+
+    def _vix_crash_recovery(self):
+        """VIX series that satisfies the VIX-only CRASH_RECOVERY criteria.
+        vix_current=38, vix_prev=40 (not rising), peak_5d=44 → drop=13.6% >= 10%.
+        vix_avg_90d ≈ 43 (all 90 historical bars at 44), so vix_current < avg → no HIGH_VOL fallback.
+        """
+        historical = [(i, 44.0) for i in range(1, 92)]   # 91 bars of VIX=44
+        return historical + [(92, 40.0), (93, 38.0)]      # last two: prev=40, current=38
+
+    def _spy_green_streak(self, n: int):
+        """SPY series with exactly n consecutive green days ending at the last bar."""
+        base = [(i, 400.0) for i in range(1, 10)]
+        red_break = [(10, 398.0)]                          # one red day to reset streak
+        green_days = [(10 + j + 1, 399.0 + j * 0.5) for j in range(n)]
+        return base + red_break + green_days
+
+    def test_two_green_days_triggers_crash_recovery(self):
+        from backtest.data import _classify_vix_day
+        result = _classify_vix_day(self._vix_crash_recovery(), self._spy_green_streak(2))
+        assert result == "CRASH_RECOVERY", f"Expected CRASH_RECOVERY with 2 green days, got {result}"
+
+    def test_one_green_day_does_not_trigger_crash_recovery(self):
+        from backtest.data import _classify_vix_day
+        result = _classify_vix_day(self._vix_crash_recovery(), self._spy_green_streak(1))
+        assert result != "CRASH_RECOVERY", f"CRASH_RECOVERY must not fire with only 1 green day, got {result}"
+
+
+@pytest.mark.unit
+class TestBacktestSwingPromotion:
+    """_evaluate_swing_promotion must enforce regime×tier gate via get_swing_gate_params()."""
+
+    def _make_state(self, composite: float, rsi: float, tier: str = "MEDIUM") -> "SimState":
+        from backtest.simulator import SimState
+        state = SimState(cash=100_000.0)
+        state.positions["AAPL"] = {
+            "qty": 10,
+            "entry": 100.0,
+            "entry_ts": "2026-05-27T14:30:00+00:00",
+            "composite": composite,
+            "quality_tier": tier,
+            "is_swing": False,
+        }
+        return state
+
+    def _make_precomp(self, rsi: float, ts):
+        """Minimal precomp dict with an IV-like object at the given timestamp."""
+        from types import SimpleNamespace
+        return {"AAPL": {ts: SimpleNamespace(rsi=rsi)}}
+
+    def test_high_rsi_blocks_swing_promotion(self):
+        """RSI at ceiling (70 for NORMAL MEDIUM) must block standard promotion."""
+        import pandas as pd
+        from backtest.simulator import _evaluate_swing_promotion
+
+        ts = pd.Timestamp("2026-05-27 19:50:00", tz="UTC")
+        state = self._make_state(composite=66.0, rsi=70.0, tier="MEDIUM")
+        df = pd.DataFrame({"close": [102.0]}, index=[ts])
+        day_bars = {"AAPL": df}
+        precomp = self._make_precomp(rsi=70.0, ts=ts)
+
+        n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, precomp=precomp)
+        assert n == 0, "AAPL should NOT be promoted: RSI at ceiling"
+        assert not state.positions["AAPL"].get("is_swing")
+
+    def test_low_rsi_high_composite_allows_swing_promotion(self):
+        """RSI below ceiling and composite above min allows standard promotion."""
+        import pandas as pd
+        from backtest.simulator import _evaluate_swing_promotion
+
+        ts = pd.Timestamp("2026-05-27 19:50:00", tz="UTC")
+        # NORMAL MEDIUM: composite_min=65, rsi_ceiling=70; min_pnl=1.2%
+        state = self._make_state(composite=66.0, rsi=65.0, tier="MEDIUM")
+        state.positions["AAPL"]["entry"] = 100.0
+        df = pd.DataFrame({"close": [102.0]}, index=[ts])   # pnl_pct=2.0% >= 1.2%
+        day_bars = {"AAPL": df}
+        precomp = self._make_precomp(rsi=65.0, ts=ts)
+
+        n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, precomp=precomp)
+        assert n == 1, "AAPL should be promoted: RSI and composite within bounds"
+        assert state.positions["AAPL"].get("is_swing")

@@ -487,3 +487,145 @@ class TestMacroRegimeCoverage:
     def test_ret5d_too_few_closes_returns_zero(self):
         from macro.yahoo_fetcher import ret5d
         assert ret5d([100.0, 101.0]) == 0.0
+
+
+# ── macro/breadth_signals ─────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestBreadthSignals:
+    """Tests for pure breadth scorer functions in macro/breadth_signals.py."""
+
+    def test_score_hyg_deep_negative(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(-2.0) == pytest.approx(-10.0)
+
+    def test_score_hyg_mild_negative(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(-1.0) == pytest.approx(-5.0)
+
+    def test_score_hyg_neutral(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(0.0) == pytest.approx(3.0)
+
+    def test_score_hyg_positive(self):
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(1.0) == pytest.approx(8.0)
+
+    def test_score_hyg_boundary_minus_1_5(self):
+        """Exactly -1.5 is the lower boundary — maps to -5, not -10."""
+        from macro.breadth_signals import score_hyg
+        assert score_hyg(-1.5) == pytest.approx(-5.0)
+
+    def test_score_iwm_vs_spy_small_cap_lagging_hard(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(0.0, 2.0) == pytest.approx(-10.0)
+
+    def test_score_iwm_vs_spy_small_cap_lagging_mild(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(0.0, 1.0) == pytest.approx(-5.0)
+
+    def test_score_iwm_vs_spy_neutral(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(0.5, 0.5) == pytest.approx(0.0)
+
+    def test_score_iwm_vs_spy_risk_on(self):
+        from macro.breadth_signals import score_iwm_vs_spy
+        assert score_iwm_vs_spy(2.0, 0.5) == pytest.approx(8.0)
+
+    def test_score_vix_term_zero_vix3m_returns_zero(self):
+        """Guard: vix3m <= 0 must return 0 to avoid division by zero."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(20.0, 0.0) == pytest.approx(0.0)
+
+    def test_score_vix_term_backwardation_hard(self):
+        """ratio > 1.1 → -10 (extreme backwardation)."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(22.0, 19.0) == pytest.approx(-10.0)
+
+    def test_score_vix_term_contango(self):
+        """ratio < 0.92 → +8 (calm term structure)."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(17.0, 20.0) == pytest.approx(8.0)
+
+    def test_score_vix_term_neutral(self):
+        """ratio near 1.0 → 0."""
+        from macro.breadth_signals import score_vix_term_structure
+        assert score_vix_term_structure(20.0, 20.0) == pytest.approx(0.0)
+
+    def test_build_breadth_context_line_backwardation(self):
+        from macro.breadth_signals import build_breadth_context_line
+        line = build_breadth_context_line({"hyg_ret5d": -2.0, "iwm_ret5d": -1.0,
+                                           "spy_ret5d": 0.0, "vix_current": 22.0, "vix3m": 19.0})
+        assert "backwardation" in line
+
+    def test_build_breadth_context_line_contango(self):
+        from macro.breadth_signals import build_breadth_context_line
+        line = build_breadth_context_line({"hyg_ret5d": 1.0, "iwm_ret5d": 1.0,
+                                           "spy_ret5d": 0.5, "vix_current": 16.0, "vix3m": 20.0})
+        assert "contango" in line
+
+    def test_build_breadth_context_line_contains_hyg(self):
+        from macro.breadth_signals import build_breadth_context_line
+        line = build_breadth_context_line({"hyg_ret5d": 0.3})
+        assert "HYG" in line
+
+
+# ── macro/intraday_context: IntradayContext dataclass ─────────────────────────
+
+@pytest.mark.unit
+class TestIntradayContext:
+    """Tests for IntradayContext dataclass and to_context_lines() — no network."""
+
+    @staticmethod
+    def _ctx(**overrides):
+        from macro.intraday_context import IntradayContext
+        base = dict(
+            spy_today_pct=0.5,
+            spy_vwap_position="above",
+            spy_vwap_slope=0.05,
+            qqq_today_pct=0.4,
+            opening_gap_pct=0.2,
+            post_event_day=False,
+            sector_today={"XLF": 0.3, "XLK": -0.5},
+            bias="BULLISH",
+        )
+        base.update(overrides)
+        return IntradayContext(**base)
+
+    def test_bullish_bias_in_context_lines(self):
+        ctx = self._ctx(bias="BULLISH")
+        assert "BULLISH" in ctx.to_context_lines()
+
+    def test_bearish_bias_in_context_lines(self):
+        ctx = self._ctx(bias="BEARISH", spy_today_pct=-0.8, spy_vwap_position="below")
+        assert "BEARISH" in ctx.to_context_lines()
+
+    def test_neutral_bias_in_context_lines(self):
+        ctx = self._ctx(bias="NEUTRAL")
+        assert "NEUTRAL" in ctx.to_context_lines()
+
+    def test_post_event_day_warning_shown(self):
+        ctx = self._ctx(post_event_day=True)
+        assert "POST-EVENT" in ctx.to_context_lines()
+
+    def test_no_post_event_warning_when_false(self):
+        ctx = self._ctx(post_event_day=False)
+        assert "POST-EVENT" not in ctx.to_context_lines()
+
+    def test_sector_etfs_formatted_in_output(self):
+        ctx = self._ctx(sector_today={"XLF": 0.3, "XLK": -0.8})
+        lines = ctx.to_context_lines()
+        assert "XLF" in lines
+        assert "XLK" in lines
+
+    def test_spy_pct_in_output(self):
+        ctx = self._ctx(spy_today_pct=1.23)
+        assert "1.2" in ctx.to_context_lines()
+
+    def test_vwap_position_above_in_output(self):
+        ctx = self._ctx(spy_vwap_position="above")
+        assert "above" in ctx.to_context_lines()
+
+    def test_vwap_position_below_in_output(self):
+        ctx = self._ctx(spy_vwap_position="below")
+        assert "below" in ctx.to_context_lines()

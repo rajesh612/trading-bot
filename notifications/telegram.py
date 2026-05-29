@@ -397,11 +397,20 @@ def notify_bracket_correction_timeout(
 ) -> None:
     """Alert when bracket fill-correction times out — SL/TP may be mis-priced vs actual fill.
 
-    Deduped per symbol per day: a genuine poll-timeout for the same symbol within one session
-    should not spam on every subsequent cycle.
+    Deduped per symbol per trading day using BOTH in-memory _once (fast path) and
+    a disk sentinel (survives bot restarts caused by code changes or daily cycling).
+    Either guard suppresses the notification — the disk sentinel is the permanent barrier.
     """
     if not _once.should_send("bracket_timeout", symbol):
         return
+    today = datetime.now(ET).date().isoformat()
+    sentinel = load_json(config.BRACKET_TIMEOUT_SENT_FILE, {})
+    if symbol in sentinel.get(today, []):
+        return
+    sentinel.setdefault(today, [])
+    if symbol not in sentinel[today]:
+        sentinel[today].append(symbol)
+    save_json(config.BRACKET_TIMEOUT_SENT_FILE, {today: sentinel[today]})
     _send(
         f"⚠️ BRACKET TIMEOUT {symbol}: fill-slippage correction timed out.\n"
         f"Journaled with indicative entry ~${indicative_price:.2f} | "

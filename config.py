@@ -30,6 +30,7 @@ SWING_POSITIONS_FILE       = STATE_DIR / "swing_positions.json"
 DAILY_REPORT_SENT_FILE     = STATE_DIR / "daily_report_sent.json"
 WATCH_LIST_NOTIF_FILE          = STATE_DIR / "watch_list_notif_sent.json"
 STALE_RESEARCH_ALERTED_FILE    = STATE_DIR / "stale_research_alerted.json"
+BRACKET_TIMEOUT_SENT_FILE      = STATE_DIR / "bracket_timeout_sent.json"
 BOT_HEALTH_FILE            = STATE_DIR / "bot_health.json"
 INTRADAY_NEWS_CACHE_FILE   = STATE_DIR / "intraday_news_cache.json"
 CYCLE_TELEMETRY_FILE       = STATE_DIR / "cycle_telemetry.jsonl"
@@ -77,7 +78,7 @@ PROGRESSIVE_LOSS_FLOOR = 0.40   # minimum size multiplier
 
 GAP_SKIP_PCT             = 3.0   # skip entry if price gapped > this % above prev close
 FILL_SLIPPAGE_THRESHOLD  = 0.005 # correct bracket if fill deviates > 0.5% from iv price
-FILL_POLL_ATTEMPTS       = 5     # max Alpaca polls for fill price after order placement
+FILL_POLL_ATTEMPTS       = 10    # max Alpaca polls for fill price after order placement (5s total @ 0.5s each)
 FILL_POLL_INTERVAL_S     = 0.5   # seconds between fill poll attempts
 BRACKET_FILL_TOLERANCE_PCT = 0.5 # % tolerance when matching price to SL/TP leg in bracket reconciliation
 ATR_FALLBACK_PROXY_PCT   = 0.02  # price × this = fallback ATR when ATR is unavailable (2% of price)

@@ -519,3 +519,155 @@ class TestSwingPromotionFromTPSLTable:
         assert not hasattr(rp, "get_effective_profit_lock"), (
             "get_effective_profit_lock must be deleted — use get_tp_sl_params directly"
         )
+
+
+# ── Tier-based swing promotion ────────────────────────────────────────────────
+
+class TestTierBasedSwingPromotion:
+    def _conviction_swing_choppy(self):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality("CONVICTION", 85, frozenset({"SWING_CHOPPY"}), (), {})
+
+    def _medium_quality(self):
+        from utils.ticker_quality import TickerQuality
+        return TickerQuality("MEDIUM", 45, frozenset(), (), {})
+
+    @pytest.mark.unit
+    def test_conviction_swing_choppy_profit_lock_from_table(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "CONVICTION", "SWING")
+        assert p.profit_lock_pct == pytest.approx(1.0)
+
+    @pytest.mark.unit
+    def test_high_choppy_swing_profit_lock_from_table(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("CHOPPY", "HIGH", "SWING")
+        assert p.profit_lock_pct == pytest.approx(2.0)
+
+    @pytest.mark.unit
+    def test_regime_stale_blocks_swing(self):
+        from trading.eod_holds import qualifies_for_eod_hold
+        qualifies, reason = qualifies_for_eod_hold(
+            symbol="AAPL",
+            regime="NORMAL",
+            earnings_tomorrow=False,
+            current_pnl_pct=3.0,
+            entry_sector_sentiment=10,
+            current_sector_sentiment=5,
+            consecutive_red_days=0,
+            vix_trend="stable",
+            regime_stale=True,
+        )
+        assert not qualifies
+        assert "stale" in reason.lower()
+
+    @pytest.mark.unit
+    def test_conviction_swing_choppy_qualifies_at_1_3pct_pnl(self, monkeypatch):
+        import config
+        from trading.eod_holds import qualifies_for_eod_hold
+        quality = self._conviction_swing_choppy()
+        qualifies, reason = qualifies_for_eod_hold(
+            symbol="NVDA",
+            regime="CHOPPY",
+            earnings_tomorrow=False,
+            current_pnl_pct=1.3,
+            entry_sector_sentiment=10,
+            current_sector_sentiment=5,
+            consecutive_red_days=0,
+            vix_trend="stable",
+            quality=quality,
+            entry_rsi=50.0,
+            entry_composite=65.0,
+        )
+        assert qualifies, f"Expected swing qualification, got: {reason}"
+
+
+class TestSwingManagerTierGapCheck:
+    @pytest.mark.unit
+    def test_conviction_tolerates_wider_gap(self):
+        pos_conviction = {"symbol": "NVDA", "quality_tier": "CONVICTION", "entry_price": 100.0}
+        pos_medium     = {"symbol": "RIVN", "quality_tier": "MEDIUM",     "entry_price": 100.0}
+        tier_c = pos_conviction.get("quality_tier", "MEDIUM")
+        tier_m = pos_medium.get("quality_tier", "MEDIUM")
+        thresh_c = -1.5 if tier_c == "CONVICTION" else -1.0
+        thresh_m = -1.5 if tier_m == "CONVICTION" else -1.0
+        assert thresh_c == -1.5
+        assert thresh_m == -1.0
+
+    @pytest.mark.unit
+    def test_gap_of_minus_1_2_closes_medium_not_conviction(self):
+        gap_pct = -1.2
+        for tier, expected_close in [("MEDIUM", True), ("CONVICTION", False)]:
+            threshold = -1.5 if tier == "CONVICTION" else -1.0
+            closes = gap_pct < threshold
+            assert closes == expected_close, f"tier={tier}"
+
+
+# ── TestSwingSLFloors ─────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestSwingSLFloors:
+    """Verify swing SL floors are loaded from config and applied correctly."""
+
+    def test_swing_sl_floors_loaded_from_config(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
+        assert p.sl_floor_pct == 4.5
+
+    def test_swing_sl_conviction_tighter(self):
+        from utils.regime_params import get_tp_sl_params
+        medium = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
+        conviction = get_tp_sl_params("NORMAL", "CONVICTION", "SWING")
+        assert conviction.sl_floor_pct < medium.sl_floor_pct
+        assert conviction.sl_floor_pct == 2.5  # explicit per-tier floor, no CONVICTION_TIGHT
+
+    def test_swing_sl_low_wider_than_medium(self):
+        from utils.regime_params import get_tp_sl_params
+        low = get_tp_sl_params("NORMAL", "LOW", "SWING")
+        medium = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
+        assert low.sl_floor_pct > medium.sl_floor_pct
+        assert low.sl_floor_pct == 5.0  # low-quality stocks need widest overnight room
+
+    def test_highvol_swing_sl_wider(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("HIGH_VOL", "MEDIUM", "SWING")
+        assert p.sl_floor_pct >= 4.5  # MEDIUM in HIGH_VOL gets widest floor
+
+    def test_swing_maxdays_increased_normal(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("NORMAL", "MEDIUM", "SWING")
+        assert p.max_days == 7
+
+    def test_swing_maxdays_increased_bull_trend(self):
+        from utils.regime_params import get_tp_sl_params
+        p = get_tp_sl_params("BULL_TREND", "CONVICTION", "SWING")
+        assert p.max_days == 12
+
+    def test_eod_holds_respects_tier(self):
+        """CONVICTION profit_lock for CHOPPY is 1.0; MEDIUM is disabled (falls back to 2.5).
+        A position at 1.1% pnl qualifies via profit-lock bypass with CONVICTION
+        but is blocked with MEDIUM (1.1 < 2.5 fallback, and CHOPPY disables standard promotion)."""
+        from types import SimpleNamespace
+        from trading.eod_holds import qualifies_for_eod_hold
+
+        conviction_proxy = SimpleNamespace(tier="CONVICTION")
+        medium_proxy = SimpleNamespace(tier="MEDIUM")
+
+        ok_conviction, _ = qualifies_for_eod_hold(
+            symbol="TEST", regime="CHOPPY", earnings_tomorrow=False,
+            current_pnl_pct=1.1,
+            entry_sector_sentiment=10.0, current_sector_sentiment=5.0,
+            consecutive_red_days=0, vix_trend="stable",
+            quality=conviction_proxy,
+            entry_rsi=50.0, entry_composite=65.0,
+        )
+        ok_medium, reason = qualifies_for_eod_hold(
+            symbol="TEST", regime="CHOPPY", earnings_tomorrow=False,
+            current_pnl_pct=1.1,
+            entry_sector_sentiment=10.0, current_sector_sentiment=5.0,
+            consecutive_red_days=0, vix_trend="stable",
+            quality=medium_proxy,
+            entry_rsi=50.0, entry_composite=65.0,
+        )
+        assert ok_conviction is True
+        assert ok_medium is False

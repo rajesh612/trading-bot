@@ -833,6 +833,7 @@ def test_auto_execute_uses_atr_tp(monkeypatch, tmp_path):
     from utils.data_health import FRESH_GUARD
     snap.staleness_guard = FRESH_GUARD
     snap.major_event_today = False
+    snap.sector_etf_cache = {}
 
     pipeline = TradingPipeline()
     pipeline.run(

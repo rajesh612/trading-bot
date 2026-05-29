@@ -121,3 +121,115 @@ class TestMiddayProfitFloor:
             hold_hours=2.5,
         )
         mock_close.assert_not_called()
+
+
+@pytest.mark.unit
+def test_position_monitor_skips_t2_when_guard_disallows(monkeypatch, tmp_path):
+    """run_position_monitor skips T2 check when guard.t2_allowed is False."""
+    import config
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import StalenessGuard
+
+    stale_guard = StalenessGuard(
+        composite_penalty=10, auto_execute_allowed=False,
+        t2_allowed=False, swing_fallback_regime="NORMAL",
+        can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+    )
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
+
+    # Non-empty positions so monitor doesn't early-return before reaching T2 logic
+    fake_positions = {
+        "AAPL": {
+            "qty": 10, "entry_price": 150.0,
+            "stop_loss_pct": 4.0, "take_profit_pct": 5.0,
+        }
+    }
+
+    t2_called = []
+
+    mock_alpaca = MagicMock()
+    mock_alpaca.get_positions.return_value = {"AAPL": {"qty": 10}}
+    mock_alpaca.get_latest_price.return_value = 152.0
+    mock_alpaca.get_portfolio_value.return_value = 100_000.0
+
+    with patch("trading.monitor.load_macro_regime",
+               return_value={"regime": "NORMAL", "_stale": True}), \
+         patch("utils.data_health.get_staleness_guard", return_value=stale_guard), \
+         patch("trading.monitor.load_open_positions", return_value=fake_positions), \
+         patch("trading.monitor._check_tranche2_triggers",
+               side_effect=lambda *a, **kw: t2_called.append(True)), \
+         patch("trading.monitor.flush_profit_lock_updates"), \
+         patch("trading.monitor._check_drawdown_alerts"), \
+         patch("trading.monitor.AlpacaClient", return_value=mock_alpaca):
+        from trading.monitor import run_position_monitor
+        run_position_monitor()
+
+    assert len(t2_called) == 0, f"T2 should not fire when guard.t2_allowed is False, called {len(t2_called)} times"
+
+
+@pytest.mark.unit
+def test_evaluate_eod_holds_uses_normal_params_when_regime_stale(monkeypatch, tmp_path):
+    """evaluate_eod_holds uses NORMAL swing params when guard.swing_fallback_regime is set."""
+    import config
+    from unittest.mock import patch, MagicMock
+    from utils.data_health import StalenessGuard
+
+    stale_guard = StalenessGuard(
+        composite_penalty=10, auto_execute_allowed=False,
+        t2_allowed=False, swing_fallback_regime="NORMAL",
+        can_open=True, claude_warnings=(), stale_sources=frozenset({"regime"}),
+    )
+
+    captured_regime = []
+
+    def fake_get_swing_params(regime):
+        captured_regime.append(regime)
+        from utils.regime_params import SwingParams
+        return SwingParams(False)
+
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", tmp_path / "open.json")
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", tmp_path / "swing.json")
+
+    with patch("trading.swing_manager.load_macro_regime",
+               return_value={"regime": "BULL_TREND", "_stale": True}), \
+         patch("utils.data_health.get_staleness_guard", return_value=stale_guard), \
+         patch("trading.swing_manager.get_swing_params", side_effect=fake_get_swing_params), \
+         patch("trading.swing_manager.load_open_positions", return_value={}):
+        from trading.swing_manager import evaluate_eod_holds
+        evaluate_eod_holds()
+
+    assert "NORMAL" in captured_regime, (
+        f"Expected NORMAL (fallback), got {captured_regime}"
+    )
+
+
+# ── sectors: GICS sub-sector ETF lookup ──────────────────────────────────────
+
+@pytest.mark.unit
+class TestSubSectorEtf:
+    def test_nvidia_returns_soxx(self):
+        import sectors
+        result = sectors.get_sub_sector_etf("NVDA")
+        assert result == "SOXX"
+
+    def test_crwd_returns_cibr(self):
+        import sectors
+        result = sectors.get_sub_sector_etf("CRWD")
+        assert result == "CIBR"
+
+    def test_unknown_symbol_falls_back_to_sector_etf(self):
+        import sectors
+        result = sectors.get_sub_sector_etf("ZZZZ_UNKNOWN")
+        assert result == "OTHER"
+
+    def test_symbol_without_sub_etf_falls_back_to_sector_etf(self):
+        import sectors
+        # JPM is XLF — no sub_etf, fallback to sector
+        result = sectors.get_sub_sector_etf("JPM")
+        assert result == sectors.get_sector_etf("JPM")
+
+    def test_existing_get_sector_etf_unchanged(self):
+        import sectors
+        assert sectors.get_sector_etf("NVDA") == "XLK"

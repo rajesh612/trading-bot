@@ -299,6 +299,7 @@ def correct_bracket_after_fill(
                     return {}  # {} = filled, no correction needed — distinct from None (timeout)
                 new_sl = round(fill_price * (1 - sl_pct / 100), 2)
                 new_tp = round(fill_price * (1 + tp_pct / 100), 2)
+                leg_ok = True
                 for leg in (order.legs or []):
                     try:
                         if leg.type == "stop":
@@ -306,9 +307,20 @@ def correct_bracket_after_fill(
                         elif leg.type == "limit":
                             trading_client.replace_order_by_id(leg.id, limit_price=new_tp)
                     except Exception as exc:
-                        logger.error("Failed to replace bracket leg %s: %s", leg.id, exc)
-                        return None
-                return {"stop_loss_price": new_sl, "take_profit_price": new_tp, "fill_price": fill_price}
+                        # Order IS filled — only the bracket-leg adjustment failed.
+                        # Return fill data (NOT None) so the caller journals the real
+                        # fill price and does not misfire the "poll timeout" notification.
+                        logger.error(
+                            "Bracket leg adjustment failed (order=%s leg=%s): %s — "
+                            "journaling fill_price=%.4f; verify SL/TP in Alpaca.",
+                            order_id, leg.id, exc, fill_price,
+                        )
+                        leg_ok = False
+                        break
+                return {
+                    "stop_loss_price": new_sl, "take_profit_price": new_tp, "fill_price": fill_price,
+                    **({"leg_adjustment_failed": True} if not leg_ok else {}),
+                }
         except Exception as exc:
             logger.debug("Fill poll error for %s: %s", order_id, exc)
         time.sleep(config.FILL_POLL_INTERVAL_S)

@@ -311,3 +311,75 @@ class TestResearchAgentOrchestration:
         }
         result = _quick_sentiment_result(stocktwits, [])
         assert result is None
+
+
+@pytest.mark.unit
+def test_make_report_entry_degraded_flag():
+    """_make_report_entry must carry research_degraded, defaulting False."""
+    from research.agent import _make_report_entry
+    degraded = _make_report_entry({"risk_flag": "Research error"}, {}, {}, {}, degraded=True)
+    assert degraded["research_degraded"] is True
+    genuine = _make_report_entry({"combined_sentiment_score": 0}, {}, {}, {})
+    assert genuine["research_degraded"] is False
+
+
+@pytest.mark.unit
+def test_research_agent_marks_degraded_entries_distinctly(monkeypatch, tmp_path):
+    """API-failure fallbacks must be flagged research_degraded (distinct from genuine neutral)."""
+    import config
+    from unittest.mock import patch
+    from utils.data_health import _tracker
+    monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "research_report.json")
+    monkeypatch.setattr(config, "DATA_RESEARCH_FAILURE_RATE_THRESHOLD", 0.50)
+    _tracker._state.pop("research", None)
+
+    with (
+        patch("research.fetchers._fetch_market_news", return_value=[]),
+        patch("research.fetchers._fetch_stock_news", return_value=[]),
+        patch("research.fetchers._fetch_stocktwits", return_value={"available": False}),
+        patch("research.fetchers._fetch_reddit", return_value={"available": False}),
+        patch("research.fetchers._fetch_x_posts", return_value={"available": False}),
+        patch("research.agent._quick_sentiment_result", return_value=None),
+        patch("research.agent._analyze_stock", side_effect=RuntimeError("boom")),
+        patch("notifications.telegram.notify_data_degraded"),
+    ):
+        from research.agent import run_research_agent
+        report = run_research_agent(["AAPL", "MSFT"])
+
+    assert report["AAPL"]["research_degraded"] is True
+    assert report["MSFT"]["research_degraded"] is True
+    assert report["__meta__"]["research_degraded_count"] == 2
+    assert report["__meta__"]["research_degraded"] is True
+
+
+@pytest.mark.unit
+def test_genuine_neutral_not_marked_degraded(monkeypatch, tmp_path):
+    """A real rule-based result must NOT be flagged research_degraded."""
+    import config
+    from unittest.mock import patch
+    from utils.data_health import _tracker
+    monkeypatch.setattr(config, "RESEARCH_REPORT_FILE", tmp_path / "research_report.json")
+    monkeypatch.setattr(config, "DATA_RESEARCH_FAILURE_RATE_THRESHOLD", 0.80)
+    _tracker._state.pop("research", None)
+
+    rule_based = {
+        "news_sentiment_score": 0, "news_sentiment_label": "NEUTRAL",
+        "social_sentiment_score": 0, "social_sentiment_label": "NEUTRAL",
+        "combined_sentiment_score": 0, "combined_sentiment_label": "NEUTRAL",
+        "key_catalyst": None, "risk_flag": None, "summary": "OK.", "strategy": "Hold.",
+    }
+    with (
+        patch("research.fetchers._fetch_market_news", return_value=[]),
+        patch("research.fetchers._fetch_stock_news", return_value=[]),
+        patch("research.fetchers._fetch_stocktwits", return_value={"available": True, "bullish_pct": 50}),
+        patch("research.fetchers._fetch_reddit", return_value={"available": False}),
+        patch("research.fetchers._fetch_x_posts", return_value={"available": False}),
+        patch("research.agent._quick_sentiment_result", return_value=rule_based),
+        patch("notifications.telegram.notify_data_degraded"),
+    ):
+        from research.agent import run_research_agent
+        report = run_research_agent(["AAPL"])
+
+    assert report["AAPL"]["research_degraded"] is False
+    assert report["__meta__"]["research_degraded_count"] == 0
+    assert report["__meta__"]["research_degraded"] is False

@@ -108,88 +108,6 @@ class TestApiBudget:
         assert budget["calls_made"] == 0
 
 
-# ── market_data: DataFrame shape contract ─────────────────────────────────────
-
-@pytest.mark.unit
-class TestMarketDataSchema:
-    def test_yahoo_bars_returns_correct_columns(self):
-        """Yahoo bars must have OHLCV columns and a tz-aware DatetimeIndex."""
-        from data.market_data import _yahoo_bars
-        try:
-            df = _yahoo_bars("SPY", "1d", "10d")
-        except Exception:
-            pytest.skip("Yahoo Finance not reachable in this environment")
-        assert set(df.columns) >= {"open", "high", "low", "close", "volume"}
-        assert df.index.tz is not None
-
-    def test_get_intraday_bars_respects_lookback(self):
-        from data.market_data import get_intraday_bars
-        try:
-            df = get_intraday_bars("SPY", lookback=50)
-        except Exception:
-            pytest.skip("Market data not reachable in this environment")
-        assert len(df) <= 50
-        assert "close" in df.columns
-
-
-# ── market_data: provider routing ────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestMarketDataHelpers:
-    def test_get_intraday_bars_returns_empty_on_yahoo_error(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
-        import data.market_data as md
-        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
-        result = md.get_intraday_bars("AAPL")
-        assert result.empty
-
-    def test_get_daily_bars_returns_empty_on_yahoo_error(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
-        import data.market_data as md
-        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
-        result = md.get_daily_bars("AAPL")
-        assert result.empty
-
-    def test_get_latest_price_yahoo_path(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
-        import data.market_data as md
-        idx = pd.date_range("2026-05-01 15:50", periods=1, freq="2min", tz="America/New_York")
-        fake_df = pd.DataFrame({"close": [155.0]}, index=idx)
-        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: fake_df)
-        price = md.get_latest_price("AAPL")
-        assert price == 155.0
-
-
-# ── alpaca_client: thin wrapper ───────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestAlpacaClientHelpers:
-    def test_init_succeeds_with_dummy_keys(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
-        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
-        from unittest.mock import patch, MagicMock
-        with patch("broker.alpaca_client.TradingClient"):
-            from broker.alpaca_client import AlpacaClient
-            client = AlpacaClient()
-            assert client is not None
-
-    def test_get_latest_price_delegates_to_market_data(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
-        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
-        from unittest.mock import patch, MagicMock
-        with patch("broker.alpaca_client.TradingClient"):
-            import broker.alpaca_client as alpaca_client
-            client = alpaca_client.AlpacaClient()
-            with patch("data.market_data.get_latest_price", return_value=200.5):
-                price = client.get_latest_price("AAPL")
-                assert price == 200.5
-
-
 # ── api_budget: remaining lines ───────────────────────────────────────────────
 
 @pytest.mark.unit
@@ -220,202 +138,6 @@ class TestApiBudgetRemaining:
             risk_manager.record_usage(input_tokens=100_000, output_tokens=10_000,
                                       cache_write_tokens=0, cache_read_tokens=0)
         assert risk_manager.check_entry_budget(estimated_cost=0.0, regime="NORMAL") is False
-
-
-# ── telegram_notify ───────────────────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestTelegramNotify:
-    """telegram_notify functions must never raise; unconfigured tokens are a no-op."""
-
-    def _patch_no_token(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "")
-        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "")
-
-    def _patch_fake_token(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "fake_token")
-        monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "12345")
-
-    def test_no_token_is_silent(self, monkeypatch):
-        self._patch_no_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_startup("NORMAL", 0)
-            mock_post.assert_not_called()
-
-    def test_sends_when_configured(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_startup("BULL_TREND", 2)
-            mock_post.assert_called_once()
-            payload = mock_post.call_args[1]["json"]
-            assert "BULL_TREND" in payload["text"]
-            assert payload["parse_mode"] == "HTML"
-
-    def test_network_error_does_not_raise(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post", side_effect=Exception("network down")):
-            telegram_notify.notify_startup("NORMAL", 0)  # must not raise
-
-    def test_notify_buy_contains_symbol(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_buy("NVDA", 10, 150.0, 144.0, 157.5, "DAY_TRADE", 42.0, 80)
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "NVDA" in text
-            assert "150.00" in text
-
-    def test_notify_close_shows_pnl(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_close("AAPL", 5, 100.0, 105.0, 25.0, 5.0, "claude_decision")
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "AAPL" in text
-            assert "+25.00" in text
-
-    def test_notify_eod_no_trades(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_eod_summary([], 0.0, 0.0, 10000.0, "NORMAL")
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "no trades" in text.lower()
-
-    def test_notify_eod_with_trades(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        closes = [
-            {"symbol": "NVDA", "pnl_dollar": 80.0, "pnl_pct": 4.0},
-            {"symbol": "AAPL", "pnl_dollar": -20.0, "pnl_pct": -1.5},
-        ]
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_eod_summary(closes, 60.0, 0.6, 10060.0, "BULL_TREND")
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "NVDA" in text
-            assert "BULL_TREND" in text
-
-    def test_notify_job_failure_truncates_long_error(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        long_err = "x" * 500
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_job_failure("force_close", long_err)
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "force_close" in text
-            assert len(text) < 600
-
-    def test_notify_claude_disabled(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_claude_disabled("HTTP 400 — invalid cache_control")
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "Claude" in text
-
-    def test_notify_regime_change_crisis_has_alert_emoji(self, monkeypatch):
-        self._patch_fake_token(monkeypatch)
-        from unittest.mock import patch
-        import notifications.telegram as telegram_notify
-        with patch("requests.post") as mock_post:
-            telegram_notify.notify_regime_change("NORMAL", "CRISIS", -65)
-            text = mock_post.call_args[1]["json"]["text"]
-            assert "CRISIS" in text
-            assert "🚨" in text
-
-
-# ── daily_report: build_report_body ──────────────────────────────────────────
-
-@pytest.mark.unit
-class TestBuildReportBody:
-    @staticmethod
-    def _account(portfolio=10_500.0, last_equity=10_000.0):
-        return {"portfolio_value": portfolio, "last_equity": last_equity}
-
-    @staticmethod
-    def _close(symbol="NVDA", pnl=150.0, pnl_pct=1.5, qty=10,
-               entry=100.0, exit_=115.0, reason="take_profit"):
-        return {
-            "type": "CLOSE", "symbol": symbol, "qty": qty,
-            "entry_price": entry, "exit_price": exit_,
-            "pnl_dollar": pnl, "pnl_pct": pnl_pct, "close_reason": reason,
-        }
-
-    def test_subject_contains_pnl_when_trades_exist(self):
-        from notifications.daily_report import build_report_body
-        subject, _ = build_report_body(
-            trades=[self._close()],
-            account=self._account(),
-            regime="BULL_TREND",
-            watch_list="NVDA, APP",
-            weights={"RSI": 10.0},
-        )
-        assert "P&L" in subject
-        assert "1 trades" in subject
-
-    def test_subject_no_trades_shows_portfolio(self):
-        from notifications.daily_report import build_report_body
-        subject, _ = build_report_body(
-            trades=[], account=self._account(), regime="NORMAL",
-            watch_list="", weights={},
-        )
-        assert "No trades" in subject
-        assert "Portfolio" in subject
-
-    def test_body_contains_regime(self):
-        from notifications.daily_report import build_report_body
-        _, body = build_report_body(
-            trades=[], account=self._account(), regime="CHOPPY",
-            watch_list="TSLA", weights={},
-        )
-        assert "CHOPPY" in body
-
-    def test_body_lists_individual_trades(self):
-        from notifications.daily_report import build_report_body
-        _, body = build_report_body(
-            trades=[self._close("NVDA"), self._close("AAPL", pnl=-50.0, pnl_pct=-0.5)],
-            account=self._account(),
-            regime="BULL_TREND",
-            watch_list="",
-            weights={},
-        )
-        assert "NVDA" in body
-        assert "AAPL" in body
-
-
-@pytest.mark.unit
-class TestDailyReportSentFlag:
-    def test_not_sent_when_file_missing(self, tmp_path, monkeypatch):
-        import notifications.daily_report as daily_report
-        monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "sent.json")
-        assert daily_report._already_sent_today() is False
-
-    def test_not_sent_after_marking_different_date(self, tmp_path, monkeypatch):
-        import notifications.daily_report as daily_report; import json
-        sent_file = tmp_path / "sent.json"
-        sent_file.write_text(json.dumps({"date": "2020-01-01"}))
-        monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", sent_file)
-        assert daily_report._already_sent_today() is False
-
-    def test_already_sent_after_mark_sent(self, tmp_path, monkeypatch):
-        import notifications.daily_report as daily_report
-        monkeypatch.setattr(daily_report, "DAILY_REPORT_SENT_FILE", tmp_path / "sent.json")
-        daily_report._mark_sent()
-        assert daily_report._already_sent_today() is True
 
 
 # ── TestIoUtils ───────────────────────────────────────────────────────────────
@@ -827,564 +549,89 @@ class TestMarketMonitor:
         assert data.get("regime") == "CRISIS"
 
 
-# ── daily_report: build_report_body ──────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# watch_loader — held-ticker merge tests
+# ---------------------------------------------------------------------------
 
 @pytest.mark.unit
-class TestDailyReportBody:
-    """Tests for build_report_body — pure formatting function, no I/O."""
+def test_watch_loader_merges_open_position_tickers(monkeypatch, tmp_path):
+    """load_watch_list always includes tickers from open_positions.json."""
+    import config
+    from utils.io_utils import save_json
 
-    def _account(self, portfolio: float = 100_000.0, last_equity: float = 99_000.0) -> dict:
-        return {"portfolio_value": portfolio, "last_equity": last_equity}
+    watch_file = tmp_path / "watch_list.txt"
+    watch_file.write_text("AAPL\nMSFT\n")
+    open_pos_file = tmp_path / "open_positions.json"
+    save_json(open_pos_file, {"NVDA": {"qty": 10}})
+    swing_pos_file = tmp_path / "swing_positions.json"
+    save_json(swing_pos_file, {})
 
-    def test_subject_contains_pnl_when_trades_exist(self):
-        from notifications.daily_report import build_report_body
-        trades = [
-            {"type": "CLOSE", "symbol": "AAPL", "qty": 10,
-             "entry_price": 100.0, "exit_price": 105.0,
-             "pnl_dollar": 50.0, "pnl_pct": 5.0, "close_reason": "tp_hit"},
-        ]
-        subject, body = build_report_body(trades, self._account(), "BULL_TREND", "AAPL, MSFT", {})
-        assert "P&L:" in subject
-        assert "1 trades" in subject
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", open_pos_file)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_pos_file)
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "wl_health.json")
 
-    def test_subject_no_trades_shows_portfolio(self):
-        from notifications.daily_report import build_report_body
-        subject, body = build_report_body([], self._account(100_000.0, 100_000.0), "CHOPPY", "", {})
-        assert "No trades today" in subject
-        assert "Portfolio:" in subject
+    import importlib
+    import trading.watch_loader
+    importlib.reload(trading.watch_loader)
+    from trading.watch_loader import load_watch_list
+    result = load_watch_list()
 
-    def test_body_contains_regime(self):
-        from notifications.daily_report import build_report_body
-        _, body = build_report_body([], self._account(), "CRISIS", "", {})
-        assert "CRISIS" in body
-
-    def test_win_rate_computed_correctly(self):
-        from notifications.daily_report import build_report_body
-        trades = [
-            {"type": "CLOSE", "symbol": "A", "qty": 1, "entry_price": 10.0,
-             "exit_price": 11.0, "pnl_dollar": 10.0, "pnl_pct": 10.0, "close_reason": "tp"},
-            {"type": "CLOSE", "symbol": "B", "qty": 1, "entry_price": 10.0,
-             "exit_price": 9.0, "pnl_dollar": -10.0, "pnl_pct": -10.0, "close_reason": "sl"},
-        ]
-        _, body = build_report_body(trades, self._account(), "NORMAL", "", {})
-        assert "Win rate: 50.0%" in body
-
-    def test_indicator_weights_rendered_in_body(self):
-        from notifications.daily_report import build_report_body
-        weights = {"rsi": 30.0, "macd": 25.0}
-        _, body = build_report_body([], self._account(), "NORMAL", "", weights)
-        assert "rsi: 30.00%" in body
-        assert "macd: 25.00%" in body
-
-
-# ── TestBacktestSimulatorConstants ───────────────────────────────────────────
-
-@pytest.mark.unit
-class TestBacktestSimulatorConstants:
-    """Verify backtest/simulator.py constants match config.py."""
-
-    def test_simulator_starting_capital_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.STARTING_CAPITAL == config.BACKTEST_STARTING_CAPITAL
-
-    def test_simulator_slippage_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.SLIPPAGE_PCT == config.BACKTEST_SLIPPAGE_PCT
-
-    def test_simulator_max_positions_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.MAX_POSITIONS == config.BACKTEST_MAX_POSITIONS
-
-    def test_simulator_market_open_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.MARKET_OPEN_H == config.MARKET_OPEN_HOUR
-        assert simulator.MARKET_OPEN_M == config.MARKET_OPEN_MINUTE
-
-    def test_simulator_force_close_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.FORCE_CLOSE_H == config.EOD_FORCE_CLOSE_HOUR
-        assert simulator.FORCE_CLOSE_M == config.EOD_FORCE_CLOSE_MINUTE
-
-    def test_simulator_swing_eval_matches_config(self):
-        from backtest import simulator
-        import config
-        assert simulator.SWING_EVAL_H == config.EOD_HOLDS_EVAL_HOUR
-        assert simulator.SWING_EVAL_M == config.EOD_HOLDS_EVAL_MINUTE
-
-
-# ── TestDrawdownAlertThreadSafety ─────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestDrawdownAlertThreadSafety:
-    def test_drawdown_lock_is_threading_lock(self):
-        """_DRAWDOWN_LOCK is properly initialized as a threading.Lock instance."""
-        from trading import monitor
-        import threading
-        assert hasattr(monitor, "_DRAWDOWN_LOCK")
-        assert isinstance(monitor._DRAWDOWN_LOCK, threading.Lock)
-
-    def test_drawdown_alert_cooldown_respected(self, monkeypatch):
-        """_check_drawdown_alerts respects per-position cooldown and doesn't spam alerts."""
-        from trading import monitor
-        import time
-        import config
-
-        # Patch Telegram to prevent notifications
-        monkeypatch.setattr("trading.monitor.telegram_notify.notify_position_drawdown", lambda *a, **kw: None)
-
-        # Reset the cooldown tracking dict
-        monkeypatch.setattr(monitor, "_drawdown_alerted", {})
-
-        # Build a minimal position in drawdown but above hard SL
-        # entry_price=100, current=96 → -4% PNL (below DRAWDOWN_WARN_PCT threshold)
-        positions = {
-            "AAPL": {
-                "entry_price": 100.0,
-                "stop_loss_pct": 5.0,
-                "qty": 10,
-            }
-        }
-        current_prices = {"AAPL": 96.0}
-
-        # First call: alert should fire and record timestamp
-        monitor._check_drawdown_alerts(positions, current_prices)
-        assert "AAPL" in monitor._drawdown_alerted
-        first_alert_ts = monitor._drawdown_alerted["AAPL"]
-
-        # Simulate cooldown: pre-populate with future timestamp
-        monitor._drawdown_alerted["AAPL"] = time.time() + 9999
-        second_alert_ts = monitor._drawdown_alerted["AAPL"]
-
-        # Second call within cooldown: timestamp should NOT change
-        monitor._check_drawdown_alerts(positions, current_prices)
-        assert monitor._drawdown_alerted["AAPL"] == second_alert_ts
-
-
-# ── mark_stale / clear_stale ────────────────────────────────────────────────────
-
-@pytest.mark.unit
-def test_mark_stale_writes_metadata(tmp_path):
-    """mark_stale injects _stale/_stale_since/_fallback_from into JSON."""
-    from utils.io_utils import mark_stale, load_json, save_json
-    f = tmp_path / "test.json"
-    save_json(f, {"regime": "NORMAL"})
-
-    mark_stale(f, "regime", fallback_from="CAPITULATION")
-
-    data = load_json(f, {})
-    assert data["_stale"] is True
-    assert "_stale_since" in data
-    assert data["_fallback_from"] == "CAPITULATION"
-    assert data["regime"] == "NORMAL"   # original data preserved
+    assert "NVDA" in result
+    assert "AAPL" in result
+    assert "MSFT" in result
 
 
 @pytest.mark.unit
-def test_clear_stale_removes_metadata(tmp_path):
-    """clear_stale removes all _stale keys, preserves original data."""
-    from utils.io_utils import mark_stale, clear_stale, load_json, save_json
-    f = tmp_path / "test.json"
-    save_json(f, {"regime": "NORMAL"})
-    mark_stale(f, "regime")
-    clear_stale(f)
+def test_watch_loader_merges_swing_position_tickers(monkeypatch, tmp_path):
+    """load_watch_list includes tickers from swing_positions.json."""
+    import config
+    from utils.io_utils import save_json
 
-    data = load_json(f, {})
-    assert "_stale" not in data
-    assert "_stale_since" not in data
-    assert data["regime"] == "NORMAL"
+    watch_file = tmp_path / "watch_list.txt"
+    watch_file.write_text("AAPL\n")
+    open_pos_file = tmp_path / "open_positions.json"
+    save_json(open_pos_file, {})
+    swing_pos_file = tmp_path / "swing_positions.json"
+    save_json(swing_pos_file, {"PANW": {"qty": 5}})
 
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", open_pos_file)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_pos_file)
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "wl_health.json")
 
-class TestTierContextBlocks:
-    def _make_iv(self, composite=55.0, rsi=62.0, stoch_k=70.0, stoch_d=68.0,
-                 current_price=100.0, vwap=99.0, vwap_slope=0.003,
-                 or_position="outside", relative_volume=1.4, atr=2.0):
-        from unittest.mock import MagicMock
-        iv = MagicMock()
-        iv.composite_score = composite
-        iv.rsi = rsi
-        iv.stoch_k = stoch_k
-        iv.stoch_d = stoch_d
-        iv.current_price = current_price
-        iv.vwap = vwap
-        iv.vwap_slope = vwap_slope
-        iv.or_position = or_position
-        iv.relative_volume = relative_volume
-        iv.atr = atr
-        iv.signal = "BUY"
-        return iv
+    import importlib
+    import trading.watch_loader
+    importlib.reload(trading.watch_loader)
+    from trading.watch_loader import load_watch_list
+    result = load_watch_list()
 
-    def _snap(self, regime="NORMAL"):
-        from unittest.mock import MagicMock
-        snap = MagicMock()
-        snap.regime = regime
-        snap.research = {}
-        snap.intraday_news = {}
-        return snap
+    assert "PANW" in result
+    assert "AAPL" in result
 
-    def _gate_result(self, flags=None):
-        from signals.entry_gates import GateResult
-        return GateResult(passed=True, reason="", flags=tuple(flags or []))
-
-    @pytest.mark.unit
-    def test_low_tier_contains_quality_gaps(self):
-        from trading.context_builder import build_stock_block
-        from utils.ticker_quality import TickerQuality
-        quality = TickerQuality("LOW", 28, frozenset(),
-                                ("vol_weak(-12)", "sector_flat(-8)"), {})
-        gate = self._gate_result(["volume_weak"])
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        block = build_stock_block(
-            "RIVN", self._make_iv(composite=32.0), self._snap(),
-            gate, quality, "DAY_TRADE",
-            datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
-        )
-        assert "vol_weak(-12)" in block
-        assert "caution" in block.lower()
-        assert "BB[" not in block
-        assert "EMA9" not in block
-        assert "MACD=" not in block
-
-    @pytest.mark.unit
-    def test_conviction_tier_contains_unlocks_not_quality_breakdown(self):
-        from trading.context_builder import build_stock_block
-        from utils.ticker_quality import TickerQuality
-        quality = TickerQuality("CONVICTION", 85, frozenset({"T2_CHOPPY", "SWING_CHOPPY"}),
-                                (), {"composite": 25, "sentiment": 20})
-        gate = self._gate_result()
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        block = build_stock_block(
-            "NVDA", self._make_iv(composite=72.0), self._snap(),
-            gate, quality, "PEAD",
-            datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
-        )
-        assert "unlocks=" in block
-        assert "T2_CHOPPY" in block
-        assert "composite(+25)" not in block
-        assert "caution" not in block.lower()
-        assert "BB[" not in block
-
-    @pytest.mark.unit
-    def test_medium_tier_shows_full_news(self):
-        from trading.context_builder import build_stock_block
-        from utils.ticker_quality import TickerQuality
-        quality = TickerQuality("MEDIUM", 47, frozenset(), (), {})
-        gate = self._gate_result()
-        from unittest.mock import MagicMock
-        snap = self._snap()
-        snap.research = {"AAPL": {"sentiment_score": 35, "sentiment_label": "BULLISH",
-                                   "summary": "Strong pipeline into Q3"}}
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        block = build_stock_block(
-            "AAPL", self._make_iv(), snap, gate, quality, "DAY_TRADE",
-            datetime(2026, 5, 21, 11, 30, tzinfo=ZoneInfo("America/New_York")),
-        )
-        assert "Strong pipeline" in block
-
-
-# ── notify_stale_research disk dedup ─────────────────────────────────────────
 
 @pytest.mark.unit
-class TestStaleResearchDedup:
-    """notify_stale_research must use a disk sentinel, not an in-memory global."""
+def test_watch_loader_no_duplicates(monkeypatch, tmp_path):
+    """If a held ticker is already in watch_list.txt, it appears only once."""
+    import config
+    from utils.io_utils import save_json
 
-    def test_first_call_writes_sentinel_and_sends(self, monkeypatch, tmp_path):
-        """First call on a day writes sentinel file and fires the alert."""
-        import config
-        import notifications.telegram as tg
-        from utils.io_utils import load_json
-        from datetime import datetime
-        from utils.constants import ET
-        monkeypatch.setattr(config, "STALE_RESEARCH_ALERTED_FILE", tmp_path / "sentinel.json")
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        # Call the real implementation directly (autouse fixture patches the public name)
-        tg._notify_stale_research_impl(120.0)
-        assert len(sent) == 1, "first call should send exactly one alert"
-        sentinel = load_json(tmp_path / "sentinel.json", {})
-        assert sentinel.get("date") == datetime.now(ET).strftime("%Y-%m-%d")
+    watch_file = tmp_path / "watch_list.txt"
+    watch_file.write_text("AAPL\nNVDA\n")
+    open_pos_file = tmp_path / "open_positions.json"
+    save_json(open_pos_file, {"NVDA": {"qty": 10}})
+    swing_pos_file = tmp_path / "swing_positions.json"
+    save_json(swing_pos_file, {})
 
-    def test_second_call_same_day_is_deduped(self, monkeypatch, tmp_path):
-        """Second call on same day must be silently suppressed via disk sentinel."""
-        import config
-        import notifications.telegram as tg
-        from datetime import datetime
-        from utils.constants import ET
-        from utils.io_utils import save_json
-        monkeypatch.setattr(config, "STALE_RESEARCH_ALERTED_FILE", tmp_path / "sentinel.json")
-        today = datetime.now(ET).strftime("%Y-%m-%d")
-        save_json(tmp_path / "sentinel.json", {"date": today})
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        tg._notify_stale_research_impl(120.0)
-        assert sent == [], "second call on same day must be silently deduped"
+    monkeypatch.setattr(config, "WATCH_LIST_FILE", watch_file)
+    monkeypatch.setattr(config, "OPEN_POSITIONS_FILE", open_pos_file)
+    monkeypatch.setattr(config, "SWING_POSITIONS_FILE", swing_pos_file)
+    monkeypatch.setattr(config, "DATA_WATCH_LIST_HEALTH_FILE", tmp_path / "wl_health.json")
 
-    def test_bot_restart_does_not_redeliver_same_day(self, monkeypatch, tmp_path):
-        """Simulates bot restart: disk sentinel prevents re-delivery even after in-process reset."""
-        import config
-        import notifications.telegram as tg
-        from datetime import datetime
-        from utils.constants import ET
-        from utils.io_utils import save_json
-        monkeypatch.setattr(config, "STALE_RESEARCH_ALERTED_FILE", tmp_path / "sentinel.json")
-        today = datetime.now(ET).strftime("%Y-%m-%d")
-        save_json(tmp_path / "sentinel.json", {"date": today})
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        # Simulate two separate "restart" invocations on the same day
-        tg._notify_stale_research_impl(60.0)
-        tg._notify_stale_research_impl(120.0)
-        assert sent == [], "disk dedup must block re-delivery across restarts on same day"
+    import importlib
+    import trading.watch_loader
+    importlib.reload(trading.watch_loader)
+    from trading.watch_loader import load_watch_list
+    result = load_watch_list()
 
-    def test_conftest_autouse_patches_public_function(self, monkeypatch, tmp_path):
-        """The autouse conftest fixture must patch notify_stale_research to a no-op."""
-        import notifications.telegram as tg
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        # Call the patched public function — conftest autouse patches this to lambda
-        tg.notify_stale_research(999.0)
-        assert sent == [], "autouse fixture must suppress notify_stale_research in all unit tests"
-
-
-# ── Task 4: stable context cache regime invalidation ─────────────────────────
-
-@pytest.mark.unit
-class TestStableContextRegimeCache:
-    def test_cache_hit_on_same_regime(self, monkeypatch):
-        """Cache returns stored text when regime is unchanged and TTL not expired."""
-        import time
-        import trading.claude_caller as cc
-
-        cc._stable_ctx_text = "cached-normal"
-        cc._stable_ctx_time = time.monotonic()
-        cc._stable_ctx_regime = "NORMAL"
-
-        calls = []
-        monkeypatch.setattr(cc, "build_stable_system_context", lambda *a, **kw: calls.append(1) or "rebuilt")
-
-        result = cc._get_cached_stable_context({}, {}, {"regime": "NORMAL"})
-        assert result == "cached-normal"
-        assert len(calls) == 0, "should not rebuild on cache hit"
-
-    def test_cache_invalidated_on_regime_change(self, monkeypatch):
-        """Cache must rebuild when regime changes (noon refresh scenario)."""
-        import time
-        import trading.claude_caller as cc
-
-        cc._stable_ctx_text = "cached-normal"
-        cc._stable_ctx_time = time.monotonic()
-        cc._stable_ctx_regime = "NORMAL"
-
-        monkeypatch.setattr(cc, "build_stable_system_context",
-                            lambda ri, fc, rm: f"rebuilt-{ri.get('regime')}")
-
-        result = cc._get_cached_stable_context({}, {}, {"regime": "HIGH_VOL"})
-        assert result == "rebuilt-HIGH_VOL"
-        assert cc._stable_ctx_regime == "HIGH_VOL"
-
-
-# ── Task 6: AE confidence tier-aware ─────────────────────────────────────────
-
-@pytest.mark.unit
-class TestAeConfidenceTierAware:
-    def test_conviction_higher_than_low(self):
-        from trading.pipeline import _compute_auto_execute_confidence
-        conf_conv = _compute_auto_execute_confidence(70.0, 10, "NORMAL", "CONVICTION")
-        conf_low  = _compute_auto_execute_confidence(70.0, 10, "NORMAL", "LOW")
-        assert conf_conv > conf_low, f"CONVICTION ({conf_conv}) should > LOW ({conf_low})"
-
-    def test_low_tier_capped(self):
-        from trading.pipeline import _compute_auto_execute_confidence
-        import config
-        conf = _compute_auto_execute_confidence(90.0, 50, "BULL_TREND", "LOW")
-        assert conf <= config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP, (
-            f"LOW tier capped at {config.AUTO_EXECUTE_CONFIDENCE_LOW_CAP}, got {conf}"
-        )
-
-
-# ── Task 16: context_builder uses actual mode for compute_tp_sl ───────────────
-
-@pytest.mark.unit
-class TestContextBuilderModeAware:
-    def test_block_conviction_uses_actual_mode(self):
-        """_block_conviction must pass actual mode to compute_tp_sl, not hardcoded DAY_TRADE."""
-        from unittest.mock import MagicMock, patch
-        from trading.context_builder import _block_conviction
-
-        captured_modes = []
-
-        def spy_compute(base_tp, base_sl, entry_time, tier, regime, mode="DAY_TRADE"):
-            captured_modes.append(mode)
-            return base_tp, base_sl
-
-        snap = MagicMock()
-        snap.regime = "NORMAL"
-        quality = MagicMock()
-        quality.tier = "CONVICTION"
-        quality.unlocks = frozenset()
-        quality.component_scores = {}
-        gate_result = MagicMock()
-        gate_result.flags = ()
-
-        from zoneinfo import ZoneInfo
-        entry_time = datetime(2026, 5, 29, 10, 30, tzinfo=ZoneInfo("America/New_York"))
-
-        with patch("trading.context_builder.compute_tp_sl", spy_compute):
-            _block_conviction(
-                "AAPL", MagicMock(current_price=100.0, rsi=55.0, composite_score=70.0,
-                                   signal="BUY"),
-                snap, gate_result, quality,
-                mode="PEAD", entry_time=entry_time,
-                existing_pos=None, atr_suggested_tp_pct=3.0, intraday_news=None,
-            )
-
-        assert captured_modes and captured_modes[0] == "PEAD", (
-            f"Expected PEAD passed to compute_tp_sl, got {captured_modes}"
-        )
-
-
-# ── Task 17: exit block includes mode_at_entry ────────────────────────────────
-
-@pytest.mark.unit
-class TestExitBlockModeAware:
-    def test_exit_block_includes_mode_at_entry(self):
-        """build_exit_stock_block must include mode_at_entry from position dict."""
-        from unittest.mock import MagicMock
-        from trading.context_builder import build_exit_stock_block
-
-        pos = {
-            "entry_price": 100.0, "qty": 10, "stop_loss_pct": 3.0,
-            "entry_time": "2026-05-29T10:30:00",
-            "mode_at_entry": "PEAD",
-        }
-        iv = MagicMock()
-        iv.current_price = 103.0
-        iv.composite_score = 65.0
-
-        block = build_exit_stock_block("AAPL", iv, pos, research={})
-        assert "PEAD" in block, f"mode_at_entry 'PEAD' not in exit block:\n{block}"
-
-    def test_ae_confidence_higher_for_pead_than_day_trade(self):
-        """PEAD mode AE confidence must exceed DAY_TRADE for same composite + sentiment."""
-        from trading.pipeline import _compute_auto_execute_confidence
-
-        conf_pead = _compute_auto_execute_confidence(65.0, 5, "NORMAL", "HIGH", "PEAD")
-        conf_day  = _compute_auto_execute_confidence(65.0, 5, "NORMAL", "HIGH", "DAY_TRADE")
-        assert conf_pead > conf_day, f"PEAD ({conf_pead}) should > DAY_TRADE ({conf_day})"
-
-
-# ── _OnceGuard ─────────────────────────────────────────────────────────────────
-
-@pytest.mark.unit
-class TestOnceGuard:
-    """_OnceGuard must allow each (scope, key) exactly once per calendar day."""
-
-    def _fresh_guard(self):
-        from notifications.telegram import _OnceGuard
-        return _OnceGuard()
-
-    def test_first_call_returns_true(self):
-        g = self._fresh_guard()
-        assert g.should_send("drawdown", "AAPL") is True
-
-    def test_second_call_same_scope_key_same_day_returns_false(self):
-        g = self._fresh_guard()
-        g.should_send("drawdown", "AAPL")
-        assert g.should_send("drawdown", "AAPL") is False
-
-    def test_different_key_same_scope_returns_true(self):
-        g = self._fresh_guard()
-        g.should_send("drawdown", "AAPL")
-        assert g.should_send("drawdown", "NVDA") is True
-
-    def test_different_scope_same_key_returns_true(self):
-        g = self._fresh_guard()
-        g.should_send("drawdown", "AAPL")
-        assert g.should_send("bracket_timeout", "AAPL") is True
-
-    def test_empty_key_deduped_per_scope(self):
-        """Notifications with no per-symbol key (e.g. daily_loss) still dedup correctly."""
-        g = self._fresh_guard()
-        assert g.should_send("daily_loss") is True
-        assert g.should_send("daily_loss") is False
-
-    def test_day_rollover_allows_resend(self, monkeypatch):
-        """After the calendar day changes, should_send returns True again."""
-        from notifications.telegram import _OnceGuard
-        from datetime import date
-        g = _OnceGuard()
-        # Simulate "today" when guard was first called
-        monkeypatch.setattr("notifications.telegram.datetime",
-                            type("_FakeDT", (), {
-                                "now": staticmethod(lambda tz=None: type("_FakeNow", (), {"date": lambda self=None: date(2026, 5, 29)})())
-                            })())
-        # Re-import to pick up monkeypatched datetime is not trivial — test via internal state
-        g._seen[("daily_loss", "")] = "2026-05-28"  # yesterday
-        assert g.should_send("daily_loss") is True   # today is different → fires
-
-
-# ── notify_bracket_correction_timeout dedup ───────────────────────────────────
-
-@pytest.mark.unit
-class TestBracketTimeoutDedup:
-    """notify_bracket_correction_timeout must send at most once per symbol per day."""
-
-    def test_first_call_sends(self, monkeypatch):
-        import notifications.telegram as tg
-        from notifications.telegram import _OnceGuard
-        monkeypatch.setattr(tg, "_once", _OnceGuard())
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        tg.notify_bracket_correction_timeout("CRWD", 550.0, 3.0, 5.0)
-        assert len(sent) == 1
-        assert "CRWD" in sent[0]
-        assert "BRACKET TIMEOUT" in sent[0]
-
-    def test_second_call_same_symbol_suppressed(self, monkeypatch):
-        import notifications.telegram as tg
-        from notifications.telegram import _OnceGuard
-        monkeypatch.setattr(tg, "_once", _OnceGuard())
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        tg.notify_bracket_correction_timeout("CRWD", 550.0, 3.0, 5.0)
-        tg.notify_bracket_correction_timeout("CRWD", 551.0, 3.0, 5.0)
-        assert len(sent) == 1, "second call for same symbol must be suppressed"
-
-    def test_different_symbols_both_send(self, monkeypatch):
-        import notifications.telegram as tg
-        from notifications.telegram import _OnceGuard
-        monkeypatch.setattr(tg, "_once", _OnceGuard())
-        sent = []
-        monkeypatch.setattr(tg, "_send", lambda msg: sent.append(msg))
-        tg.notify_bracket_correction_timeout("CRWD", 550.0, 3.0, 5.0)
-        tg.notify_bracket_correction_timeout("NVDA", 900.0, 3.0, 5.0)
-        assert len(sent) == 2, "different symbols must each send their own alert"
-
-    def test_no_notification_when_fill_within_threshold(self, monkeypatch):
-        """execute_buy must NOT fire the bracket-timeout notification when correct_bracket
-        returns {} (slippage within threshold — normal successful fill)."""
-        import types
-        from unittest.mock import MagicMock, patch
-        from trading import risk_manager
-
-        sent = []
-        # Patch notify to capture any unexpected calls
-        with patch("trading.executor.telegram_notify.notify_bracket_correction_timeout",
-                   side_effect=lambda *a, **kw: sent.append(a)):
-            # correct_bracket_after_fill returning {} means within-threshold — no timeout
-            client = MagicMock()
-            order = types.SimpleNamespace(
-                status="filled", filled_avg_price="100.3", legs=[]
-            )
-            client.get_order_by_id.return_value = order
-            result = risk_manager.correct_bracket_after_fill(
-                client, "order-999", 100.0, 4.0, 5.0
-            )
-            assert result == {}, "within-threshold fill should return {}"
-            assert sent == [], "no bracket-timeout notification for within-threshold fill"
+    assert result.count("NVDA") == 1

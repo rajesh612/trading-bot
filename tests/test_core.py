@@ -459,3 +459,121 @@ class TestMarketCapFilter:
         monkeypatch.setattr(vs, "yahoo_get", lambda url, **kw: (_ for _ in ()).throw(Exception("network error")))
         cap = vs._fetch_market_cap("BROKEN")
         assert cap is None
+
+
+# ── market_data: DataFrame shape contract ─────────────────────────────────────
+
+@pytest.mark.unit
+class TestMarketDataSchema:
+    def test_yahoo_bars_returns_correct_columns(self):
+        """Yahoo bars must have OHLCV columns and a tz-aware DatetimeIndex."""
+        from data.market_data import _yahoo_bars
+        try:
+            df = _yahoo_bars("SPY", "1d", "10d")
+        except Exception:
+            pytest.skip("Yahoo Finance not reachable in this environment")
+        assert set(df.columns) >= {"open", "high", "low", "close", "volume"}
+        assert df.index.tz is not None
+
+    def test_get_intraday_bars_respects_lookback(self):
+        from data.market_data import get_intraday_bars
+        try:
+            df = get_intraday_bars("SPY", lookback=50)
+        except Exception:
+            pytest.skip("Market data not reachable in this environment")
+        assert len(df) <= 50
+        assert "close" in df.columns
+
+
+# ── market_data: provider routing ────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestMarketDataHelpers:
+    def test_get_intraday_bars_returns_empty_on_yahoo_error(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
+        import data.market_data as md
+        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
+        result = md.get_intraday_bars("AAPL")
+        assert result.empty
+
+    def test_get_daily_bars_returns_empty_on_yahoo_error(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
+        import data.market_data as md
+        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: (_ for _ in ()).throw(Exception("net error")))
+        result = md.get_daily_bars("AAPL")
+        assert result.empty
+
+    def test_get_latest_price_yahoo_path(self, monkeypatch):
+        import config
+        import pandas as pd
+        monkeypatch.setattr(config, "MARKET_DATA_PROVIDER", "yahoo")
+        import data.market_data as md
+        idx = pd.date_range("2026-05-01 15:50", periods=1, freq="2min", tz="America/New_York")
+        fake_df = pd.DataFrame({"close": [155.0]}, index=idx)
+        monkeypatch.setattr(md, "_yahoo_bars", lambda *a, **kw: fake_df)
+        price = md.get_latest_price("AAPL")
+        assert price == 155.0
+
+
+# ── alpaca_client: thin wrapper ───────────────────────────────────────────────
+
+@pytest.mark.unit
+class TestAlpacaClientHelpers:
+    def test_init_succeeds_with_dummy_keys(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
+        from unittest.mock import patch, MagicMock
+        with patch("broker.alpaca_client.TradingClient"):
+            from broker.alpaca_client import AlpacaClient
+            client = AlpacaClient()
+            assert client is not None
+
+    def test_get_latest_price_delegates_to_market_data(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ALPACA_API_KEY", "test_key")
+        monkeypatch.setattr(config, "ALPACA_SECRET_KEY", "test_secret")
+        from unittest.mock import patch, MagicMock
+        with patch("broker.alpaca_client.TradingClient"):
+            import broker.alpaca_client as alpaca_client
+            client = alpaca_client.AlpacaClient()
+            with patch("data.market_data.get_latest_price", return_value=200.5):
+                price = client.get_latest_price("AAPL")
+                assert price == 200.5
+
+
+# ── P4-T1: _validate_decision ─────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_validate_decision_clamps_confidence():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 150, "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "reasoning": "x"}
+    result = _validate_decision(raw, "AAPL")
+    assert result["confidence"] == 100
+
+
+@pytest.mark.unit
+def test_validate_decision_clamps_stop_loss_negative():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 75, "stop_loss_pct": -1.5, "take_profit_pct": 5.0, "reasoning": "x"}
+    result = _validate_decision(raw, "AAPL")
+    assert result["stop_loss_pct"] >= 0.5
+
+
+@pytest.mark.unit
+def test_validate_decision_clamps_take_profit_high():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 75, "stop_loss_pct": 4.0, "take_profit_pct": 50.0, "reasoning": "x"}
+    result = _validate_decision(raw, "AAPL")
+    assert result["take_profit_pct"] <= 15.0
+
+
+@pytest.mark.unit
+def test_validate_decision_passthrough_valid():
+    from trading.claude_caller import _validate_decision
+    raw = {"action": "BUY", "confidence": 75, "stop_loss_pct": 4.0, "take_profit_pct": 5.0, "reasoning": "x"}
+    result = _validate_decision(dict(raw), "AAPL")
+    assert result["confidence"] == 75
+    assert result["stop_loss_pct"] == 4.0

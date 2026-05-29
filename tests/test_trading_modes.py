@@ -339,3 +339,26 @@ class TestMaxPositionUSDCap:
         if config.MAX_POSITION_USD and price > 0:
             raw_qty = min(raw_qty, max(1, int(config.MAX_POSITION_USD / price)))
         assert raw_qty == 500, "qty must be uncapped when MAX_POSITION_USD=0"
+
+
+# ── derive_mode 5-mode tests ──────────────────────────────────────────────────
+class TestDeriveMode:
+    @pytest.mark.unit
+    def test_swing_takes_priority_over_pead(self):
+        from utils.ticker_quality import derive_mode
+        assert derive_mode("AAPL", pead_ok=True, existing_swing_pos=True) == "SWING"
+
+    @pytest.mark.unit
+    def test_catalyst_before_day_trade(self):
+        from utils.ticker_quality import derive_mode
+        assert derive_mode("AAPL", pead_ok=False, catalyst_active=True) == "CATALYST"
+
+    @pytest.mark.unit
+    def test_default_is_day_trade(self):
+        from utils.ticker_quality import derive_mode
+        assert derive_mode("AAPL", pead_ok=False) == "DAY_TRADE"
+
+    @pytest.mark.unit
+    def test_pead_before_catalyst(self):
+        from utils.ticker_quality import derive_mode
+        assert derive_mode("AAPL", pead_ok=True, catalyst_active=True) == "PEAD"

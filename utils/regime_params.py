@@ -555,10 +555,14 @@ _STOP_HUNT_VETO_DISABLED = frozenset({"BULL_TREND", "OPPORTUNITY"})
 
 
 def _gate_table() -> dict[tuple[str, str], GateParams]:
+    # NORMAL baseline reads from config so tests can monkeypatch these constants
+    # and other regime rows can express meaningful risk-adjusted deviations.
+    _sv = config.STOCH_HARD_VETO_THRESHOLD   # default 97
+    _ss = config.STOCH_SOFT_FLAG_THRESHOLD   # default 85
     base = {
-        "NORMAL":         (85, 97, 0.60, 0.85),
-        "BULL_TREND":     (88, 97, 0.55, 0.80),
-        "OPPORTUNITY":    (85, 97, 0.60, 0.85),
+        "NORMAL":         (_ss,      _sv,      0.60, 0.85),
+        "BULL_TREND":     (_ss + 3,  _sv,      0.55, 0.80),
+        "OPPORTUNITY":    (_ss,      _sv,      0.60, 0.85),
         "CRASH_RECOVERY": (83, 95, 0.60, 0.85),
         "DEFENSIVE":      (80, 95, 0.65, 0.90),
         "CHOPPY":         (80, 95, 0.65, 0.90),
@@ -624,19 +628,23 @@ def _ae_table() -> dict[tuple[str, str], AutoExecuteParams]:
     }
 
 
-_FILTER_TABLE = _filter_table()
-_GATE_TABLE   = _gate_table()
-_AE_TABLE     = _ae_table()
-_FALLBACK_FILTER = _FILTER_TABLE[("NORMAL", "MEDIUM")]
-_FALLBACK_GATE   = _GATE_TABLE[("NORMAL", "MEDIUM")]
+_AE_TABLE = _ae_table()
 
+# _FILTER_TABLE and _GATE_TABLE are intentionally NOT frozen at module import.
+# Both tables are driven by config.* constants (COMPOSITE_MIN_*, STOCH_*).
+# Freezing them at import makes monkeypatch.setattr(config, ...) silently inert
+# in tests and causes get_filter_params/get_entry_params to diverge in production
+# if config values are patched after startup (e.g. during live param learning).
+# Per-call builds are cheap (~microsecond) compared to a trading-cycle iteration.
 
 def get_filter_params(regime: str, tier: str) -> FilterParams:
-    return _FILTER_TABLE.get((regime, tier), _FALLBACK_FILTER)
+    table = _filter_table()
+    return table.get((regime, tier), table[("NORMAL", "MEDIUM")])
 
 
 def get_gate_params(regime: str, tier: str) -> GateParams:
-    return _GATE_TABLE.get((regime, tier), _FALLBACK_GATE)
+    table = _gate_table()
+    return table.get((regime, tier), table[("NORMAL", "MEDIUM")])
 
 
 def get_auto_execute_params(regime: str, tier: str) -> AutoExecuteParams:
