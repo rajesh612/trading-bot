@@ -182,7 +182,7 @@ def setup_scheduler():
     scheduler.add_job(job_macro_regime,        CronTrigger(hour=12, minute=0,  **kw), id="macro_regime_midday", replace_existing=True, max_instances=1, misfire_grace_time=300)
     scheduler.add_job(job_watch_list,          CronTrigger(hour=9,  minute=0,  **kw), id="watch_list",          replace_existing=True, max_instances=1, misfire_grace_time=300)
     scheduler.add_job(job_swing_gap_check,     CronTrigger(hour=9,  minute=32, **kw), id="swing_gap_check",     replace_existing=True, max_instances=1, misfire_grace_time=120)
-    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, **kw), id="evaluate_eod_holds",  replace_existing=True, max_instances=1, misfire_grace_time=30)
+    scheduler.add_job(job_evaluate_eod_holds,  CronTrigger(hour=15, minute=50, second=30, **kw), id="evaluate_eod_holds",  replace_existing=True, max_instances=1, misfire_grace_time=30)
     scheduler.add_job(job_force_close,         CronTrigger(hour=15, minute=55, **kw), id="force_close",         replace_existing=True, max_instances=1, misfire_grace_time=30)
     scheduler.add_job(job_fred_cache,          CronTrigger(hour=16, minute=0,  **kw), id="fred_cache",          replace_existing=True, max_instances=1, misfire_grace_time=300)
     scheduler.add_job(job_learning,            CronTrigger(hour=16, minute=15, **kw), id="learning",            replace_existing=True, max_instances=1, misfire_grace_time=300)
@@ -252,6 +252,7 @@ def setup_scheduler():
         id="heartbeat",
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=600,
     )
 
 
