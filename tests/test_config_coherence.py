@@ -432,6 +432,39 @@ def test_filter_params_composite_min_reflects_monkeypatched_config(monkeypatch):
 
 
 @pytest.mark.unit
+def test_high_vol_medium_entry_gates_stricter_than_normal():
+    """HIGH_VOL/MEDIUM must have stricter late_composite (>=78) and
+    earlier/equal hard_close_hour vs NORMAL/MEDIUM.
+    HIGH_VOL Jan-Feb 2026 generated approx -$2.9k — tighter gates reduce this drag."""
+    from utils.regime_params import get_day_trade_params
+    hv = get_day_trade_params("HIGH_VOL", "MEDIUM")
+    nm = get_day_trade_params("NORMAL", "MEDIUM")
+    assert hv.late_composite >= 78, (
+        f"HIGH_VOL/MEDIUM late_composite={hv.late_composite} < 78"
+    )
+    assert hv.hard_close_hour <= nm.hard_close_hour, (
+        f"HIGH_VOL/MEDIUM hard_close_hour={hv.hard_close_hour} must be <= NORMAL/MEDIUM={nm.hard_close_hour}"
+    )
+    assert hv.late_composite > nm.late_composite, (
+        f"HIGH_VOL/MEDIUM late_composite={hv.late_composite} must be > NORMAL/MEDIUM={nm.late_composite}"
+    )
+
+
+@pytest.mark.unit
+def test_normal_medium_swing_promote_min_pnl_at_most_0_5():
+    """NORMAL/MEDIUM swing promotion min_pnl_pct must be <= 0.5%.
+    BULL_TREND/MEDIUM is 0.5%; NORMAL should match given 88%+ swing WR.
+    Prior 1.2% was blocking low-gain positions that succeed as swings."""
+    assert ("NORMAL", "MEDIUM") in config.SWING_HOLD_PARAMS, \
+        "SWING_HOLD_PARAMS missing ('NORMAL', 'MEDIUM') key"
+    _max_days, _profit_lock, min_pnl = config.SWING_HOLD_PARAMS[("NORMAL", "MEDIUM")]
+    assert min_pnl <= 0.5, (
+        f"NORMAL/MEDIUM swing min_pnl_pct={min_pnl} > 0.5 — "
+        "too restrictive; 88%+ swing WR justifies lower threshold"
+    )
+
+
+@pytest.mark.unit
 def test_gate_params_stoch_veto_reflects_monkeypatched_config(monkeypatch):
     """get_gate_params stoch_hard_veto must track config.STOCH_HARD_VETO_THRESHOLD.
 

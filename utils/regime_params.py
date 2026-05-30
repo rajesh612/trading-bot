@@ -363,10 +363,10 @@ def _day_trade_table() -> dict[tuple[str, str], DayTradeParams]:
         ("OPPORTUNITY", "MEDIUM"):     dt(hard_close_hour=13, late_entry_hour=12, late_composite=68, vwap_slope_min= 0.02),
         ("OPPORTUNITY", "LOW"):        dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min= 0.05),
         # ── HIGH_VOL ─────────────────────────────────────────────────────────
-        ("HIGH_VOL", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=11, late_composite=65, vwap_slope_min=0.05),
-        ("HIGH_VOL", "HIGH"):       dt(hard_close_hour=12, late_entry_hour=11, late_composite=68, vwap_slope_min=0.06),
-        ("HIGH_VOL", "MEDIUM"):     dt(hard_close_hour=12, late_entry_hour=11, late_composite=72, vwap_slope_min=0.08),
-        ("HIGH_VOL", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=80, vwap_slope_min=0.15),
+        ("HIGH_VOL", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=11, late_composite=70, vwap_slope_min=0.05),
+        ("HIGH_VOL", "HIGH"):       dt(hard_close_hour=11, late_entry_hour=11, late_composite=75, vwap_slope_min=0.06),
+        ("HIGH_VOL", "MEDIUM"):     dt(hard_close_hour=11, late_entry_hour=11, late_composite=78, vwap_slope_min=0.08),
+        ("HIGH_VOL", "LOW"):        dt(hard_close_hour=11, late_entry_hour=10, late_composite=85, vwap_slope_min=0.15),
         # ── CHOPPY ───────────────────────────────────────────────────────────
         ("CHOPPY", "CONVICTION"): dt(hard_close_hour=12, late_entry_hour=10, late_composite=70, vwap_slope_min=0.05),
         ("CHOPPY", "HIGH"):       dt(hard_close_hour=11, late_entry_hour=10, late_composite=75, vwap_slope_min=0.08),
