@@ -7,10 +7,12 @@
 ./stop.sh                               # graceful stop
 .venv/bin/python3 main.py              # foreground (dev)
 .venv/bin/python -m pytest tests/ -m unit -q  # run tests
+# Backtesting: verify with current config
 .venv/bin/python3 backtest.py 2>&1 | tee /tmp/bt_30d.txt          # last 30 trading days
 .venv/bin/python3 backtest.py --days 60 2>&1 | tee /tmp/bt_60d.txt
 .venv/bin/python3 backtest.py --start 2026-04-01 --end 2026-04-30 2>&1 | tee /tmp/bt_custom.txt
-.venv/bin/python scripts/param_sweep.py                            # 30d param sweep (28 combos, ~7 min)
+# Tuning: sweep params → apply winner → re-run backtest.py to confirm
+.venv/bin/python scripts/param_sweep.py                            # 30d sweep (28 combos, ~7 min)
 .venv/bin/python scripts/param_sweep.py --days 60 --top 15        # 60d sweep, show top 15
 ```
 

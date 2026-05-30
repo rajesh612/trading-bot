@@ -395,7 +395,14 @@ All state files live under `data/state/`.
 
 ---
 
-## Backtesting
+## Backtesting & Tuning
+
+Two tools, two jobs — use them in order:
+
+1. **`backtest.py`** — verify performance with current config
+2. **`param_sweep.py`** — find better params across N combinations; then re-run `backtest.py` to confirm
+
+### Verify (backtest.py)
 
 ```bash
 # Last 30 trading days (default) — tee to a file so the full output is preserved
@@ -414,14 +421,12 @@ Weekends and NYSE holidays are automatically excluded. No Claude API calls are m
 - `backtest_trades.csv` — every trade with entry/exit timestamps, P&L, and exit reason
 - `backtest_equity.json` — daily equity curve
 
----
+### Tune (param_sweep.py)
 
-### Parameter Sweep
-
-When tuning entry thresholds — composite floors, timing gates, SL/TP ceilings — use the sweep script instead of editing config and re-running `backtest.py` manually. Data is fetched once; all parameter combinations run in-process.
+When exit metrics suggest a threshold is off — composite floor too low, TP too wide, SL ceiling wrong — use the sweep to search instead of hand-editing and re-running manually. Data is fetched once; all combinations run in-process (~7 min for 28 combos on 30d).
 
 ```bash
-# 30d sweep (28 combos, ~7 min) — ranked CSV + terminal table
+# 30d sweep (28 combos) — ranked CSV + terminal table
 .venv/bin/python scripts/param_sweep.py
 
 # 60d sweep, show top 15
@@ -435,7 +440,7 @@ Edit `SWEEP_AXES` at the top of `scripts/param_sweep.py` to define the search sp
 
 Overrides are applied via `unittest.mock.patch` — production code is never modified during a sweep run. Only `NORMAL/MEDIUM` day-trade parameters are wired by default; extend the override factories in the script to sweep other regimes or modes.
 
----
+After applying a sweep winner to `config.py`, re-run `backtest.py --days 60` to confirm the gain is real and max drawdown hasn't worsened.
 
 ### Interpreting Results
 
@@ -447,8 +452,6 @@ Overrides are applied via `unittest.mock.patch` — production code is never mod
 | Swing win rate | Swing setups are selective — 70%+ at 5–10% avg winner is healthy |
 | Max drawdown | Target < 3% (matches `MAX_DAILY_LOSS_PCT` circuit breaker) |
 | Alpha vs benchmark | Printed automatically — compares total return to equal-weight buy-hold of the same watch list |
-
-**Key finding from sweep (30d, Apr–May 2026):** lowering SL ceiling from 2.0%→1.5% reduces avg SL loss (-$130→-$101) but doubles SL hit count (13→25), netting a worse P&L. The momentum-reversal exit in `trading/monitor.py` is the right tool for cutting SL losses early — not tightening the ceiling.
 
 **Tip:** Run 60d minimum for parameter validation. The 30d window covers only NORMAL and BULL_TREND regimes; HIGH_VOL / CHOPPY / DEFENSIVE effects only appear in longer windows. Use 30d for fast iteration, 60d to confirm before committing a change.
 
