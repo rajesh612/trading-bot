@@ -220,9 +220,10 @@ def test_backtest_swing_composite_min_retired():
 
 @pytest.mark.unit
 def test_swing_hold_params_normal_medium_min_pnl():
-    """NORMAL MEDIUM min_pnl_pct raised to 1.2% to filter marginal overnight positions."""
+    """NORMAL MEDIUM min_pnl_pct lowered to 0.5% to match BULL_TREND/MEDIUM threshold.
+    Prior 1.2% was blocking low-gain positions that succeed as swings (88%+ swing WR)."""
     _, _, min_pnl = config.SWING_HOLD_PARAMS[("NORMAL", "MEDIUM")]
-    assert min_pnl == 1.2, f"Expected 1.2, got {min_pnl}"
+    assert min_pnl == 0.5, f"Expected 0.5, got {min_pnl}"
 
 
 @pytest.mark.unit

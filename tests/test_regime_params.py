@@ -123,8 +123,8 @@ class TestQualifiesForEodHold:
         assert "CRISIS" in reason
 
     def test_min_pnl_gate_blocks_flat_position(self, monkeypatch):
-        # NORMAL MEDIUM min_pnl_pct is 1.2; use 0.5 to test below-threshold blocking
-        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.5)
+        # NORMAL MEDIUM min_pnl_pct is 0.5; use 0.3 to test below-threshold blocking
+        result, reason = self._call(monkeypatch, regime="NORMAL", current_pnl_pct=0.3)
         assert result is False
         assert "insufficient" in reason.lower() or "P&L" in reason
 
@@ -187,8 +187,8 @@ class TestQualifiesForEodHoldRegimeMatrix:
 
     @pytest.mark.unit
     def test_normal_min_pnl_gate_blocks_below_threshold(self):
-        # NORMAL MEDIUM min_pnl_pct is 1.2; use 0.5 to test below-threshold blocking
-        ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.5)
+        # NORMAL MEDIUM min_pnl_pct is 0.5; use 0.3 to test below-threshold blocking
+        ok, reason = self._call(regime="NORMAL", current_pnl_pct=0.3)
         assert not ok
         assert "insufficient" in reason.lower() or "P&L" in reason
 

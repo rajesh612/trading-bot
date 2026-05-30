@@ -328,7 +328,7 @@ SWING_HOLD_PARAMS: dict[tuple[str, str], tuple[int, float, float]] = {
     # profit_lock_pct lowered so more positions pass the profit-lock bypass (1.5% instead of 2.0%).
     # min_pnl_pct raised for NORMAL MEDIUM (0.8→1.2) to avoid overnight risk on marginal positions.
     ("NORMAL",         "LOW"):        (5,  3.0, 1.0),
-    ("NORMAL",         "MEDIUM"):     (7,  1.5, 1.2),
+    ("NORMAL",         "MEDIUM"):     (7,  1.5, 0.5),
     ("NORMAL",         "HIGH"):       (7,  1.2, 0.2),
     ("NORMAL",         "CONVICTION"): (8,  1.0, 0.1),
     ("BULL_TREND",     "LOW"):        (6,  2.5, 0.5),
