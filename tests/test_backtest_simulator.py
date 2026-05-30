@@ -674,3 +674,31 @@ class TestBacktestSwingPromotion:
         n = _evaluate_swing_promotion(state, day_bars, ts, "NORMAL", 0, precomp=precomp)
         assert n == 1, "AAPL should be promoted: RSI and composite within bounds"
         assert state.positions["AAPL"].get("is_swing")
+
+
+@pytest.mark.unit
+def test_calc_qty_uncapped_uses_atr_not_stop_loss_pct():
+    """_calc_qty must use ATR as the risk unit, matching live position_sizer.py.
+
+    Setup: portfolio=$1000, price=$1, ATR=$0.20, RISK_PER_TRADE=0.5%=$5
+    ATR-based sizing:         $5 / $0.20 = 25 shares  (uncapped; cap=5%*$1000/$1=50)
+    STOP_LOSS_PCT(3%) sizing: $5 / ($1*0.03) = 167 shares -> capped at 50
+
+    After the fix: result must be 25 (ATR-based, uncapped).
+    Before the fix: result is 50 (SL-based, then capped).
+    """
+    import config
+    from unittest.mock import patch
+    from backtest.simulator import _calc_qty
+
+    portfolio = 1_000.0
+    price = 1.0
+    atr = 0.20
+
+    with patch.object(config, "MAX_POSITION_PCT", 0.05):
+        qty = _calc_qty(portfolio, price, atr)
+
+    assert qty == 25, (
+        f"Expected 25 (ATR-based uncapped), got {qty}. "
+        "_calc_qty is still using STOP_LOSS_PCT instead of ATR."
+    )

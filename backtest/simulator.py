@@ -105,8 +105,9 @@ class SimState:
 def _calc_qty(portfolio_value: float, price: float, atr: float) -> float:
     if price <= 0:
         return 0.0
-    sl_dollars = price * STOP_LOSS_PCT / 100 or (atr if atr > 0 else price * config.ATR_FALLBACK_PROXY_PCT)
-    qty_risk = portfolio_value * RISK_PER_TRADE / sl_dollars
+    # Use ATR as risk unit, matching live trading/position_sizer.py
+    risk_unit = atr if atr > 0 else price * config.ATR_FALLBACK_PROXY_PCT
+    qty_risk = portfolio_value * RISK_PER_TRADE / risk_unit
     return max(1.0, round(min(qty_risk, portfolio_value * MAX_POSITION_PCT / price)))
 
 
