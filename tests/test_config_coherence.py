@@ -266,6 +266,27 @@ def test_swing_gate_params_bull_trend_more_permissive_than_normal():
 
 
 @pytest.mark.unit
+def test_swing_gate_normal_medium_composite_floor_at_most_60():
+    """NORMAL/MEDIUM swing gate composite_min must be ≤ 60."""
+    from utils.regime_params import get_swing_gate_params
+    sgp = get_swing_gate_params("NORMAL", "MEDIUM")
+    assert sgp.composite_min <= 60, (
+        f"NORMAL/MEDIUM swing gate composite_min={sgp.composite_min} > 60 — "
+        "swing gate too restrictive; 88%+ WR justifies lower floor"
+    )
+
+
+@pytest.mark.unit
+def test_swing_gate_bull_trend_medium_composite_floor_at_most_50():
+    """BULL_TREND/MEDIUM swing gate composite_min must be ≤ 50."""
+    from utils.regime_params import get_swing_gate_params
+    sgp = get_swing_gate_params("BULL_TREND", "MEDIUM")
+    assert sgp.composite_min <= 50, (
+        f"BULL_TREND/MEDIUM swing gate composite_min={sgp.composite_min} > 50"
+    )
+
+
+@pytest.mark.unit
 def test_entry_late_composite_min_at_least_swing_gate_medium():
     """ENTRY_LATE_COMPOSITE_MIN must be >= NORMAL/MEDIUM swing gate composite_min.
     Late entries below swing quality are noise — they won't run to TP before EOD."""

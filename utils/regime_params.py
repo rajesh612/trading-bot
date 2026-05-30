@@ -305,11 +305,11 @@ _SWING_GATE_FALLBACK = SwingGateParams(composite_min=58, rsi_ceiling=70)
 _SWING_GATE_TABLE: dict[tuple[str, str], SwingGateParams] = {
     ("BULL_TREND",     "CONVICTION"): SwingGateParams(50, 75),
     ("BULL_TREND",     "HIGH"):       SwingGateParams(53, 73),
-    ("BULL_TREND",     "MEDIUM"):     SwingGateParams(55, 72),
+    ("BULL_TREND",     "MEDIUM"):     SwingGateParams(50, 72),
     ("BULL_TREND",     "LOW"):        SwingGateParams(58, 69),
     ("NORMAL",         "CONVICTION"): SwingGateParams(55, 73),
     ("NORMAL",         "HIGH"):       SwingGateParams(62, 71),
-    ("NORMAL",         "MEDIUM"):     SwingGateParams(65, 70),
+    ("NORMAL",         "MEDIUM"):     SwingGateParams(60, 70),
     ("NORMAL",         "LOW"):        SwingGateParams(66, 67),
     ("OPPORTUNITY",    "CONVICTION"): SwingGateParams(52, 75),
     ("OPPORTUNITY",    "HIGH"):       SwingGateParams(57, 73),

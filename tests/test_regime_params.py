@@ -314,28 +314,29 @@ class TestQualifiesForEodHoldRegimeMatrix:
         assert ok
 
     @pytest.mark.unit
-    def test_normal_medium_composite_gate_raised_to_65(self):
-        """NORMAL/MEDIUM requires composite >= 65 for standard swing promotion."""
+    def test_normal_medium_composite_gate_raised_to_60(self):
+        """NORMAL/MEDIUM requires composite >= 60 for standard swing promotion."""
         from trading.eod_holds import qualifies_for_eod_hold
         from utils.ticker_quality import TickerQuality
         med_q = TickerQuality(tier="MEDIUM", score=50, unlocks=frozenset(),
                               quality_gaps=(), component_scores={})
-        ok_64, reason = qualifies_for_eod_hold(
+        # Use pnl below profit_lock (1.5) so only the composite gate fires
+        ok_59, reason = qualifies_for_eod_hold(
             symbol="TEST", regime="NORMAL", earnings_tomorrow=False,
-            current_pnl_pct=1.5, quality=med_q,
+            current_pnl_pct=1.4, quality=med_q,
             entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
             consecutive_red_days=0, vix_trend="stable",
-            entry_rsi=50.0, entry_composite=64.0,
+            entry_rsi=50.0, entry_composite=59.0,
         )
-        assert not ok_64, f"composite=64 should be blocked for NORMAL/MEDIUM, got: {reason}"
-        ok_65, _ = qualifies_for_eod_hold(
+        assert not ok_59, f"composite=59 should be blocked for NORMAL/MEDIUM, got: {reason}"
+        ok_60, _ = qualifies_for_eod_hold(
             symbol="TEST", regime="NORMAL", earnings_tomorrow=False,
-            current_pnl_pct=1.5, quality=med_q,
+            current_pnl_pct=1.4, quality=med_q,
             entry_sector_sentiment=20.0, current_sector_sentiment=15.0,
             consecutive_red_days=0, vix_trend="stable",
-            entry_rsi=50.0, entry_composite=65.0,
+            entry_rsi=50.0, entry_composite=60.0,
         )
-        assert ok_65
+        assert ok_60
 
 
 @pytest.mark.unit
@@ -356,7 +357,7 @@ class TestQualifiesForEodHoldGate:
             vix_trend="stable",
             quality=SimpleNamespace(tier="MEDIUM"),
             entry_rsi=65.0,             # default: within NORMAL MEDIUM ceiling (70)
-            entry_composite=66.0,       # default: above NORMAL MEDIUM min (65)
+            entry_composite=62.0,       # default: above NORMAL MEDIUM min (60)
         )
         defaults.update(overrides)
         return qualifies_for_eod_hold(**defaults)
@@ -371,7 +372,7 @@ class TestQualifiesForEodHoldGate:
         assert ok
 
     def test_composite_below_min_blocks_promotion(self):
-        ok, reason = self._call(entry_composite=64.0)   # < 65 (NORMAL MEDIUM min)
+        ok, reason = self._call(entry_composite=59.0)   # < 60 (NORMAL MEDIUM min)
         assert not ok
         assert "composite" in reason
 
