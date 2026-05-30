@@ -129,7 +129,6 @@ def run_learning_agent():
                     "- entry_end_hour: 13–15 (integer)\n"
                     "- rsi_buy_max: 40–80 (normal regime; current value 65 is the baseline)\n"
                     "- rsi_buy_max_high_vol: 35–65 (high vol regime; tighten only with evidence)\n"
-                    "- vwap_slope_min: -1.0 to 0.0 (negative = more permissive)\n"
                     "- high_vol_position_mult: 0.25–0.75\n"
                     "- Only suggest param changes if you have strong evidence from today.\n"
                     "  If uncertain, keep the current value.\n\n"
@@ -173,7 +172,6 @@ def run_learning_agent():
                     '    "entry_end_hour": <int>,\n'
                     '    "rsi_buy_max": <int>,\n'
                     '    "rsi_buy_max_high_vol": <int>,\n'
-                    '    "vwap_slope_min": <float>,\n'
                     '    "high_vol_position_mult": <float>,\n'
                     '    "stop_loss_pct": <float>,\n'
                     '    "take_profit_pct": <float>\n'

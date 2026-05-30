@@ -326,7 +326,7 @@ SWING_SL_FLOOR_PARAMS: dict[tuple[str, str], float] = {
 SWING_HOLD_PARAMS: dict[tuple[str, str], tuple[int, float, float]] = {
     # max_days raised for MEDIUM to let winners run longer.
     # profit_lock_pct lowered so more positions pass the profit-lock bypass (1.5% instead of 2.0%).
-    # min_pnl_pct raised for NORMAL MEDIUM (0.8→1.2) to avoid overnight risk on marginal positions.
+    # min_pnl_pct lowered for NORMAL MEDIUM to 0.5 to match BULL_TREND/MEDIUM threshold (88%+ swing WR).
     ("NORMAL",         "LOW"):        (5,  3.0, 1.0),
     ("NORMAL",         "MEDIUM"):     (7,  1.5, 0.5),
     ("NORMAL",         "HIGH"):       (7,  1.2, 0.2),
