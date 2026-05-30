@@ -62,10 +62,7 @@ def _handle_zero_trade_day(params_path) -> None:
     if low is None:
         return
     current = float(params.get(target, high))
-    if target == "vwap_slope_min":
-        new_val = max(low, current - 0.05)
-    else:
-        new_val = min(high, current + config.LEARNING_ZERO_TRADE_RSI_STEP)
+    new_val = min(high, current + config.LEARNING_ZERO_TRADE_RSI_STEP)
     if new_val != current:
         params[target] = round(new_val, 2)
         save_json(params_path, params)
@@ -244,7 +241,7 @@ def run_learning_agent():
     new_params = dict(current_params)
     param_keys = [
         "entry_start_hour", "entry_end_hour", "rsi_buy_max", "rsi_buy_max_high_vol",
-        "vwap_slope_min", "high_vol_position_mult", "stop_loss_pct", "take_profit_pct",
+        "high_vol_position_mult", "stop_loss_pct", "take_profit_pct",
         "choppy_rsi_max",
     ]
     changed_params = []

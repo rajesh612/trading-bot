@@ -935,3 +935,40 @@ class TestAggregateTier:
         assert abs(total_after - 100.0) < 0.05, (
             f"Weights sum to {total_after:.4f}, expected ~100"
         )
+
+
+@pytest.mark.unit
+def test_zero_trade_day_does_not_relax_vwap_slope_min():
+    """_ZERO_TRADE_BOUNDS must not include vwap_slope_min.
+    DayTradeParams.vwap_slope_min is always the binding gate;
+    relaxing the global config value has no behavioral effect."""
+    from learning.trade_analysis import _ZERO_TRADE_BOUNDS
+    assert "vwap_slope_min" not in _ZERO_TRADE_BOUNDS, (
+        "vwap_slope_min is in _ZERO_TRADE_BOUNDS — remove it; "
+        "DayTradeParams table owns this gate (NORMAL/MEDIUM=0.05, HIGH_VOL/MEDIUM=0.08)"
+    )
+
+
+@pytest.mark.unit
+def test_learning_agent_param_keys_exclude_vwap_slope_min():
+    """param_keys in run_learning_agent must not include vwap_slope_min.
+    The global config.VWAP_SLOPE_MIN is never the binding VWAP gate in any regime."""
+    import ast, inspect
+    import learning.agent as agent_mod
+
+    src = inspect.getsource(agent_mod.run_learning_agent)
+    tree = ast.parse(src)
+    param_keys_values = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "param_keys":
+                    if isinstance(node.value, ast.List):
+                        param_keys_values = [
+                            elt.value for elt in node.value.elts
+                            if isinstance(elt, ast.Constant)
+                        ]
+    assert param_keys_values, "Could not find param_keys assignment in run_learning_agent"
+    assert "vwap_slope_min" not in param_keys_values, (
+        "vwap_slope_min is in param_keys — remove it from the learning agent"
+    )

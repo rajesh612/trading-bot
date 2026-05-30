@@ -170,7 +170,6 @@ def _classify_loss_source(trade: dict) -> str:
 _ZERO_TRADE_BOUNDS: dict[str, tuple] = {
     "rsi_buy_max":          (65, 80),
     "composite_min_normal": (15, 30),
-    "vwap_slope_min":       (-0.6, -0.1),
 }
 
 
