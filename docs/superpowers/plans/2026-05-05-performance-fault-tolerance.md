@@ -79,7 +79,7 @@ _file_handler = logging.handlers.RotatingFileHandler(
 - [ ] **Step 4: Verify archive function is importable**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python3 -c "from trading_agent import archive_old_journal_entries; print('OK')"
 ```
 Expected: `OK` (no ImportError about timedelta).
@@ -1015,14 +1015,14 @@ No failures, no errors.
 - [ ] **Step 2: Verify no stray vix_regime imports remain**
 
 ```bash
-grep -r "vix_regime" /Users/rajeshkumar/Documents/projects/trading-bot/*.py
+grep -r "vix_regime" ~/Documents/projects/trading-bot/*.py
 ```
 Expected: no output (vix_regime.py is deleted; all callers updated).
 
 - [ ] **Step 3: Smoke-check all module imports**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python3 -c "
 import trading_agent
 import research_agent

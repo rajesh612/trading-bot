@@ -85,7 +85,7 @@ DATA_WATCH_LIST_HEALTH_FILE          = STATE_DIR / "watch_list_health.json"
 - [ ] **Step 2: Verify config loads without error**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -c "import config; print('DATA_RETRY_MAX:', config.DATA_RETRY_MAX)"
 ```
 
@@ -160,7 +160,7 @@ def yahoo_get(url: str, timeout: int = 10) -> dict:
 - [ ] **Step 2: Verify import still works**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -c "from utils.http import yahoo_get; print('ok')"
 ```
 
@@ -223,7 +223,7 @@ def test_clear_stale_removes_metadata(tmp_path):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_market.py::test_mark_stale_writes_metadata \
     tests/test_market.py::test_clear_stale_removes_metadata -v 2>&1 | tail -10
 ```
@@ -257,7 +257,7 @@ def clear_stale(path: Path) -> None:
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_market.py::test_mark_stale_writes_metadata \
     tests/test_market.py::test_clear_stale_removes_metadata -v 2>&1 | tail -5
 ```
@@ -536,7 +536,7 @@ class TestGetStalenessGuard:
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_data_health.py -v 2>&1 | tail -5
 ```
 
@@ -746,7 +746,7 @@ def get_staleness_guard(
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_data_health.py -v 2>&1 | tail -15
 ```
 
@@ -755,7 +755,7 @@ Expected: all tests pass (no failures).
 - [ ] **Step 5: Run full suite to verify no regressions**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -835,7 +835,7 @@ set_data_tracker(_data_tracker_singleton)
 - [ ] **Step 3: Verify bot starts without error**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   timeout 5 .venv/bin/python main.py 2>&1 | grep -E "ERROR|Traceback|started|scheduler" | head -10
 ```
 
@@ -884,7 +884,7 @@ def test_screener_skips_market_cap_filter_on_api_failure(monkeypatch, tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_foundation.py::test_screener_skips_market_cap_filter_on_api_failure -v 2>&1 | tail -8
 ```
 
@@ -942,7 +942,7 @@ And after the `len(tickers) <= config.MAX_TICKERS_DIRECT` early-return path, add
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_foundation.py::test_screener_skips_market_cap_filter_on_api_failure -v 2>&1 | tail -5
 ```
 
@@ -1046,7 +1046,7 @@ def test_watch_loader_no_duplicates(monkeypatch, tmp_path):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_foundation.py::test_watch_loader_merges_open_position_tickers \
     tests/test_foundation.py::test_watch_loader_merges_swing_position_tickers \
     tests/test_foundation.py::test_watch_loader_no_duplicates -v 2>&1 | tail -8
@@ -1135,7 +1135,7 @@ And at the end of a successful run, before `return watch_list`, add:
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_foundation.py::test_watch_loader_merges_open_position_tickers \
     tests/test_foundation.py::test_watch_loader_merges_swing_position_tickers \
     tests/test_foundation.py::test_watch_loader_no_duplicates -v 2>&1 | tail -5
@@ -1236,7 +1236,7 @@ def refresh_earnings_calendar(symbols: list[str]) -> None:
 - [ ] **Step 4: Run full unit suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -1288,7 +1288,7 @@ def test_cycle_snapshot_defaults_to_fresh_guard():
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_trading_pipeline.py::test_cycle_snapshot_defaults_to_fresh_guard -v 2>&1 | tail -5
 ```
 
@@ -1325,7 +1325,7 @@ def build_cycle_snapshot(
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_trading_pipeline.py::test_cycle_snapshot_defaults_to_fresh_guard -v 2>&1 | tail -5
 ```
 
@@ -1334,7 +1334,7 @@ Expected: `1 passed`
 - [ ] **Step 5: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -1388,7 +1388,7 @@ Add to `TestEffectiveCompositeGate` in `tests/test_entry_gates.py`:
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_entry_gates.py::TestEffectiveCompositeGate::test_stale_guard_adds_composite_penalty \
     tests/test_entry_gates.py::TestEffectiveCompositeGate::test_fresh_guard_adds_no_penalty -v 2>&1 | tail -5
 ```
@@ -1440,7 +1440,7 @@ In `trading/pre_claude_filter.py`, line 47:
 - [ ] **Step 5: Run tests**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/test_entry_gates.py -v -q 2>&1 | tail -10
 ```
 
@@ -1449,7 +1449,7 @@ Expected: all `TestEffectiveCompositeGate` tests pass.
 - [ ] **Step 6: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -1541,7 +1541,7 @@ def test_auto_execute_intra_sent_uses_symbol_sentiment_not_shock(monkeypatch):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_trading_pipeline.py::test_auto_execute_blocked_when_guard_disallows \
     tests/test_trading_pipeline.py::test_auto_execute_intra_sent_uses_symbol_sentiment_not_shock \
@@ -1614,7 +1614,7 @@ Pass `staleness_guard=snap.staleness_guard` from the call site in `pipeline.py`.
 - [ ] **Step 6: Run tests to verify they pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_trading_pipeline.py::test_auto_execute_blocked_when_guard_disallows \
     tests/test_trading_pipeline.py::test_auto_execute_intra_sent_uses_symbol_sentiment_not_shock \
@@ -1626,7 +1626,7 @@ Expected: `2 passed`
 - [ ] **Step 7: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -1697,7 +1697,7 @@ def test_execute_buy_blocks_swing_when_regime_stale(monkeypatch, tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_trading_pipeline.py::test_execute_buy_blocks_swing_when_regime_stale \
     -v 2>&1 | tail -8
@@ -1723,7 +1723,7 @@ Pass `staleness_guard=snap.staleness_guard` from the `_shared_buy_kwargs` builde
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_trading_pipeline.py::test_execute_buy_blocks_swing_when_regime_stale \
     -v 2>&1 | tail -5
@@ -1798,7 +1798,7 @@ def _run_intraday_retries(now, guard) -> None:
 - [ ] **Step 2: Verify cycle imports cleanly**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -c "from trading.cycle import run_trading_cycle; print('ok')"
 ```
 
@@ -1807,7 +1807,7 @@ Expected: `ok`
 - [ ] **Step 3: Run full unit suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -1867,7 +1867,7 @@ def test_position_monitor_skips_t2_when_guard_disallows(monkeypatch, tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_foundation.py::test_position_monitor_skips_t2_when_guard_disallows \
     -v 2>&1 | tail -8
@@ -1900,7 +1900,7 @@ Replace the existing T2 trigger call:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_foundation.py::test_position_monitor_skips_t2_when_guard_disallows \
     -v 2>&1 | tail -5
@@ -1967,7 +1967,7 @@ def test_evaluate_eod_holds_uses_normal_params_when_regime_stale(monkeypatch, tm
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_foundation.py::test_evaluate_eod_holds_uses_normal_params_when_regime_stale \
     -v 2>&1 | tail -8
@@ -2006,7 +2006,7 @@ Replace any existing `regime = regime_info.get("regime", "NORMAL")` lines inside
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest \
     tests/test_foundation.py::test_evaluate_eod_holds_uses_normal_params_when_regime_stale \
     -v 2>&1 | tail -5
@@ -2085,7 +2085,7 @@ In `agents/watch_list.py`, in the empty-result block (Task 7 Step 4), add after 
 - [ ] **Step 3: Verify import**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -c "from notifications.telegram import notify_data_degraded; print('ok')"
 ```
 
@@ -2094,7 +2094,7 @@ Expected: `ok`
 - [ ] **Step 4: Run full unit suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
@@ -2138,7 +2138,7 @@ or job functions.
 - [ ] **Step 2: Run the complete test suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
 ```
 
@@ -2147,7 +2147,7 @@ Expected: all tests pass, count equal to or higher than before this branch.
 - [ ] **Step 3: Verify the bot starts cleanly**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   timeout 8 .venv/bin/python main.py 2>&1 | grep -E "ERROR|Traceback|staleness|tracker|scheduler" | head -15
 ```
 
@@ -2167,7 +2167,7 @@ git commit -m "docs: add Rules 24/25/26 — data staleness SoT, guard injection,
 - [ ] **Step 1: Simulate the today failure scenario end-to-end**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python - <<'EOF'
 """Smoke test: simulate market cap API failure and verify staleness guard propagates."""
 import config
@@ -2213,7 +2213,7 @@ Guard composite_penalty: 0          ← screener has 0 penalty by design
 - [ ] **Step 2: Run full test suite one final time**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && \
+cd ~/Documents/projects/trading-bot && \
   .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 

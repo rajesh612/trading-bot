@@ -888,7 +888,7 @@ git commit -m "fix: B11 AlpacaClient outside EOD loop; B12 CycleResult.skipped s
 
 - [ ] **Step 1: Create tickers.json at project root**
 
-Create `/Users/rajeshkumar/Documents/projects/trading-bot/tickers.json` with the following content (all 126 symbols, grouped by sector ETF):
+Create `~/Documents/projects/trading-bot/tickers.json` with the following content (all 126 symbols, grouped by sector ETF):
 
 ```json
 {

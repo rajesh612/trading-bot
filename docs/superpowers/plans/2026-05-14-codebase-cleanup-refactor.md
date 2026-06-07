@@ -71,7 +71,7 @@ ET = ZoneInfo("America/New_York")
 - [ ] **Step 2: Verify it imports cleanly**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -c "from utils.constants import ET; print(ET)"
 ```
 Expected: `America/New_York`

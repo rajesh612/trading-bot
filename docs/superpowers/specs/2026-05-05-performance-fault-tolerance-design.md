@@ -106,7 +106,7 @@ Called once in `main()` after the hard key checks. Logs one INFO line per integr
 [✗] POLYGON      — flash-crash single-source only
 [✓] REDDIT       — public JSON, no credentials needed
 [✗] X/Twitter    — disabled (no X_BEARER_TOKEN)
-[✓] EMAIL        — daily report → rajesh6121991@gmail.com
+[✓] EMAIL        — daily report → changeme@gmail.com
 [✓] TELEGRAM     — notifications active
 [~] MARKET_DATA  — provider=yahoo (paper trading)
 ```

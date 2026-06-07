@@ -63,7 +63,7 @@ def test_swing_gate_bull_trend_medium_composite_floor_at_most_50():
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -m pytest tests/test_config_coherence.py::test_swing_gate_normal_medium_composite_floor_at_most_60 tests/test_config_coherence.py::test_swing_gate_bull_trend_medium_composite_floor_at_most_50 -v
 ```
 
@@ -706,7 +706,7 @@ from utils.regime_params import (
 - [ ] **Step 5: Verify the sweep runs without error**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python scripts/param_sweep.py --days 5 --top 5 --out /tmp/sweep_test.csv
 ```
 

@@ -86,7 +86,7 @@ EOD_LOSS_THRESHOLD       = -0.5  # pnl_pct below this → eod_force_loss
 - [ ] **Step 2: Run tests to confirm nothing broke**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/pytest tests/test_foundation.py -q --tb=short 2>&1 | tail -5
 ```
 

@@ -1178,7 +1178,7 @@ Expected output: `Sum: 100.0  OK`
 - [ ] **Step 3: Verify no stale `rsi_buy_max` range in learning/agent.py**
 
 ```bash
-grep -n "30.50\|25.40\|30–50\|25–40" /Users/rajeshkumar/Documents/projects/trading-bot/learning/agent.py
+grep -n "30.50\|25.40\|30–50\|25–40" ~/Documents/projects/trading-bot/learning/agent.py
 ```
 
 Expected: no output.
@@ -1186,7 +1186,7 @@ Expected: no output.
 - [ ] **Step 4: Verify intraday_news fires at 9:05 not 9:00**
 
 ```bash
-grep -A5 "intraday_news" /Users/rajeshkumar/Documents/projects/trading-bot/main.py | grep minute
+grep -A5 "intraday_news" ~/Documents/projects/trading-bot/main.py | grep minute
 ```
 
 Expected: `minute="5,35"` (not `minute="*/30"`).

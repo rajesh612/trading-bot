@@ -69,7 +69,7 @@ REGIME_HEAT_CEILING: dict[str, float] = {
 - [ ] **Step 2: Verify no remaining bare `MAX_ENTRIES_PER_CYCLE` references**
 
 ```bash
-grep -rn "MAX_ENTRIES_PER_CYCLE[^_]" /Users/rajeshkumar/Documents/projects/trading-bot/ --include="*.py" | grep -v "_BURST"
+grep -rn "MAX_ENTRIES_PER_CYCLE[^_]" ~/Documents/projects/trading-bot/ --include="*.py" | grep -v "_BURST"
 ```
 
 Expected: zero matches (old test references fixed in later tasks).
@@ -173,7 +173,7 @@ class TestGetConcurrencyParams:
 - [ ] **Step 2: Run tests to verify they fail (ImportError expected)**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py -v -m unit 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py -v -m unit 2>&1 | tail -10
 ```
 
 Expected: `ImportError` — `get_concurrency_params` does not exist yet.
@@ -253,7 +253,7 @@ def get_concurrency_params(regime: str, tier: str, mode: str) -> ConcurrencyPara
 - [ ] **Step 4: Run tests — all 11 must pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py -v -m unit 2>&1 | tail -15
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py -v -m unit 2>&1 | tail -15
 ```
 
 Expected: 11 PASS, 0 FAIL.
@@ -261,7 +261,7 @@ Expected: 11 PASS, 0 FAIL.
 - [ ] **Step 5: Run full suite to check for regressions**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
 ```
 
 Expected: same passing count as before (currently 1488).
@@ -306,7 +306,7 @@ def test_gate2_removed_from_check_all_gates():
 - [ ] **Step 2: Run assertion test — must currently FAIL**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::test_gate2_removed_from_check_all_gates -v 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::test_gate2_removed_from_check_all_gates -v 2>&1 | tail -10
 ```
 
 Expected: FAIL — `entries_this_cycle` still exists. This confirms Gate #2 is still present.
@@ -443,13 +443,13 @@ check_all_gates(
 
 Use this to find all occurrences first:
 ```bash
-grep -n "entries_this_cycle" /Users/rajeshkumar/Documents/projects/trading-bot/tests/test_entry_gates.py
+grep -n "entries_this_cycle" ~/Documents/projects/trading-bot/tests/test_entry_gates.py
 ```
 
 - [ ] **Step 7: Update `tests/test_signals.py`** — remove `entries_this_cycle=0,` from 4 call sites
 
 ```bash
-grep -n "entries_this_cycle" /Users/rajeshkumar/Documents/projects/trading-bot/tests/test_signals.py
+grep -n "entries_this_cycle" ~/Documents/projects/trading-bot/tests/test_signals.py
 ```
 
 Remove that kwarg from each matching call.
@@ -492,13 +492,13 @@ class TestPipelinePerCycleCap:
 Also remove the `entries_this_cycle=0,` kwarg from any other call sites in `test_trading_pipeline.py` (lines ~409, ~1059, ~1109):
 
 ```bash
-grep -n "entries_this_cycle" /Users/rajeshkumar/Documents/projects/trading-bot/tests/test_trading_pipeline.py
+grep -n "entries_this_cycle" ~/Documents/projects/trading-bot/tests/test_trading_pipeline.py
 ```
 
 - [ ] **Step 9: Run assertion test — must now PASS**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::test_gate2_removed_from_check_all_gates -v 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::test_gate2_removed_from_check_all_gates -v 2>&1 | tail -10
 ```
 
 Expected: PASS.
@@ -506,7 +506,7 @@ Expected: PASS.
 - [ ] **Step 10: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -15
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -15
 ```
 
 Expected: no regressions. Test count may be slightly lower (deleted Gate #2 tests).
@@ -582,7 +582,7 @@ class TestComputeSwingBookPnl:
 - [ ] **Step 2: Run — must fail (ImportError)**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py::TestComputeSwingBookPnl -v 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py::TestComputeSwingBookPnl -v 2>&1 | tail -10
 ```
 
 - [ ] **Step 3: Add `_compute_swing_book_pnl()` to `trading/executor.py`**
@@ -618,7 +618,7 @@ def _compute_swing_book_pnl(stock_data_prices: dict[str, float], portfolio_value
 - [ ] **Step 4: Run tests — all 5 must pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py::TestComputeSwingBookPnl -v 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py::TestComputeSwingBookPnl -v 2>&1 | tail -10
 ```
 
 - [ ] **Step 5: Commit**
@@ -794,7 +794,7 @@ class TestSizingChain:
 - [ ] **Step 2: Run failing tests**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py::TestExecuteBuyConcurrencyGuard tests/test_trading_modes.py::TestSizingChain -v 2>&1 | tail -20
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py::TestExecuteBuyConcurrencyGuard tests/test_trading_modes.py::TestSizingChain -v 2>&1 | tail -20
 ```
 
 Expected: failures (guard block and sizing chain step not yet in executor).
@@ -909,7 +909,7 @@ Note: `cp` is always defined at this point — the guard block assigns it or ret
 - [ ] **Step 6: Run the tests**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py -v -m unit 2>&1 | tail -20
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_trading_modes.py -v -m unit 2>&1 | tail -20
 ```
 
 Expected: `TestComputeSwingBookPnl` and `TestSizingChain` all pass. `TestExecuteBuyConcurrencyGuard` guard-block tests pass (some tests may reach further gates and return None for other reasons — that's correct; the key assertion is `result is None`).
@@ -917,7 +917,7 @@ Expected: `TestComputeSwingBookPnl` and `TestSizingChain` all pass. `TestExecute
 - [ ] **Step 7: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
 ```
 
 Expected: no regressions.
@@ -999,7 +999,7 @@ Add to `TestPipelinePerCycleCap` in `tests/test_trading_pipeline.py`:
 - [ ] **Step 2: Run test to confirm it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest "tests/test_trading_pipeline.py::TestPipelinePerCycleCap::test_burst_cap_limiting_in_auto_execute" -v 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest "tests/test_trading_pipeline.py::TestPipelinePerCycleCap::test_burst_cap_limiting_in_auto_execute" -v 2>&1 | tail -10
 ```
 
 Expected: FAIL (no burst cap logic yet).
@@ -1082,7 +1082,7 @@ Change the `for symbol, iv, quality in auto_execute:` loop to add a local counte
 - [ ] **Step 6: Run burst cap test**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest "tests/test_trading_pipeline.py::TestPipelinePerCycleCap" -v 2>&1 | tail -15
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest "tests/test_trading_pipeline.py::TestPipelinePerCycleCap" -v 2>&1 | tail -15
 ```
 
 Expected: all tests PASS.
@@ -1090,7 +1090,7 @@ Expected: all tests PASS.
 - [ ] **Step 7: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
 ```
 
 Expected: no regressions.
@@ -1115,13 +1115,13 @@ Claude receives incomplete context when it doesn't know how many positions are o
 First, verify where `_build_market_context_block()` is called and what it currently receives:
 
 ```bash
-grep -n "_build_market_context_block\|build_cycle_snapshot" /Users/rajeshkumar/Documents/projects/trading-bot/trading/context_builder.py /Users/rajeshkumar/Documents/projects/trading-bot/trading/pipeline.py | head -30
+grep -n "_build_market_context_block\|build_cycle_snapshot" ~/Documents/projects/trading-bot/trading/context_builder.py ~/Documents/projects/trading-bot/trading/pipeline.py | head -30
 ```
 
 - [ ] **Step 1: Read `trading/context_builder.py` to understand the current signature**
 
 ```bash
-grep -n "def _build_market_context_block\|def build_cycle_snapshot" /Users/rajeshkumar/Documents/projects/trading-bot/trading/context_builder.py
+grep -n "def _build_market_context_block\|def build_cycle_snapshot" ~/Documents/projects/trading-bot/trading/context_builder.py
 ```
 
 Then read the function signature and the section of the prompt that shows portfolio/account context.
@@ -1159,7 +1159,7 @@ _available  = max(0, _cp_context.max_open - _open_count)
 - [ ] **Step 4: Run any existing context_builder tests**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -k "context" -m unit -v 2>&1 | tail -20
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -k "context" -m unit -v 2>&1 | tail -20
 ```
 
 Fix any failures caused by signature change.
@@ -1167,7 +1167,7 @@ Fix any failures caused by signature change.
 - [ ] **Step 5: Run full suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -10
 ```
 
 - [ ] **Step 6: Commit**
@@ -1217,7 +1217,7 @@ def test_burst_cap_greater_than_one():
 - [ ] **Step 2: Run coherence tests**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_config_coherence.py -v -m unit 2>&1 | tail -15
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_config_coherence.py -v -m unit 2>&1 | tail -15
 ```
 
 Expected: all pass.
@@ -1225,7 +1225,7 @@ Expected: all pass.
 - [ ] **Step 3: Run full suite — final check**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
 Expected: all pass, count ≥ 1488 + new tests.
@@ -1244,20 +1244,20 @@ git commit -m "test: config coherence — heat ceiling completeness, swing gate 
 ```bash
 # 1. Gate #2 gone from entry_gates.py and all callers
 grep -rn "entries_this_cycle\|MAX_ENTRIES_PER_CYCLE[^_]" \
-    /Users/rajeshkumar/Documents/projects/trading-bot/ --include="*.py" | grep -v "_BURST\|test_gate2_removed"
+    ~/Documents/projects/trading-bot/ --include="*.py" | grep -v "_BURST\|test_gate2_removed"
 
 # 2. ConcurrencyParams wired correctly
 grep -rn "get_concurrency_params\|ConcurrencyParams" \
-    /Users/rajeshkumar/Documents/projects/trading-bot/ --include="*.py" | grep -v "test_trading_modes\|regime_params"
+    ~/Documents/projects/trading-bot/ --include="*.py" | grep -v "test_trading_modes\|regime_params"
 
 # 3. Burst cap in both pipeline loops
-grep -n "BURST\|burst" /Users/rajeshkumar/Documents/projects/trading-bot/trading/pipeline.py
+grep -n "BURST\|burst" ~/Documents/projects/trading-bot/trading/pipeline.py
 
 # 4. Sizing chain has cp.size_mult step
-grep -n "size_mult" /Users/rajeshkumar/Documents/projects/trading-bot/trading/executor.py
+grep -n "size_mult" ~/Documents/projects/trading-bot/trading/executor.py
 
 # 5. Full suite passes
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -m unit -q 2>&1 | tail -5
 ```
 
 Expected for check 1: zero matches (all old references cleaned up).

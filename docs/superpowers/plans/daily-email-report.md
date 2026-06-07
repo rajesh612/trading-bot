@@ -67,7 +67,7 @@ EMAIL_RECIPIENT=mail@gmail.com
 Expected output:
 ```
 EMAIL_SENDER: ''
-DAILY_REPORT_SENT_FILE: /Users/rajeshkumar/Documents/projects/trading-bot/daily_report_sent.json
+DAILY_REPORT_SENT_FILE: ~/Documents/projects/trading-bot/daily_report_sent.json
 ```
 
 ---

@@ -65,7 +65,7 @@ class TestHighImpactEventTagsConsistency:
 - [ ] **Step 2: Run tests to confirm they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -m pytest tests/test_config_coherence.py -k "TestHighImpactEventTagsConsistency" -v
 ```
 Expected: FAIL — `config.HIGH_IMPACT_EVENT_TAGS` not yet defined.
@@ -816,7 +816,7 @@ def _sim_entry_signal_passes(
 Also ensure `VWAP_SLOPE_MIN` is imported/defined at the top of `simulator.py`. Check if it already is:
 
 ```bash
-grep -n "VWAP_SLOPE_MIN" /Users/rajeshkumar/Documents/projects/trading-bot/backtest/simulator.py
+grep -n "VWAP_SLOPE_MIN" ~/Documents/projects/trading-bot/backtest/simulator.py
 ```
 
 If not present, add near the other constants at the top of the file:
@@ -886,7 +886,7 @@ def _compute_auto_execute_confidence(
 
 Find all callers in `pipeline.py`:
 ```bash
-grep -n "_compute_auto_execute_confidence" /Users/rajeshkumar/Documents/projects/trading-bot/trading/pipeline.py
+grep -n "_compute_auto_execute_confidence" ~/Documents/projects/trading-bot/trading/pipeline.py
 ```
 
 Pass `regime=snap.regime` (or equivalent) at each call site.

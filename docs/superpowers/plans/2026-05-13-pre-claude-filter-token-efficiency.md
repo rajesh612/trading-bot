@@ -87,7 +87,7 @@ AUTO_BUY_MIN_SENTIMENT = -10
 - [ ] **Step 3: Verify no import breaks**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -c "import config; print('ok')"
+cd ~/Documents/projects/trading-bot && .venv/bin/python -c "import config; print('ok')"
 ```
 Expected: `ok`
 
@@ -195,7 +195,7 @@ class TestFredTTLCache:
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py -v -m unit 2>&1 | tail -5
 ```
 Expected: `ModuleNotFoundError` or `ImportError` (cycle_context doesn't exist yet).
 
@@ -301,7 +301,7 @@ def build_cycle_snapshot(portfolio_gain_pct: float) -> CycleSnapshot:
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestFredTTLCache -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestFredTTLCache -v -m unit
 ```
 Expected: `3 passed`
 
@@ -404,7 +404,7 @@ class TestFastGate:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::TestFastGate -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::TestFastGate -v -m unit 2>&1 | tail -5
 ```
 Expected: `ImportError: cannot import name 'fast_gate'`
 
@@ -440,7 +440,7 @@ def fast_gate(iv: IndicatorValues) -> GateResult:
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::TestFastGate -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_signals.py::TestFastGate -v -m unit
 ```
 Expected: `6 passed`
 
@@ -595,7 +595,7 @@ class TestPreClaudeFilter:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestPreClaudeFilter -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestPreClaudeFilter -v -m unit 2>&1 | tail -5
 ```
 Expected: `ModuleNotFoundError: No module named 'trading.pre_claude_filter'`
 
@@ -691,7 +691,7 @@ def pre_claude_filter(symbol: str, iv: IndicatorValues, snap: CycleSnapshot) -> 
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestPreClaudeFilter -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestPreClaudeFilter -v -m unit
 ```
 Expected: `11 passed`
 
@@ -814,7 +814,7 @@ class TestBudgetGuard:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestBudgetGuard -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestBudgetGuard -v -m unit 2>&1 | tail -5
 ```
 Expected: `ModuleNotFoundError: No module named 'trading.budget_guard'`
 
@@ -887,7 +887,7 @@ def apply_exit_rollover(b: dict, now: datetime) -> bool:
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestBudgetGuard -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestBudgetGuard -v -m unit
 ```
 Expected: `9 passed`
 
@@ -959,7 +959,7 @@ class TestRiskManagerAdditions:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestRiskManagerAdditions -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestRiskManagerAdditions -v -m unit 2>&1 | tail -5
 ```
 Expected: `AttributeError: module 'trading.risk_manager' has no attribute '_entry_exhausted_flag'`
 
@@ -1035,14 +1035,14 @@ if midday_cap_exceeded(entry_spent, entry_ceil, _now):
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestRiskManagerAdditions -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestRiskManagerAdditions -v -m unit
 ```
 Expected: `3 passed`
 
 - [ ] **Step 5: Run full test suite — no regressions**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -15
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -15
 ```
 Expected: All prior tests still passing.
 
@@ -1115,7 +1115,7 @@ class TestWatchListFilter:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestWatchListFilter -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestWatchListFilter -v -m unit 2>&1 | tail -5
 ```
 Expected: `ImportError: cannot import name '_apply_technical_filter'`
 
@@ -1175,7 +1175,7 @@ logger.info("Watch list after technical filter (%d stocks): %s", len(watch_list)
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestWatchListFilter -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestWatchListFilter -v -m unit
 ```
 Expected: `3 passed`
 
@@ -1275,7 +1275,7 @@ class TestComputeSymbolSentiment:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_intraday_news.py -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_intraday_news.py -v -m unit 2>&1 | tail -5
 ```
 Expected: `ModuleNotFoundError: No module named 'intraday_news'`
 
@@ -1389,7 +1389,7 @@ INTRADAY_NEWS_CACHE_FILE = BASE_DIR / "intraday_news_cache.json"
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_intraday_news.py -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_intraday_news.py -v -m unit
 ```
 Expected: `5 passed`
 
@@ -1439,7 +1439,7 @@ class TestCycleSnapshotIntradayNews:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestCycleSnapshotIntradayNews -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestCycleSnapshotIntradayNews -v -m unit 2>&1 | tail -5
 ```
 Expected: Test fails — `intraday_news` field is empty.
 
@@ -1455,7 +1455,7 @@ In `build_cycle_snapshot()`, add `intraday_news=load_intraday_news()` to the `Cy
 - [ ] **Step 4: Run test — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestCycleSnapshotIntradayNews -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestCycleSnapshotIntradayNews -v -m unit
 ```
 Expected: `1 passed`
 
@@ -1574,7 +1574,7 @@ class TestPipelinePhase2Tiers:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestPipelinePhase2Tiers -v -m unit 2>&1 | tail -5
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py::TestPipelinePhase2Tiers -v -m unit 2>&1 | tail -5
 ```
 Expected: Failures due to new `snap` parameter not yet in `TradingPipeline.run()`.
 
@@ -1678,7 +1678,7 @@ for symbol, iv, existing_pos, _ret5d in stock_data:
 - [ ] **Step 4: Run pipeline tests — expect pass**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py -v -m unit
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/test_pipeline.py -v -m unit
 ```
 Expected: All pipeline tests pass.
 
@@ -1751,14 +1751,14 @@ Remove now-unused functions: `_get_current_regime()`, `_get_current_regime_info(
 - [ ] **Step 3: Verify file stays under 300 lines**
 
 ```bash
-wc -l /Users/rajeshkumar/Documents/projects/trading-bot/trading/claude_caller.py
+wc -l ~/Documents/projects/trading-bot/trading/claude_caller.py
 ```
 Expected: Under 300. (Removing 3 functions + simplifying parameter passing frees ~40 lines.)
 
 - [ ] **Step 4: Run full test suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -20
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -20
 ```
 Expected: All tests passing.
 
@@ -1823,7 +1823,7 @@ Remove `load_research()` and `load_weights()` local function definitions if they
 - [ ] **Step 2: Smoke test**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -c "
+cd ~/Documents/projects/trading-bot && .venv/bin/python -c "
 from trading_agent import run_trading_cycle
 print('import ok')
 "
@@ -1833,7 +1833,7 @@ Expected: `import ok`
 - [ ] **Step 3: Run full test suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -20
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -20
 ```
 Expected: All tests passing.
 
@@ -1934,14 +1934,14 @@ scheduler.add_job(
 - [ ] **Step 4: Verify no import errors**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -c "import main; print('ok')"
+cd ~/Documents/projects/trading-bot && .venv/bin/python -c "import main; print('ok')"
 ```
 Expected: `ok`
 
 - [ ] **Step 5: Run full test suite — final verification**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -20
+cd ~/Documents/projects/trading-bot && .venv/bin/python -m pytest tests/ -v -m unit --tb=short 2>&1 | tail -20
 ```
 Expected: All tests passing, no regressions.
 

@@ -66,7 +66,7 @@ def test_crash_recovery_min_green_days_exists():
 - [ ] **Step 2: Run tests to confirm they all fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -m pytest tests/test_config_coherence.py::test_backtest_swing_composite_min_retired tests/test_config_coherence.py::test_swing_hold_params_normal_medium_min_pnl tests/test_config_coherence.py::test_crash_recovery_min_green_days_exists -v
 ```
 

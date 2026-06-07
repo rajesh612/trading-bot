@@ -52,7 +52,7 @@ class TestTierBoundaries:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -m pytest tests/test_ticker_quality.py -v 2>&1 | head -20
 ```
 Expected: `ModuleNotFoundError` or `ImportError`
@@ -1004,7 +1004,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 - [ ] **Step 1: Locate the exact line**
 
 ```bash
-grep -n 'indicators.*quote' /Users/rajeshkumar/Documents/projects/trading-bot/data/market_data.py
+grep -n 'indicators.*quote' ~/Documents/projects/trading-bot/data/market_data.py
 ```
 Expected: shows line like `q = result["indicators"]["quote"][0]`
 
@@ -1162,7 +1162,7 @@ class TestT2BugFixes:
 
 Read the file first:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/signals/tranche2_gates.py
+cat -n ~/Documents/projects/trading-bot/signals/tranche2_gates.py
 ```
 
 **Fix 1 — sector ETF None defaults to -2.0:** Find where `sector_etf_chg` is used and add at the top of the evaluation function:
@@ -1274,7 +1274,7 @@ class TestDynamicPreClaudeFilter:
 
 Read the full file first:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/trading/pre_claude_filter.py
+cat -n ~/Documents/projects/trading-bot/trading/pre_claude_filter.py
 ```
 
 Changes:
@@ -1376,7 +1376,7 @@ class TestDynamicGateParams:
 
 Read the full file:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/signals/entry_gates.py
+cat -n ~/Documents/projects/trading-bot/signals/entry_gates.py
 ```
 
 Changes:
@@ -1429,7 +1429,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 
 Read `trading/cycle_context.py`:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/trading/cycle_context.py
+cat -n ~/Documents/projects/trading-bot/trading/cycle_context.py
 ```
 
 Add field to `CycleSnapshot`:
@@ -1502,7 +1502,7 @@ class TestAutoExecuteRouting:
 
 Read executor.py:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/trading/executor.py
+cat -n ~/Documents/projects/trading-bot/trading/executor.py
 ```
 
 In `execute_buy()`:
@@ -1598,7 +1598,7 @@ class TestPositionQualityPersistence:
 
 Read the relevant T2 evaluation section:
 ```bash
-grep -n "t2\|T2\|tranche" /Users/rajeshkumar/Documents/projects/trading-bot/trading/monitor.py | head -20
+grep -n "t2\|T2\|tranche" ~/Documents/projects/trading-bot/trading/monitor.py | head -20
 ```
 
 In the T2 evaluation block of `monitor.py`, add before calling `evaluate_t2_trigger()`:
@@ -1740,7 +1740,7 @@ class TestTierBasedSwingPromotion:
 
 Read the file:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/trading/eod_holds.py
+cat -n ~/Documents/projects/trading-bot/trading/eod_holds.py
 ```
 
 Changes:
@@ -1766,7 +1766,7 @@ if sector_chg < sector_floor:
 
 Read the gap check function:
 ```bash
-grep -n "gap\|trailing\|run_gap_check\|evaluate_eod" /Users/rajeshkumar/Documents/projects/trading-bot/trading/swing_manager.py | head -20
+grep -n "gap\|trailing\|run_gap_check\|evaluate_eod" ~/Documents/projects/trading-bot/trading/swing_manager.py | head -20
 ```
 
 In `run_gap_check()`, recover tier and widen the close threshold for CONVICTION:
@@ -2042,7 +2042,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 
 Read the file:
 ```bash
-cat -n /Users/rajeshkumar/Documents/projects/trading-bot/trading/claude_caller.py
+cat -n ~/Documents/projects/trading-bot/trading/claude_caller.py
 ```
 
 Changes in `_ask_claude_batch()`:
@@ -2114,7 +2114,7 @@ Expected: all passing (same or higher count than before Phase 2)
 - [ ] **Step 4: Run 30d backtest for regression check**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python3 backtest.py --days 30 2>&1 | tail -30
 ```
 

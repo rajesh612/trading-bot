@@ -92,7 +92,7 @@ def test_ae_threshold_respects_tier_composite_floor(self, monkeypatch):
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -m pytest tests/test_pipeline.py -k "test_ae_threshold_respects_tier_composite_floor" -v
 ```
 

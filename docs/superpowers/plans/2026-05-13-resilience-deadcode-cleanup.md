@@ -71,7 +71,7 @@ def test_check_entry_budget_no_gain_pct(self, tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/pytest tests/test_pipeline.py::TestRiskManagerAdditions::test_check_entry_budget_no_gain_pct -v
 ```
 
@@ -1093,7 +1093,7 @@ Expected: all tests PASS. If `load_research` or `load_weights` are imported by a
 - [ ] **Step 5: Verify `trading_agent.py` has no remaining references to removed items**
 
 ```bash
-grep -n "check_all_gates\|load_research\|load_weights\|fred_cache" /Users/rajeshkumar/Documents/projects/trading-bot/trading_agent.py
+grep -n "check_all_gates\|load_research\|load_weights\|fred_cache" ~/Documents/projects/trading-bot/trading_agent.py
 ```
 
 Expected: no output (all removed).
@@ -1114,7 +1114,7 @@ git commit -m "fix: eliminate 2 redundant disk reads/cycle + remove 3 dead code 
 - [ ] **Step 1: Run the full test suite**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/pytest tests/ -v -m unit 2>&1 | tail -30
 ```
 
@@ -1135,7 +1135,7 @@ Expected: no output except possibly references inside docstrings or comments bei
 
 ```bash
 grep -n "is_entry_budget_exhausted\|auto_execute\|needs_claude\|daily_closed" \
-  /Users/rajeshkumar/Documents/projects/trading-bot/trading/pipeline.py
+  ~/Documents/projects/trading-bot/trading/pipeline.py
 ```
 
 Expected output (rough):

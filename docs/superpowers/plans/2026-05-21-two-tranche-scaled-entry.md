@@ -50,7 +50,7 @@ TRANCHE2_MIN_SENTIMENT   = 20     # Symbol sentiment score floor for T2
 - [ ] **Step 2: Verify constants load correctly**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python3 -c "import config; print(config.TRANCHE1_SIZE_PCT, config.TRANCHE2_SL_PCT)"
 ```
 
@@ -1046,7 +1046,7 @@ The file already imports `from trading.position_sizer import (compute_position_s
 
 Check if it's already imported:
 ```bash
-grep "from trading import position_sizer\|import position_sizer" /Users/rajeshkumar/Documents/projects/trading-bot/trading/executor.py
+grep "from trading import position_sizer\|import position_sizer" ~/Documents/projects/trading-bot/trading/executor.py
 ```
 
 If not found, add `from trading import position_sizer` to the imports block.
@@ -1467,7 +1467,7 @@ You also need to add `import types` at the top of `backtest/simulator.py` if it'
 
 Check first:
 ```bash
-grep "^import types" /Users/rajeshkumar/Documents/projects/trading-bot/backtest/simulator.py
+grep "^import types" ~/Documents/projects/trading-bot/backtest/simulator.py
 ```
 
 If missing, add `import types` to the imports block.

@@ -51,23 +51,26 @@ logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 # ─────────────────────────────────────────────────────────────────────────────
 
 SWEEP_AXES: dict[str, list[Any]] = {
-    # SL ceiling for NORMAL/MEDIUM/DAY_TRADE  (was 2.0; all SL exits at -2.05%)
-    "normal_med_sl_ceiling": [1.5, 1.8, 2.0],
+    # Subtract this from every eligible SWING row's profit_lock_pct (all regime × tier).
+    # 0.0 = no change; −0.4 = NORMAL/MEDIUM 1.5→1.1, BULL_TREND/MEDIUM 1.2→0.8, etc.
+    "profit_lock_delta": [0.0, -0.4, -0.7],
 
-    # NORMAL/MEDIUM DayTradeParams: hour after which composite floor activates
-    "normal_med_late_hour": [10, 11, 12],
+    # Subtract this from every eligible SWING row's min_pnl_pct (all regime × tier).
+    # 0.0 = no change; −0.2 = NORMAL/MEDIUM 0.5→0.3, BULL_TREND/MEDIUM 0.5→0.3, etc.
+    "min_pnl_delta": [0.0, -0.2, -0.4],
 
-    # NORMAL/MEDIUM DayTradeParams: composite floor required after late_hour
-    "normal_med_late_composite": [65, 68, 72],
+    # Global PROFIT_LOCK_SWING_PCT gate: positions above this skip RSI/composite gate entirely.
+    # Lower = more positions bypass the gate → more swing promotes.
+    "profit_lock_swing_pct": [1.5, 2.0, 2.5],
 
-    # ATR-TP multiplier — injected via SimState (no separate patch needed)
+    # Midday profit floor: lower = capture profits earlier in 2–3 PM before EOD FC risk.
+    "midday_profit_floor_pct": [0.5, 0.75, 1.0],
+
+    # ATR-TP multiplier: higher = larger TP targets → positions more likely to qualify for swing.
     "atr_tp_multiplier": [2.0, 2.5, 3.0],
 
-    # Midday profit floor: minimum unrealised % to trigger early exit 2–3 PM
-    "midday_profit_floor_pct": [0.75, 1.0, 1.25],
-
-    # BULL_TREND/MEDIUM late composite bar
-    "bull_trend_med_late_composite": [60, 65, 68],
+    # NORMAL/MEDIUM DayTradeParams: composite floor required after late_entry_hour.
+    "normal_med_late_composite": [65, 68, 72],
 }
 
 MAX_COMBOS = 750  # raised from 150; full 3^6 grid = 729 combos
@@ -126,38 +129,42 @@ def _load_base_params() -> dict:
 # Override factories — return drop-in replacements for regime_params functions
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _tp_sl_override(normal_med_sl_ceiling: float):
-    """Wraps get_tp_sl_params; replaces NORMAL/MEDIUM/DAY_TRADE sl_ceiling only."""
+_SWING_DELTA_REGIMES = {"NORMAL", "BULL_TREND", "OPPORTUNITY"}
+# HIGH_VOL, CHOPPY, CAPITULATION, CRASH_RECOVERY are intentionally excluded:
+# their higher thresholds reflect elevated overnight variance; loosening them adds tail risk.
+
+def _swing_tp_sl_override(profit_lock_delta: float, min_pnl_delta: float):
+    """Applies uniform deltas to profit_lock_pct and min_pnl_pct for swing-friendly regimes.
+
+    Only touches NORMAL / BULL_TREND / OPPORTUNITY so HIGH_VOL overnight risk is preserved.
+    Covers all tiers within those regimes.  Floors at 0.1% / 0.0% respectively.
+    """
     _orig = get_tp_sl_params
     def _fn(regime: str, tier: str, mode: str) -> TPSLParams:
         p = _orig(regime, tier, mode)
-        if regime == "NORMAL" and tier == "MEDIUM" and mode == "DAY_TRADE":
+        if mode == "SWING" and regime in _SWING_DELTA_REGIMES and not p.is_disabled:
+            new_plock = max(0.1, p.profit_lock_pct + profit_lock_delta)
+            new_minpnl = max(0.0, p.min_pnl_pct + min_pnl_delta)
             return TPSLParams(
                 p.tp_floor_pct, p.tp_ceiling_pct,
-                p.sl_floor_pct, normal_med_sl_ceiling,
-                p.atr_mult,
+                p.sl_floor_pct, p.sl_ceiling_pct,
+                p.atr_mult, p.max_days,
+                new_plock, new_minpnl,
             )
         return p
     return _fn
 
 
-def _day_trade_override(late_hour: int, late_comp: int, bull_late: int | None):
-    """Single patch for DayTradeParams — covers NORMAL/MEDIUM and optionally BULL_TREND/MEDIUM."""
+def _day_trade_override(late_comp: int):
+    """Patches NORMAL/MEDIUM DayTradeParams late_composite only."""
     _orig = get_day_trade_params
     def _fn(regime: str, tier: str) -> DayTradeParams:
         p = _orig(regime, tier)
         if regime == "NORMAL" and tier == "MEDIUM":
             return DayTradeParams(
                 hard_close_hour=p.hard_close_hour,
-                late_entry_hour=late_hour,
-                late_composite=late_comp,
-                vwap_slope_min=p.vwap_slope_min,
-            )
-        if bull_late is not None and regime == "BULL_TREND" and tier == "MEDIUM":
-            return DayTradeParams(
-                hard_close_hour=p.hard_close_hour,
                 late_entry_hour=p.late_entry_hour,
-                late_composite=bull_late,
+                late_composite=late_comp,
                 vwap_slope_min=p.vwap_slope_min,
             )
         return p
@@ -219,25 +226,25 @@ def _run_combo(
     base_params: dict,
     day_precomp: dict[str, dict[str, dict]],   # pre-built per-day indicator cache
 ) -> dict:
-    # Extract all combo values (existing + new)
-    sl_ceiling  = combo.get("normal_med_sl_ceiling",         config.STOP_LOSS_PCT)
-    late_hour   = combo.get("normal_med_late_hour",          10)
-    late_comp   = combo.get("normal_med_late_composite",     68)
-    atr_tp_mult = combo.get("atr_tp_multiplier",             base_params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT))
-    midday_pct  = combo.get("midday_profit_floor_pct",       config.MIDDAY_PROFIT_FLOOR_PCT)
-    bull_late   = combo.get("bull_trend_med_late_composite", None)
+    plock_delta = combo.get("profit_lock_delta",          0.0)
+    minpnl_delta = combo.get("min_pnl_delta",             0.0)
+    pl_swing    = combo.get("profit_lock_swing_pct",      config.PROFIT_LOCK_SWING_PCT)
+    midday_pct  = combo.get("midday_profit_floor_pct",    config.MIDDAY_PROFIT_FLOOR_PCT)
+    atr_tp_mult = combo.get("atr_tp_multiplier",          base_params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT))
+    late_comp   = combo.get("normal_med_late_composite",  68)
 
     is_baseline = combo.get("_baseline_", False)
 
     state = SimState(atr_tp_multiplier=atr_tp_mult)
 
-    tp_sl_fn = _tp_sl_override(sl_ceiling)
-    dt_fn    = _day_trade_override(late_hour, late_comp, bull_late)
+    sw_fn = _swing_tp_sl_override(plock_delta, minpnl_delta)
+    dt_fn = _day_trade_override(late_comp)
 
     patches = [] if is_baseline else [
-        patch("backtest.simulator.get_tp_sl_params",              tp_sl_fn),
-        patch("signals.tp_scaler.get_tp_sl_params",               tp_sl_fn),
-        patch("utils.regime_params.get_day_trade_params",         dt_fn),
+        patch("backtest.simulator.get_tp_sl_params",               sw_fn),
+        patch("signals.tp_scaler.get_tp_sl_params",                sw_fn),
+        patch("utils.regime_params.get_day_trade_params",          dt_fn),
+        patch("backtest.simulator.config.PROFIT_LOCK_SWING_PCT",   pl_swing),
         patch("backtest.simulator.config.MIDDAY_PROFIT_FLOOR_PCT", midday_pct),
     ]
 
@@ -313,35 +320,35 @@ def main() -> None:
     base_params = _load_base_params()
 
     # Prepend baseline (current config, no patches) — skip if already in the sweep grid
-    current_sl   = get_tp_sl_params("NORMAL", "MEDIUM", "DAY_TRADE").sl_ceiling_pct
     current_dtp  = get_day_trade_params("NORMAL", "MEDIUM")
-    current_bull = get_day_trade_params("BULL_TREND", "MEDIUM").late_composite
     baseline = {
-        "normal_med_sl_ceiling":         current_sl,
-        "normal_med_late_hour":          current_dtp.late_entry_hour,
-        "normal_med_late_composite":     current_dtp.late_composite,
-        "atr_tp_multiplier":             base_params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT),
-        "midday_profit_floor_pct":       config.MIDDAY_PROFIT_FLOOR_PCT,
-        "bull_trend_med_late_composite": current_bull,
+        "profit_lock_delta":         0.0,
+        "min_pnl_delta":             0.0,
+        "profit_lock_swing_pct":     config.PROFIT_LOCK_SWING_PCT,
+        "midday_profit_floor_pct":   config.MIDDAY_PROFIT_FLOOR_PCT,
+        "atr_tp_multiplier":         base_params.get("atr_tp_multiplier", config.ATR_TP_MULT_DEFAULT),
+        "normal_med_late_composite": current_dtp.late_composite,
         "_baseline_": True,
     }
     baseline_key = (
-        current_sl, current_dtp.late_entry_hour, current_dtp.late_composite,
-        baseline["atr_tp_multiplier"], baseline["midday_profit_floor_pct"], current_bull,
+        0.0, 0.0,
+        baseline["profit_lock_swing_pct"], baseline["midday_profit_floor_pct"],
+        baseline["atr_tp_multiplier"], baseline["normal_med_late_composite"],
     )
     already_in_grid = any(
         (
-            c["normal_med_sl_ceiling"], c["normal_med_late_hour"], c["normal_med_late_composite"],
-            c["atr_tp_multiplier"], c["midday_profit_floor_pct"], c["bull_trend_med_late_composite"],
+            c["profit_lock_delta"], c["min_pnl_delta"],
+            c["profit_lock_swing_pct"], c["midday_profit_floor_pct"],
+            c["atr_tp_multiplier"], c["normal_med_late_composite"],
         ) == baseline_key
         for c in combos
     )
     if already_in_grid:
-        # Mark the matching combo as baseline instead of adding a duplicate run
         for c in combos:
             if (
-                c["normal_med_sl_ceiling"], c["normal_med_late_hour"], c["normal_med_late_composite"],
-                c["atr_tp_multiplier"], c["midday_profit_floor_pct"], c["bull_trend_med_late_composite"],
+                c["profit_lock_delta"], c["min_pnl_delta"],
+                c["profit_lock_swing_pct"], c["midday_profit_floor_pct"],
+                c["atr_tp_multiplier"], c["normal_med_late_composite"],
             ) == baseline_key:
                 c["_baseline_"] = True
                 break
@@ -396,11 +403,12 @@ def main() -> None:
     n_total = len(combos)
     for i, combo in enumerate(combos, 1):
         label = "BASELINE" if combo.get("_baseline_") else (
-            f"sl={combo['normal_med_sl_ceiling']}  "
-            f"late@{combo['normal_med_late_hour']}h≥{combo['normal_med_late_composite']}  "
-            f"atr_tp={combo['atr_tp_multiplier']}  "
+            f"plΔ={combo['profit_lock_delta']:+.1f}  "
+            f"mpΔ={combo['min_pnl_delta']:+.1f}  "
+            f"plswing={combo['profit_lock_swing_pct']}  "
             f"midday={combo['midday_profit_floor_pct']}  "
-            f"bull_late≥{combo['bull_trend_med_late_composite']}"
+            f"atr_tp={combo['atr_tp_multiplier']}  "
+            f"late_c≥{combo['normal_med_late_composite']}"
         )
         print(f"  [{i:>3}/{n_total}] {label}", end="", flush=True)
         t1 = time.time()
@@ -425,8 +433,8 @@ def main() -> None:
     # ── Terminal summary ──────────────────────────────────────────────────────
     top_n = min(args.top, len(results))
     header = (
-        f"{'rank':>4}  {'sl_ceil':>7}  {'late_h':>6}  {'late_c':>6}  "
-        f"{'atr_tp':>6}  {'midday':>6}  {'bull_lc':>7}  "
+        f"{'rank':>4}  {'plΔ':>5}  {'mpΔ':>5}  {'plswing':>7}  "
+        f"{'midday':>6}  {'atr_tp':>6}  {'late_c':>6}  "
         f"{'total_pnl':>10}  {'trades':>6}  {'WR%':>5}  "
         f"{'fc%':>5}  {'sl_n':>4}  {'sl_avg':>7}  {'tp_n':>4}  {'swing_pnl':>9}"
     )
@@ -437,21 +445,21 @@ def main() -> None:
     print(f"{'─'*len(header)}")
     for rank, r in enumerate(results[:top_n], 1):
         baseline_marker = " *" if (
-            r["normal_med_sl_ceiling"]         == baseline["normal_med_sl_ceiling"]
-            and r["normal_med_late_hour"]      == baseline["normal_med_late_hour"]
+            r["profit_lock_delta"]         == baseline["profit_lock_delta"]
+            and r["min_pnl_delta"]         == baseline["min_pnl_delta"]
+            and r["profit_lock_swing_pct"] == baseline["profit_lock_swing_pct"]
+            and r["midday_profit_floor_pct"] == baseline["midday_profit_floor_pct"]
+            and r["atr_tp_multiplier"]     == baseline["atr_tp_multiplier"]
             and r["normal_med_late_composite"] == baseline["normal_med_late_composite"]
-            and r["atr_tp_multiplier"]         == baseline["atr_tp_multiplier"]
-            and r["midday_profit_floor_pct"]   == baseline["midday_profit_floor_pct"]
-            and r["bull_trend_med_late_composite"] == baseline["bull_trend_med_late_composite"]
         ) else "  "
         print(
             f"{rank:>4}{baseline_marker}"
-            f"  {r['normal_med_sl_ceiling']:>7.1f}"
-            f"  {r['normal_med_late_hour']:>6}"
-            f"  {r['normal_med_late_composite']:>6}"
-            f"  {r['atr_tp_multiplier']:>6.1f}"
+            f"  {r['profit_lock_delta']:>+5.1f}"
+            f"  {r['min_pnl_delta']:>+5.1f}"
+            f"  {r['profit_lock_swing_pct']:>7.2f}"
             f"  {r['midday_profit_floor_pct']:>6.2f}"
-            f"  {r['bull_trend_med_late_composite']:>7}"
+            f"  {r['atr_tp_multiplier']:>6.1f}"
+            f"  {r['normal_med_late_composite']:>6}"
             f"  ${r['total_pnl']:>+9,.2f}"
             f"  {r['trades']:>6}"
             f"  {r['win_rate']:>5.1f}"

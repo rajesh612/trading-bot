@@ -132,7 +132,7 @@ class TestRsiStochGates:
 - [ ] **Step 3: Run tests — expect 4 failures**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/pytest tests/test_signals.py::TestRsiStochGates -v -m unit
 ```
 
@@ -193,7 +193,7 @@ The pipeline already emits `SKIP-CLAUDE` for composite < threshold. The new gate
 No pipeline change needed — `check_all_gates` returning `passed=False` causes the pipeline to skip Claude automatically. Confirm by reading `trading/executor.py`:
 
 ```bash
-grep -n "check_all_gates\|gate.*passed\|result.passed" /Users/rajeshkumar/Documents/projects/trading-bot/trading/executor.py | head -10
+grep -n "check_all_gates\|gate.*passed\|result.passed" ~/Documents/projects/trading-bot/trading/executor.py | head -10
 ```
 
 - [ ] **Step 8: Commit**

@@ -29,7 +29,7 @@
 
 ## Scene-setting context for subagents
 
-Working directory: `/Users/rajeshkumar/Documents/projects/trading-bot`
+Working directory: `~/Documents/projects/trading-bot`
 Run tests: `.venv/bin/python -m pytest tests/ -m unit -q`
 Config SoT: `config.py` — all constants live here (Rule 1, no magic numbers in source modules)
 Gate SoT: `signals/entry_gates.py::check_all_gates()` — **sole enforcer of all safety gates** (Rule 23)
@@ -108,7 +108,7 @@ class TestVixClassifier:
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/rajeshkumar/Documents/projects/trading-bot
+cd ~/Documents/projects/trading-bot
 .venv/bin/python -m pytest tests/test_signals.py::TestVixClassifier -v
 ```
 Expected: `test_crash_recovery_when_vix_elevated_but_falling_from_peak` FAILS (returns HIGH_VOL, not CRASH_RECOVERY)

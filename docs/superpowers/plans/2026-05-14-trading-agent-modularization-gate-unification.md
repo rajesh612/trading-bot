@@ -593,7 +593,7 @@ from trading.journal import load_open_positions
 - [ ] **Step 7: Delete `trading_agent.py`**
 
 ```bash
-rm /Users/rajeshkumar/Documents/projects/trading-bot/trading_agent.py
+rm ~/Documents/projects/trading-bot/trading_agent.py
 ```
 
 - [ ] **Step 8: Run full test suite**
@@ -801,7 +801,7 @@ Run these greps to find all occurrences, then update each:
 
 ```bash
 grep -rn "PRE_CLAUDE_COMPOSITE_MIN\|HIGH_VOL_COMPOSITE_MIN\|RSI_HARD_SKIP_THRESHOLD\|COMPOSITE_SCORE_THRESHOLD" \
-  /Users/rajeshkumar/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__
+  ~/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__
 ```
 
 Expected matches and fixes:
@@ -1226,7 +1226,7 @@ Expected: ≥653 tests pass (the TestFastGate deletion reduces count; new tests 
 - [ ] **Step 2: Verify no `trading_agent` references remain**
 
 ```bash
-grep -rn "trading_agent" /Users/rajeshkumar/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__ | grep -v ".md"
+grep -rn "trading_agent" ~/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__ | grep -v ".md"
 ```
 Expected: **zero results**
 
@@ -1234,14 +1234,14 @@ Expected: **zero results**
 
 ```bash
 grep -rn "COMPOSITE_SCORE_THRESHOLD\|RSI_HARD_SKIP_THRESHOLD\|PRE_CLAUDE_COMPOSITE_MIN\|HIGH_VOL_COMPOSITE_MIN" \
-  /Users/rajeshkumar/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__
+  ~/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__
 ```
 Expected: **zero results**
 
 - [ ] **Step 4: Verify `fast_gate` is gone**
 
 ```bash
-grep -rn "fast_gate\|FastGate" /Users/rajeshkumar/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__
+grep -rn "fast_gate\|FastGate" ~/Documents/projects/trading-bot --include="*.py" | grep -v __pycache__
 ```
 Expected: **zero results**
 
